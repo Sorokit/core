@@ -1,0 +1,156 @@
+import {
+  Horizon,
+  TransactionBuilder,
+  Operation,
+  Asset,
+  Memo,
+  BASE_FEE,
+} from "@stellar/stellar-sdk";
+import { ok, err, SorokitErrorCode } from "../shared/response";
+import type { SorokitResult } from "../shared/response";
+import { toMessage } from "../shared";
+import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
+import type { ResolvedNetworkConfig } from "../shared/types";
+import type {
+  PaymentParams,
+  TrustlineParams,
+  AccountCreateParams,
+} from "./types";
+
+/**
+ * Resolve an asset from code + optional issuer.
+ * Returns SorokitResult<Asset> — never throws.
+ */
+function resolveAsset(
+  assetCode?: string,
+  assetIssuer?: string,
+): SorokitResult<Asset> {
+  if (!assetCode || assetCode.toUpperCase() === "XLM") {
+    return ok(Asset.native());
+  }
+  if (!assetIssuer) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Asset issuer is required for non-native asset: ${assetCode}`,
+    );
+  }
+  return ok(new Asset(assetCode, assetIssuer));
+}
+
+/**
+ * Build a payment transaction XDR.
+ * Returns the unsigned XDR string ready for signing.
+ */
+export async function buildPaymentTransaction(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  params: PaymentParams,
+): Promise<SorokitResult<string>> {
+  const assetResult = resolveAsset(params.assetCode, params.assetIssuer);
+  if (assetResult.status === "error") return assetResult;
+
+  try {
+    const server = new Horizon.Server(horizonUrl);
+    const sourceAccount = await server.loadAccount(sourcePublicKey);
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    })
+      .addOperation(
+        Operation.payment({
+          destination: params.destination,
+          asset: assetResult.data,
+          amount: params.amount,
+        }),
+      )
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
+
+    if (params.memo) {
+      builder.addMemo(Memo.text(params.memo));
+    }
+
+    return ok(builder.build().toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Failed to build payment transaction: ${toMessage(cause)}`,
+      cause,
+    );
+  }
+}
+
+/**
+ * Build a create account transaction XDR.
+ */
+export async function buildCreateAccountTransaction(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  params: AccountCreateParams,
+): Promise<SorokitResult<string>> {
+  try {
+    const server = new Horizon.Server(horizonUrl);
+    const sourceAccount = await server.loadAccount(sourcePublicKey);
+
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    })
+      .addOperation(
+        Operation.createAccount({
+          destination: params.destination,
+          startingBalance: params.startingBalance,
+        }),
+      )
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
+      .build();
+
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Failed to build create account transaction: ${toMessage(cause)}`,
+      cause,
+    );
+  }
+}
+
+/**
+ * Build a change trust (trustline) transaction XDR.
+ */
+export async function buildTrustlineTransaction(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  params: TrustlineParams,
+): Promise<SorokitResult<string>> {
+  try {
+    const server = new Horizon.Server(horizonUrl);
+    const sourceAccount = await server.loadAccount(sourcePublicKey);
+
+    const asset = new Asset(params.assetCode, params.assetIssuer);
+
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    })
+      .addOperation(
+        Operation.changeTrust({
+          asset,
+          ...(params.limit !== undefined && { limit: params.limit }),
+        }),
+      )
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
+      .build();
+
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Failed to build trustline transaction: ${toMessage(cause)}`,
+      cause,
+    );
+  }
+}

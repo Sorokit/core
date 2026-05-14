@@ -1,0 +1,57 @@
+{
+  "name": "sorokit-core",
+  "version": "0.1.0",
+  "description": "Framework-agnostic TypeScript SDK for Stellar wallet connection, transactions, and Soroban contract interaction",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.mjs",
+      "require": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "clean": "rimraf dist"
+  },
+  "keywords": [
+    "stellar",
+    "soroban",
+    "wallet",
+    "blockchain",
+    "sdk",
+    "typescript"
+  ],
+  "author": "Sorokit",
+  "license": "MIT",
+  "peerDependencies": {
+    "@creit.tech/stellar-wallets-kit": ">=1.0.0",
+    "vitest": ">=1.0.0"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "eslint": "^8.57.0",
+    "rimraf": "^5.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

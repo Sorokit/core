@@ -1,0 +1,19 @@
+/**
+ * Shared constants used across sorokit-core modules.
+ * Centralised here to prevent magic numbers scattered across the codebase.
+ */
+
+/** Default transaction timeout in seconds */
+export const DEFAULT_TX_TIMEOUT_SECONDS = 30;
+
+/** Default Soroban polling: max attempts before giving up */
+export const DEFAULT_POLL_MAX_ATTEMPTS = 20;
+
+/** Default Soroban polling: interval between attempts in ms */
+export const DEFAULT_POLL_INTERVAL_MS = 1500;
+
+/** Minimum starting balance for account creation in XLM */
+export const MIN_ACCOUNT_BALANCE_XLM = "1";
+
+/** Number of chars shown on each side of a shortened address */
+export const DEFAULT_ADDRESS_DISPLAY_CHARS = 4;
