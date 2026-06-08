@@ -1,0 +1,13 @@
+{
+  "topics": [
+    "stellar",
+    "soroban",
+    "blockchain",
+    "sdk",
+    "typescript",
+    "wallet",
+    "smart-contracts"
+  ],
+  "has_discussions": true,
+  "description": "Framework-agnostic TypeScript SDK for Stellar wallet connection, transactions, and Soroban contract interaction"
+}
