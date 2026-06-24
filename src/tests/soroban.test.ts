@@ -6,6 +6,7 @@ import type { SorokitCache } from "../shared/cache";
 import { getContractMethods } from "../soroban/contractMetadata";
 import { prepareContractCall } from "../soroban/prepareCall";
 import { readContract } from "../soroban/readContract";
+import { subscribeContractEvents } from "../soroban/subscribeContractEvents";
 import { SorokitErrorCode } from "../shared/response";
 
 const {
@@ -392,6 +393,91 @@ describe("soroban contract metadata", () => {
       expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_READ_FAILED);
       expect(result.error.message).toContain("expects 1 argument");
     }
+  });
+});
+
+describe("soroban contract event subscriptions", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("filters events by name and topic patterns before invoking the callback", async () => {
+    vi.useFakeTimers();
+
+    const callback = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-1",
+              contractId: "C123",
+              name: "transfer",
+              topics: ["alice", "bob"],
+              value: { amount: 10 },
+            },
+            {
+              id: "evt-2",
+              contractId: "C123",
+              name: "mint",
+              topics: ["admin", "bob"],
+              value: { amount: 5 },
+            },
+          ],
+        },
+      }),
+    });
+
+    const unsubscribe = subscribeContractEvents(
+      "C123",
+      { name: "transfer", topicPatterns: [/^bob$/] },
+      callback,
+      { horizonUrl: "https://horizon.test", intervalMs: 1, fetch: fetchMock },
+    );
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledWith([
+      expect.objectContaining({ id: "evt-1", name: "transfer" }),
+    ]);
+
+    unsubscribe();
+  });
+
+  it("returns an unsubscribe function that stops polling", async () => {
+    vi.useFakeTimers();
+
+    const callback = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-1",
+              contractId: "C123",
+              name: "transfer",
+              topics: ["alice"],
+              value: { amount: 1 },
+            },
+          ],
+        },
+      }),
+    });
+
+    const unsubscribe = subscribeContractEvents(
+      "C123",
+      undefined,
+      callback,
+      { horizonUrl: "https://horizon.test", intervalMs: 1, fetch: fetchMock },
+    );
+
+    unsubscribe();
+    await vi.advanceTimersByTimeAsync(5);
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

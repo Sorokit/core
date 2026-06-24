@@ -66,6 +66,12 @@ export type {
   SorobanPollConfig,
   SimulateTransactionResult,
 } from "./soroban/types";
+export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
+export type {
+  ContractEvent,
+  ContractEventFilter,
+  ContractEventSubscriptionOptions,
+} from "./soroban/subscribeContractEvents";
 
 // ─── Response system ──────────────────────────────────────────────────────────
 export type { SorokitResult, SorokitError } from "./shared/response";
