@@ -43,6 +43,12 @@ export interface AccountStreamConfig {
    * Default: true.
    */
   emitOnStart?: boolean;
+  /**
+   * Optional callback fired when a specific asset balance changes between polls.
+   * Receives the asset code, the previous balance string, and the new balance string.
+   * Only fires when the balance actually changes — unchanged balances are silent.
+   */
+  onBalanceChange?: (assetCode: string, oldBalance: string, newBalance: string) => void;
 }
 
 /**
@@ -171,6 +177,27 @@ export async function* streamAccount(
           publicKey,
           poll: polls + 1,
         });
+
+        // Fire onBalanceChange for any balance that changed since the last successful poll.
+        if (lastEmitted && config?.onBalanceChange) {
+          for (const newBal of result.data.balances) {
+            const key = `${newBal.assetCode}:${newBal.assetIssuer ?? ""}`;
+            const oldBal = lastEmitted.balances.find(
+              (b) => `${b.assetCode}:${b.assetIssuer ?? ""}` === key,
+            );
+            if (oldBal && oldBal.balance !== newBal.balance) {
+              config.onBalanceChange(newBal.assetCode, oldBal.balance, newBal.balance);
+            }
+          }
+        }
+
+        // Skip re-emitting if state is unchanged since last successful poll.
+        if (lastEmitted && deepEqual(result.data, lastEmitted)) {
+          polls++;
+          continue;
+        }
+
+        lastEmitted = result.data;
       } else {
         logger?.warn("account.stream.poll", {
           operation: "account.stream.poll",

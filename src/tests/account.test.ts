@@ -210,3 +210,132 @@ describe("account", () => {
     }, 10_000);
   });
 });
+
+describe("streamAccount — onBalanceChange callback (#11)", () => {
+  it("fires onBalanceChange when a balance changes between polls", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { streamAccount } = await import("../account/streamAccount");
+    const { ok } = await import("../shared/response");
+
+    const base = {
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      displayAddress: "GAAZI...CWNA",
+      sequence: "1",
+      subentryCount: 0,
+    };
+    const a1 = {
+      ...base,
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+      ],
+    };
+    const a2 = {
+      ...base,
+      sequence: "2",
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "150", balanceFloat: 150 },
+      ],
+    };
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(a1))
+      .mockResolvedValueOnce(ok(a2));
+
+    const changes: Array<{ assetCode: string; oldBalance: string; newBalance: string }> = [];
+    for await (const _ of streamAccount(
+      "http://horizon",
+      base.publicKey,
+      {
+        maxPolls: 2,
+        emitOnStart: true,
+        intervalMs: 1,
+        onBalanceChange: (assetCode, oldBalance, newBalance) =>
+          changes.push({ assetCode, oldBalance, newBalance }),
+      },
+    )) { /* consume */ }
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ assetCode: "XLM", oldBalance: "100", newBalance: "150" });
+  }, 10_000);
+
+  it("does not fire onBalanceChange when balances are unchanged", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { streamAccount } = await import("../account/streamAccount");
+    const { ok } = await import("../shared/response");
+
+    const account = {
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      displayAddress: "GAAZI...CWNA",
+      sequence: "1",
+      subentryCount: 0,
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+      ],
+    };
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(account))
+      .mockResolvedValueOnce(ok(account));
+
+    const changes: unknown[] = [];
+    for await (const _ of streamAccount(
+      "http://horizon",
+      account.publicKey,
+      {
+        maxPolls: 2,
+        emitOnStart: true,
+        intervalMs: 1,
+        onBalanceChange: () => changes.push(true),
+      },
+    )) { /* consume */ }
+
+    expect(changes).toHaveLength(0);
+  }, 10_000);
+
+  it("fires onBalanceChange for each changed balance independently", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { streamAccount } = await import("../account/streamAccount");
+    const { ok } = await import("../shared/response");
+
+    const base = {
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      displayAddress: "GAAZI...CWNA",
+      sequence: "1",
+      subentryCount: 0,
+    };
+    const a1 = {
+      ...base,
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+        { assetType: "credit_alphanum4" as const, assetCode: "USDC", assetIssuer: "GA5Z...ISSUER", balance: "50", balanceFloat: 50 },
+      ],
+    };
+    const a2 = {
+      ...base,
+      sequence: "2",
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "90", balanceFloat: 90 },
+        { assetType: "credit_alphanum4" as const, assetCode: "USDC", assetIssuer: "GA5Z...ISSUER", balance: "60", balanceFloat: 60 },
+      ],
+    };
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(a1))
+      .mockResolvedValueOnce(ok(a2));
+
+    const changes: Array<{ assetCode: string }> = [];
+    for await (const _ of streamAccount(
+      "http://horizon",
+      base.publicKey,
+      {
+        maxPolls: 2,
+        emitOnStart: true,
+        intervalMs: 1,
+        onBalanceChange: (assetCode) => changes.push({ assetCode }),
+      },
+    )) { /* consume */ }
+
+    expect(changes).toHaveLength(2);
+    expect(changes.map((c) => c.assetCode).sort()).toEqual(["USDC", "XLM"]);
+  }, 10_000);
+});
