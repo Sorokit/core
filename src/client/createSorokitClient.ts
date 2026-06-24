@@ -31,6 +31,7 @@ import { prepareContractCall } from "../soroban/prepareCall";
 import { simulateTransaction } from "../soroban/simulateTransaction";
 import { executeContract } from "../soroban/executeContract";
 import { invokeContract } from "../soroban/invokeContract";
+import { getContractMethods } from "../soroban/contractMetadata";
 import { createLogger, withLogging } from "../shared/logger";
 import { formatAddress } from "../shared/utils";
 import { ok } from "../shared/response";
@@ -61,6 +62,7 @@ import type {
   TransactionPage,
 } from "../transaction/streamTransactions";
 import type {
+  ContractMethod,
   ContractInvokeParams,
   ContractReadParams,
   ContractCallResult,
@@ -189,6 +191,11 @@ export interface SorokitClient {
   };
 
   readonly soroban: {
+    /** Discover available contract methods and cache metadata by contract ID */
+    getContractMethods(
+      contractId: string,
+      ttlMs?: number,
+    ): Promise<SorokitResult<ContractMethod[]>>;
     /**
      * Simulate any transaction XDR for fee estimation and pre-flight checks.
      * Uses the Soroban RPC.
@@ -390,6 +397,17 @@ export function createSorokitClient(
     },
 
     soroban: {
+      getContractMethods: (contractId, ttlMs) =>
+        withLogging(
+          logger,
+          "soroban.getContractMethods",
+          { contractId },
+          () =>
+            getContractMethods(rpcUrl, contractId, {
+              ...(config.cache && { cache: config.cache }),
+              ...(ttlMs !== undefined && { ttlMs }),
+            }),
+        ),
       simulate: (transactionXdr) =>
         withErrorHandling(
           errorHandler,

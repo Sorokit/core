@@ -1,13 +1,22 @@
 import { Horizon } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { sleep, toMessage, isNotFoundError, deepEqual } from "../shared";
+import { sleep, toMessage, isNotFoundError } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
 import type { TransactionResult } from "./types";
 
 const MIN_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const ADAPTIVE_INTERVAL_STEP_MS = 1_000;
+
+function sameSnapshot(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Configuration for transaction streaming.
@@ -121,7 +130,6 @@ export async function* streamTransactions(
     maxIntervalMs,
   );
   let unchangedPolls = 0;
-  let lastSnapshot: string | null = null;
 
   const adjustInterval = (changed: boolean): void => {
     if (!adaptiveEnabled) return;
@@ -150,7 +158,7 @@ export async function* streamTransactions(
     operation: "transaction.stream",
     status: "start",
     publicKey,
-    intervalMs,
+    intervalMs: currentIntervalMs,
     maxPolls,
     limit,
   });
@@ -224,7 +232,16 @@ export async function* streamTransactions(
         nextCursor,
       });
 
-      yield ok({ transactions, nextCursor });
+      const transactionPage = { transactions, nextCursor };
+      const hasBaseline = lastEmitted !== undefined;
+      const changed = !hasBaseline || !sameSnapshot(lastEmitted, transactionPage);
+      if (hasBaseline) adjustInterval(changed);
+      cursor = nextCursor ?? cursor;
+
+      if (changed) {
+        lastEmitted = transactionPage;
+        yield ok(transactionPage);
+      }
     } catch (cause) {
       const code = isNotFoundError(cause)
         ? SorokitErrorCode.ACCOUNT_NOT_FOUND
@@ -242,6 +259,7 @@ export async function* streamTransactions(
         errorMessage: message,
       });
 
+      adjustInterval(false);
       yield err(code, message, cause);
     }
 

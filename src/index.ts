@@ -55,6 +55,8 @@ export type {
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
 export type {
+  ContractMethod,
+  ContractMethodInput,
   ContractAbi,
   ContractAbiMethod,
   ContractInvokeParams,

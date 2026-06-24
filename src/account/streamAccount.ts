@@ -1,6 +1,6 @@
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { sleep, toMessage, deepEqual } from "../shared";
+import { sleep, toMessage } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
 import type { AccountInfo } from "./types";
 import { getAccount } from "./getAccount";
@@ -8,6 +8,15 @@ import { getAccount } from "./getAccount";
 const MIN_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const ADAPTIVE_INTERVAL_STEP_MS = 1_000;
+
+function sameSnapshot(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Configuration for account streaming.
@@ -102,8 +111,6 @@ export async function* streamAccount(
     maxIntervalMs,
   );
   let unchangedPolls = 0;
-  let lastSnapshot: string | null = null;
-
   const adjustInterval = (changed: boolean): void => {
     if (!adaptiveEnabled) return;
 
@@ -131,7 +138,7 @@ export async function* streamAccount(
     operation: "account.stream",
     status: "start",
     publicKey,
-    intervalMs,
+    intervalMs: currentIntervalMs,
     maxPolls,
   });
 
@@ -209,7 +216,19 @@ export async function* streamAccount(
         });
       }
 
-      yield result;
+      if (result.status === "ok") {
+        const hasBaseline = lastEmitted !== undefined;
+        const changed = !hasBaseline || !sameSnapshot(lastEmitted, result.data);
+        if (hasBaseline) adjustInterval(changed);
+
+        if (changed) {
+          lastEmitted = result.data;
+          yield result;
+        }
+      } else {
+        adjustInterval(false);
+        yield result;
+      }
     } catch (cause) {
       const message = `Account stream poll failed: ${toMessage(cause)}`;
       logger?.warn("account.stream.poll", {

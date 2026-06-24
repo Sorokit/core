@@ -27,6 +27,7 @@ import type { WalletState } from "../wallet/types";
 import type { AccountInfo, AssetBalance } from "../account/types";
 import type { TransactionResult } from "../transaction/types";
 import type {
+  ContractMethod,
   ContractCallResult,
   PreparedContractCall,
   SimulateTransactionResult,
@@ -96,6 +97,14 @@ export const MOCK_CONTRACT_CALL_RESULT: ContractCallResult = {
   value: null,
 };
 
+export const MOCK_CONTRACT_METHODS: ContractMethod[] = [
+  {
+    name: "hello",
+    inputs: [{ name: "to", type: "symbol" }],
+    returnType: "symbol",
+  },
+];
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 export interface MockClientConfig {
@@ -155,6 +164,7 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
     },
 
     soroban: {
+      getContractMethods: vi.fn().mockResolvedValue(ok(MOCK_CONTRACT_METHODS)),
       simulate: vi.fn().mockResolvedValue(ok(MOCK_SIMULATE_RESULT)),
       prepare: vi.fn().mockResolvedValue(ok(MOCK_PREPARED_CALL)),
       execute: vi.fn().mockResolvedValue(ok(MOCK_TX_RESULT.hash)),

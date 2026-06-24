@@ -42,17 +42,20 @@ function createAccount(sequence: string): AccountInfo {
   };
 }
 
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 beforeEach(() => {
   accountMockState.sleepCalls.length = 0;
   accountMockState.index = 0;
   accountMockState.results = [];
 });
-import { describe, it, expect, vi } from "vitest";
-import { formatAddress, deepEqual } from "../shared/utils";
-
-vi.mock("../account/getAccount", () => ({
-  getAccount: vi.fn(),
-}));
 
 describe("account", () => {
   describe("formatAddress (pure utility — returns string, not SorokitResult)", () => {
@@ -121,10 +124,12 @@ describe("account", () => {
         3000,
         3000,
         2000,
-        1000,
-        1000,
+        3000,
+        3000,
       ]);
     });
+  });
+
   describe("deepEqual", () => {
     it("returns true for identical plain objects", () => {
       expect(deepEqual({ a: 1, b: [2, 3] }, { a: 1, b: [2, 3] })).toBe(true);

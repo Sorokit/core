@@ -12,6 +12,7 @@ import { toMessage } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractReadParams, ContractCallResult } from "./types";
+import { validateContractMethodMetadata } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
 
 /**
@@ -26,12 +27,26 @@ export async function readContract(
   networkConfig: ResolvedNetworkConfig,
   params: ContractReadParams,
 ): Promise<SorokitResult<ContractCallResult>> {
-  const validation = validateContractAbi({
+  const abiValidation = validateContractAbi({
     contractAbi: params.contractAbi,
     method: params.method,
     argCount: params.args?.length ?? 0,
   });
-  if (validation.status === "error") return validation;
+  if (abiValidation.status === "error") {
+    return err(
+      SorokitErrorCode.CONTRACT_READ_FAILED,
+      abiValidation.error.message,
+      abiValidation.error.cause,
+    );
+  }
+
+  const metadataResult = validateContractMethodMetadata(
+    params.cachedMetadata,
+    params.method,
+    params.args?.length ?? 0,
+    SorokitErrorCode.CONTRACT_READ_FAILED,
+  );
+  if (metadataResult.status === "error") return metadataResult;
 
   try {
     const rpc = new SorobanRpc.Server(rpcUrl);
