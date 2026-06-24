@@ -42,7 +42,7 @@ function detectNetworkPassphraseMismatch(
 
   try {
     const keypair = Keypair.fromPublicKey(source);
-    const expectedHash = tx.hash(networkPassphrase);
+    const expectedHash = tx.hash();
     const hint = keypair.rawPublicKey().slice(-4);
 
     for (const decoratedSig of tx.signatures) {

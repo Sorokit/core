@@ -100,6 +100,8 @@ export interface SorokitClientConfig {
   onFeeSurge?: FeeEstimateOptions["onFeeSurge"];
   /** Optional error handler for centralized error processing and recovery */
   errorHandler?: ErrorHandler;
+  /** Trusted asset issuers whitelist — null means no whitelist (all issuers allowed) */
+  trustedIssuers?: string[];
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────

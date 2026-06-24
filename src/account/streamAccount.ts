@@ -198,13 +198,6 @@ export async function* streamAccount(
           }
         }
 
-        // Skip re-emitting if state is unchanged since last successful poll.
-        if (lastEmitted && deepEqual(result.data, lastEmitted)) {
-          polls++;
-          continue;
-        }
-
-        lastEmitted = result.data;
       } else {
         logger?.warn("account.stream.poll", {
           operation: "account.stream.poll",

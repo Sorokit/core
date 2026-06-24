@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import { estimateFee } from "../transaction/estimateFee";
 import type { FeeEstimate } from "../transaction/estimateFee";
 import type { SorokitCache } from "../shared/cache";
+import { DEFAULT_FEE_CACHE_TTL_MS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import {
   buildPaymentWithTrustline,
@@ -15,6 +16,10 @@ import type {
 import { submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
 import type { TransactionResult } from "../transaction/types";
+import {
+  applyTransactionFilters,
+  streamTransactions,
+} from "../transaction/streamTransactions";
 
 const {
   mockSimulateTransaction,
@@ -44,7 +49,7 @@ const {
   mockAddOperation: vi.fn(),
   mockAddMemo: vi.fn(),
   mockSetTimeout: vi.fn(),
-import { DEFAULT_FEE_CACHE_TTL_MS } from "../shared/constants";
+}));
 
 // ─── Hoisted mocks (must be defined before vi.mock is hoisted) ────────────────
 
@@ -67,15 +72,18 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
     Horizon: {
       ...actual.Horizon,
       Server: vi.fn().mockImplementation(() => ({
-        transactions: vi.fn().mockReturnValue({
-          order: vi.fn().mockReturnValue({
-            limit: vi.fn().mockReturnValue({
-              call: mockTransactionsCall,
+        transactions: vi.fn().mockImplementation(() => {
+          const builder: any = {
+            forAccount: vi.fn(() => builder),
+            limit: vi.fn(() => builder),
+            order: vi.fn(() => builder),
+            cursor: vi.fn(() => builder),
+            call: mockTransactionsCall,
+            transaction: vi.fn().mockReturnValue({
+              call: mockTransactionCall,
             }),
-          }),
-          transaction: vi.fn().mockReturnValue({
-            call: mockTransactionCall,
-          }),
+          };
+          return builder;
         }),
         loadAccount: mockLoadAccount,
         submitTransaction: mockSubmitTransaction,
@@ -83,7 +91,7 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
     },
     TransactionBuilder: {
       ...actual.TransactionBuilder,
-      fromXDR: vi.fn().mockReturnValue({}),
+      fromXDR: mocks.fromXDR,
       mockImplementation: vi.fn(() => ({
         addOperation: mockAddOperation,
         addMemo: mockAddMemo,
@@ -102,10 +110,7 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
         isSimulationError: mocks.isSimulationError,
       },
     },
-    TransactionBuilder: {
-      ...actual.TransactionBuilder,
-      fromXDR: mocks.fromXDR,
-    },
+
   };
 });
 
@@ -122,7 +127,6 @@ import {
   fetchRecentMedianFee,
   MEDIAN_FEE_CACHE_KEY,
 } from "../transaction/feeSurge";
-import { estimateFee } from "../transaction/estimateFee";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const networkConfig: ResolvedNetworkConfig = {
@@ -132,7 +136,7 @@ const networkConfig: ResolvedNetworkConfig = {
   networkPassphrase: "Test SDF Network ; September 2015",
 };
 
-const MOCK_XDR = "AAAAAQAAAAC-mock-transaction-xdr-for-testing-purposes-only-AAAA";
+const MOCK_XDR = "AAAAAQAAAAA=";
 
 const CACHED_FEE: FeeEstimate = {
   fee: "1100",
@@ -192,43 +196,247 @@ function makeCacheWithHit(xdr: string, value: FeeEstimate): SorokitCache & {
   };
 }
 
+const TRANSACTION_FIXTURES: TransactionResult[] = [
+  {
+    hash: "tx_1",
+    status: "success",
+    ledger: 100,
+    createdAt: "2024-01-01T00:00:00Z",
+  },
+  {
+    hash: "tx_2",
+    status: "failed",
+    ledger: 110,
+    createdAt: "2024-01-02T00:00:00Z",
+  },
+  {
+    hash: "tx_3",
+    status: "pending",
+    ledger: 120,
+    createdAt: "2024-01-03T00:00:00Z",
+  },
+  {
+    hash: "tx_4",
+    status: "success",
+    ledger: 130,
+    createdAt: "2024-01-04T00:00:00Z",
+  },
+];
+
+function transactionHashes(transactions: TransactionResult[]): string[] {
+  return transactions.map((tx) => tx.hash);
+}
+
+function makeHorizonRecord(
+  tx: TransactionResult,
+  pagingToken: string,
+): Record<string, unknown> {
+  return {
+    hash: tx.hash,
+    successful: tx.status === "success",
+    ledger_attr: tx.ledger,
+    created_at: tx.createdAt,
+    fee_charged: tx.fee ?? "100",
+    envelope_xdr: tx.envelopeXdr ?? "envelope_xdr",
+    result_xdr: tx.resultXdr ?? "result_xdr",
+    paging_token: pagingToken,
+  };
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-// ─── Additional mocks for transaction building ────────────────────────────────
 
-const buildMocks = vi.hoisted(() => ({
-  loadAccount: vi.fn(),
-  build: vi.fn(),
-  toXDR: vi.fn(),
-}));
+describe("transaction streaming filters", () => {
+  it("returns the first page with default pagination when no filters are provided", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES);
 
-vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
-  return {
-    ...actual,
-    Horizon: {
-      ...actual.Horizon,
-      Server: vi.fn().mockImplementation(() => ({
-        simulateTransaction: mocks.simulateTransaction,
-        loadAccount: buildMocks.loadAccount,
-      })),
-    },
-    rpc: {
-      ...actual.rpc,
-      Server: vi.fn().mockImplementation(() => ({
-        simulateTransaction: mocks.simulateTransaction,
-      })),
-      Api: {
-        ...actual.rpc.Api,
-        isSimulationSuccess: mocks.isSimulationSuccess,
-        isSimulationError: mocks.isSimulationError,
+    expect(transactionHashes(result)).toEqual(["tx_1", "tx_2", "tx_3", "tx_4"]);
+  });
+
+  it("filters by minimum ledger", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      minLedger: 110,
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_2", "tx_3", "tx_4"]);
+  });
+
+  it("filters by maximum ledger", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      maxLedger: 120,
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_1", "tx_2", "tx_3"]);
+  });
+
+  it("filters by combined ledger range", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      minLedger: 110,
+      maxLedger: 120,
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_2", "tx_3"]);
+  });
+
+  it("excludes transactions without ledger when ledger filtering is active", () => {
+    const result = applyTransactionFilters(
+      [{ hash: "missing_ledger", status: "success" }, ...TRANSACTION_FIXTURES],
+      { minLedger: 100 },
+    );
+
+    expect(transactionHashes(result)).not.toContain("missing_ledger");
+  });
+
+  it("filters by success status", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      statuses: ["success"],
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_1", "tx_4"]);
+  });
+
+  it("filters by failed status", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      statuses: ["failed"],
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_2"]);
+  });
+
+  it("filters by pending status", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      statuses: ["pending"],
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_3"]);
+  });
+
+  it("filters by multiple statuses", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      statuses: ["success", "pending"],
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_1", "tx_3", "tx_4"]);
+  });
+
+  it("does not filter by status when statuses is empty", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      statuses: [],
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_1", "tx_2", "tx_3", "tx_4"]);
+  });
+
+  it("filters by afterDate inclusively", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      afterDate: "2024-01-02T00:00:00Z",
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_2", "tx_3", "tx_4"]);
+  });
+
+  it("filters by beforeDate inclusively", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      beforeDate: new Date("2024-01-03T00:00:00Z"),
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_1", "tx_2", "tx_3"]);
+  });
+
+  it("filters by combined date range", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      afterDate: "2024-01-02T00:00:00Z",
+      beforeDate: "2024-01-03T00:00:00Z",
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_2", "tx_3"]);
+  });
+
+  it("excludes missing or invalid createdAt values when date filtering is active", () => {
+    const result = applyTransactionFilters(
+      [
+        { hash: "missing_date", status: "success", ledger: 90 },
+        {
+          hash: "invalid_date",
+          status: "success",
+          ledger: 91,
+          createdAt: "not-a-date",
+        },
+        ...TRANSACTION_FIXTURES,
+      ],
+      { afterDate: "2024-01-01T00:00:00Z" },
+    );
+
+    expect(transactionHashes(result)).not.toContain("missing_date");
+    expect(transactionHashes(result)).not.toContain("invalid_date");
+  });
+
+  it("applies offset after filters", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      statuses: ["success", "pending"],
+      offset: 1,
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_3", "tx_4"]);
+  });
+
+  it("applies limit after filters", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      statuses: ["success", "pending"],
+      limit: 2,
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_1", "tx_3"]);
+  });
+
+  it("applies combined filters and pagination", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      minLedger: 100,
+      maxLedger: 130,
+      statuses: ["success", "pending"],
+      afterDate: "2024-01-01T00:00:00Z",
+      beforeDate: "2024-01-04T00:00:00Z",
+      offset: 1,
+      limit: 1,
+    });
+
+    expect(transactionHashes(result)).toEqual(["tx_3"]);
+  });
+
+  it("returns an empty page when filters match no transactions", () => {
+    const result = applyTransactionFilters(TRANSACTION_FIXTURES, {
+      minLedger: 999,
+    });
+
+    expect(result).toEqual([]);
+  });
+
+  it("streamTransactions yields filtered results and advances cursor from fetched page", async () => {
+    mockTransactionsCall.mockResolvedValueOnce({
+      records: TRANSACTION_FIXTURES.map((tx, index) =>
+        makeHorizonRecord(tx, `cursor_${index + 1}`),
+      ),
+    });
+
+    const stream = streamTransactions(
+      networkConfig.horizonUrl,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        maxPolls: 1,
+        statuses: ["success"],
+        limit: 1,
+        offset: 1,
       },
-    },
-    TransactionBuilder: {
-      ...actual.TransactionBuilder,
-      fromXDR: mocks.fromXDR,
-    },
-  };
+    );
+
+    const { value } = await stream.next();
+
+    expect(value?.status).toBe("ok");
+    if (value?.status === "ok") {
+      expect(transactionHashes(value.data.transactions)).toEqual(["tx_4"]);
+      expect(value.data.nextCursor).toBe("cursor_4");
+    }
+  });
 });
 
 describe("estimateFee — caching", () => {
@@ -698,7 +906,7 @@ describe("transaction caching", () => {
       const result = await submitTransaction(
         networkConfig.horizonUrl,
         networkConfig.networkPassphrase,
-        "signed_xdr",
+        MOCK_XDR,
         mockCache,
       );
 
@@ -706,7 +914,7 @@ describe("transaction caching", () => {
       expect(mockCache.set).toHaveBeenCalledWith(
         "tx:test_hash",
         expect.objectContaining({ hash: "test_hash" }),
-        10 * 60 * 1000,
+        DEFAULT_FEE_CACHE_TTL_MS,
       );
     });
 
@@ -721,7 +929,7 @@ describe("transaction caching", () => {
       const result = await submitTransaction(
         networkConfig.horizonUrl,
         networkConfig.networkPassphrase,
-        "signed_xdr",
+        MOCK_XDR,
       );
 
       expect(result.status).toBe("ok");

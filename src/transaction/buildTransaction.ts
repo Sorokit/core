@@ -8,7 +8,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { toMessage } from "../shared";
+
 import { validateIssuer } from "../shared/validateIssuer";
 import { isNetworkConnectivityError, isTimeoutError, toMessage } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
