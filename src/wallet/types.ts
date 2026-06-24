@@ -28,6 +28,8 @@ export interface SignTransactionInput {
   networkPassphrase: string;
   /** Optional: specific account to sign as (multisig scenarios) */
   accountToSign?: string;
+  /** Optional: list of signer public keys expected to co-sign this transaction */
+  signers?: string[];
 }
 
 /**

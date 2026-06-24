@@ -165,3 +165,80 @@ describe("wallet module functions", () => {
     }
   });
 });
+
+import { collectMultiSignatures } from "../wallet/index";
+import { ok, err, SorokitErrorCode } from "../shared/response";
+
+describe("collectMultiSignatures (#22)", () => {
+  it("returns WALLET_SIGN_FAILED when signers list is empty", async () => {
+    const result = await collectMultiSignatures("xdr-0", [], vi.fn());
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+    }
+  });
+
+  it("calls signFn once for a single signer and returns the signed XDR", async () => {
+    const signFn = vi.fn().mockResolvedValue(ok("xdr-signed-alice"));
+    const result = await collectMultiSignatures("xdr-0", ["alice"], signFn);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe("xdr-signed-alice");
+    }
+    expect(signFn).toHaveBeenCalledOnce();
+    expect(signFn).toHaveBeenCalledWith("xdr-0", "alice");
+  });
+
+  it("chains signatures for multiple signers sequentially", async () => {
+    const signFn = vi
+      .fn()
+      .mockResolvedValueOnce(ok("xdr-after-alice"))
+      .mockResolvedValueOnce(ok("xdr-after-bob"));
+
+    const result = await collectMultiSignatures(
+      "xdr-0",
+      ["alice", "bob"],
+      signFn,
+    );
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe("xdr-after-bob");
+    }
+    // Each call receives the output of the previous
+    expect(signFn).toHaveBeenNthCalledWith(1, "xdr-0", "alice");
+    expect(signFn).toHaveBeenNthCalledWith(2, "xdr-after-alice", "bob");
+  });
+
+  it("stops and returns the error if an intermediate signer fails", async () => {
+    const signFn = vi
+      .fn()
+      .mockResolvedValueOnce(ok("xdr-after-alice"))
+      .mockResolvedValueOnce(err(SorokitErrorCode.WALLET_SIGN_REJECTED, "Bob rejected"));
+
+    const result = await collectMultiSignatures(
+      "xdr-0",
+      ["alice", "bob", "carol"],
+      signFn,
+    );
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
+    }
+    // carol should never have been called
+    expect(signFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops immediately if the first signer fails", async () => {
+    const signFn = vi
+      .fn()
+      .mockResolvedValue(err(SorokitErrorCode.WALLET_NOT_CONNECTED, "not connected"));
+
+    const result = await collectMultiSignatures(
+      "xdr-0",
+      ["alice", "bob"],
+      signFn,
+    );
+    expect(result.status).toBe("error");
+    expect(signFn).toHaveBeenCalledOnce();
+  });
+});
