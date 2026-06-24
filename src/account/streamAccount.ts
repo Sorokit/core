@@ -1,6 +1,6 @@
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { sleep, toMessage, deepEqual } from "../shared";
+import { sleep, toMessage, deepEqual, isValidPublicKey } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
 import type { AccountInfo } from "./types";
 import { getAccount } from "./getAccount";
@@ -70,6 +70,14 @@ export async function* streamAccount(
   signal?: AbortSignal,
   logger?: SorokitLogger,
 ): AsyncGenerator<SorokitResult<AccountInfo>> {
+  if (!isValidPublicKey(publicKey)) {
+    yield err(
+      SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+      `Invalid Stellar public key: "${publicKey}". Expected a 56-character base32 string starting with G.`,
+    );
+    return;
+  }
+
   const baseIntervalMs = Math.max(
     config?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS,
     MIN_POLL_INTERVAL_MS,
@@ -96,7 +104,7 @@ export async function* streamAccount(
     maxIntervalMs,
   );
   let unchangedPolls = 0;
-  let lastSnapshot: string | null = null;
+  let lastEmitted: AccountInfo | undefined;
 
   const adjustInterval = (changed: boolean): void => {
     if (!adaptiveEnabled) return;
@@ -119,13 +127,12 @@ export async function* streamAccount(
       currentIntervalMs + ADAPTIVE_INTERVAL_STEP_MS,
     );
   };
-  let lastEmitted: AccountInfo | undefined;
 
   logger?.debug("account.stream", {
     operation: "account.stream",
     status: "start",
     publicKey,
-    intervalMs,
+    intervalMs: baseIntervalMs,
     maxPolls,
   });
 
@@ -165,13 +172,23 @@ export async function* streamAccount(
       const result = await getAccount(horizonUrl, publicKey);
 
       if (result.status === "ok") {
+        const changed = !deepEqual(result.data, lastEmitted);
+        adjustInterval(changed);
+
         logger?.debug("account.stream.poll", {
           operation: "account.stream.poll",
           status: "ok",
           publicKey,
           poll: polls + 1,
         });
+
+        if (changed) {
+          lastEmitted = result.data;
+          yield result;
+        }
       } else {
+        // Always yield errors so callers can react to transient failures
+        adjustInterval(false);
         logger?.warn("account.stream.poll", {
           operation: "account.stream.poll",
           status: "error",
@@ -180,9 +197,8 @@ export async function* streamAccount(
           errorCode: result.error.code,
           errorMessage: result.error.message,
         });
+        yield result;
       }
-
-      yield result;
     } catch (cause) {
       const message = `Account stream poll failed: ${toMessage(cause)}`;
       logger?.warn("account.stream.poll", {

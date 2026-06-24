@@ -57,6 +57,59 @@ describe("shared/utils", () => {
     it("rejects a key that is too short", () => {
       expect(isValidPublicKey("GABCD")).toBe(false);
     });
+
+    it("rejects an empty string", () => {
+      expect(isValidPublicKey("")).toBe(false);
+    });
+
+    it("rejects a key that is too long (57 chars)", () => {
+      expect(
+        isValidPublicKey(
+          "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNAX",
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects a key with invalid base32 characters (lowercase)", () => {
+      expect(
+        isValidPublicKey(
+          "gaazi4tcr3ty5ojhctjc2a4qsy6cjwjh5iajtgkin2er7lbnvkoccwna",
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects a key with invalid base32 characters (digits 0, 1, 8, 9)", () => {
+      // Base32 alphabet is A-Z and 2-7; digits 0,1,8,9 are not valid
+      expect(
+        isValidPublicKey(
+          "G0AZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects a key with spaces", () => {
+      expect(
+        isValidPublicKey(
+          "GAAZI4TCR3TY5OJHCTJC2A4 QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects a key starting with C (contract ID format)", () => {
+      expect(
+        isValidPublicKey(
+          "CAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects a Stellar secret key (starts with S)", () => {
+      expect(
+        isValidPublicKey(
+          "SAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        ),
+      ).toBe(false);
+    });
   });
 
   describe("isValidContractId", () => {
