@@ -14,7 +14,7 @@ export type {
   TrustlineParams,
   AccountCreateParams,
 } from "./types";
-export type { FeeEstimate, FeeEstimateInput } from "./estimateFee";
+export type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "./estimateFee";
 export type {
   TransactionStreamConfig,
   TransactionPage,

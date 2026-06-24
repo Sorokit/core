@@ -53,7 +53,7 @@ import type {
   AccountCreateParams,
   TransactionResult,
 } from "../transaction/types";
-import type { FeeEstimate, FeeEstimateInput } from "../transaction/estimateFee";
+import type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "../transaction/estimateFee";
 import type {
   TransactionStreamConfig,
   TransactionPage,
@@ -84,6 +84,8 @@ export interface SorokitClientConfig {
   logger?: SorokitLogger;
   /** Default Soroban polling config — can be overridden per-call */
   sorobanPoll?: SorobanPollConfig;
+  /** Invoked when estimateFee detects a fee surge (>2x recent median) */
+  onFeeSurge?: FeeEstimateOptions["onFeeSurge"];
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────
@@ -254,6 +256,12 @@ export function createSorokitClient(
   const { horizonUrl, rpcUrl, networkPassphrase } = networkConfig;
   const logger = createLogger(config.debug ?? false, config.logger);
   const defaultPollConfig = config.sorobanPoll;
+  const feeEstimateOptions: FeeEstimateOptions = {
+    ...(config.cache !== undefined ? { cache: config.cache } : {}),
+    ...(config.onFeeSurge !== undefined
+      ? { onFeeSurge: config.onFeeSurge }
+      : {}),
+  };
 
   logger.debug("Client created", {
     network: config.network,
@@ -340,7 +348,13 @@ export function createSorokitClient(
       },
       estimateFee: (input) => {
         logger.debug("transaction.estimateFee");
-        return estimateFee(rpcUrl, horizonUrl, networkConfig, input);
+        return estimateFee(
+          rpcUrl,
+          horizonUrl,
+          networkConfig,
+          input,
+          feeEstimateOptions,
+        );
       },
       stream: (publicKey, config, signal) => {
         logger.debug("transaction.stream", { publicKey });

@@ -37,3 +37,5 @@ export interface AccountCreateParams {
   /** Starting balance in XLM — minimum 1 XLM */
   startingBalance: string;
 }
+
+export type { FeeEstimate, FeeEstimateOptions } from "./estimateFee";
