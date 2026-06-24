@@ -11,6 +11,7 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 
 const mockSimulateTransaction = vi.fn();
 const mockTransactionsCall = vi.fn();
+const mockIsSimulationSuccess = vi.fn();
 
 vi.mock("../transaction/feeSurge", async (importOriginal) => {
   const actual =
@@ -46,7 +47,11 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
       Server: vi.fn().mockImplementation(() => ({
         simulateTransaction: mockSimulateTransaction,
       })),
-      Api: actual.rpc.Api,
+      Api: {
+        ...actual.rpc.Api,
+        isSimulationSuccess: mockIsSimulationSuccess,
+        isSimulationError: actual.rpc.Api.isSimulationError,
+      },
     },
   };
 });
@@ -85,6 +90,10 @@ function createMockCache(initial?: unknown): SorokitCache & {
 function mockSuccessfulSimulation(totalFeeStroops: number) {
   mockSimulateTransaction.mockResolvedValue({
     minResourceFee: String(totalFeeStroops - 100),
+    transactionData: {},
+    latestLedger: 1,
+    id: "1",
+    events: [],
   });
 }
 
@@ -97,6 +106,7 @@ function mockRecentTransactionFees(fees: number[]) {
 describe("transaction fee surge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsSimulationSuccess.mockReturnValue(true);
     vi.mocked(fetchRecentMedianFeeMock).mockImplementation(
       fetchRecentMedianFee,
     );
