@@ -19,7 +19,23 @@ import type {
 } from "../types";
 import { ok, err, SorokitErrorCode } from "../../shared/response";
 import type { SorokitResult } from "../../shared/response";
-import { isBrowser, toMessage, isUserRejection } from "../../shared";
+import {
+  isBrowser,
+  isNetworkConnectivityError,
+  isTimeoutError,
+  isUserRejection,
+  toMessage,
+} from "../../shared";
+
+function describeFreighterFailure(action: "connection" | "signing", cause: unknown): string {
+  if (isTimeoutError(cause)) {
+    return `Freighter ${action} timed out: ${toMessage(cause)}`;
+  }
+  if (isNetworkConnectivityError(cause)) {
+    return `Freighter ${action} failed due to network connectivity: ${toMessage(cause)}`;
+  }
+  return `Freighter ${action} failed: ${toMessage(cause)}`;
+}
 
 export class FreighterAdapter implements WalletAdapter {
   readonly walletType = WalletType.FREIGHTER;
@@ -43,7 +59,7 @@ export class FreighterAdapter implements WalletAdapter {
     } catch (cause) {
       return err(
         SorokitErrorCode.WALLET_CONNECT_FAILED,
-        `Freighter connection failed: ${toMessage(cause)}`,
+        describeFreighterFailure("connection", cause),
         cause,
       );
     }
@@ -76,13 +92,12 @@ export class FreighterAdapter implements WalletAdapter {
       );
       return ok(signedTxXdr);
     } catch (cause) {
+      const rejected = isUserRejection(cause);
       return err(
-        isUserRejection(cause)
-          ? SorokitErrorCode.WALLET_SIGN_REJECTED
-          : SorokitErrorCode.WALLET_SIGN_FAILED,
-        isUserRejection(cause)
+        rejected ? SorokitErrorCode.WALLET_SIGN_REJECTED : SorokitErrorCode.WALLET_SIGN_FAILED,
+        rejected
           ? "User rejected the Freighter signature request."
-          : `Freighter signing failed: ${toMessage(cause)}`,
+          : describeFreighterFailure("signing", cause),
         cause,
       );
     }

@@ -9,7 +9,12 @@ import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
 import { createHash } from "crypto";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { toMessage } from "../shared";
+import {
+  isNetworkConnectivityError,
+  isTimeoutError,
+  isXdrInvalidError,
+  toMessage,
+} from "../shared";
 import {
   DEFAULT_TX_TIMEOUT_SECONDS,
   DEFAULT_FEE_CACHE_TTL_MS,
@@ -67,6 +72,19 @@ export type FeeEstimateInput =
       assetIssuer?: string;
     };
 
+function describeFeeEstimateFailure(cause: unknown): string {
+  if (isXdrInvalidError(cause)) {
+    return `Fee estimation failed because the transaction XDR is malformed: ${toMessage(cause)}`;
+  }
+  if (isTimeoutError(cause)) {
+    return `Fee estimation timed out while contacting RPC: ${toMessage(cause)}`;
+  }
+  if (isNetworkConnectivityError(cause)) {
+    return `Fee estimation failed due to network connectivity: ${toMessage(cause)}`;
+  }
+  return `Fee estimation failed: ${toMessage(cause)}`;
+}
+
 /**
  * Estimate the fee for a transaction using Soroban RPC simulation.
  *
@@ -105,6 +123,13 @@ export async function estimateFee(
     let xdr: string;
 
     if (input.kind === "xdr") {
+      if (isXdrInvalidError(input.transactionXdr)) {
+        return err(
+          SorokitErrorCode.TX_SIMULATE_FAILED,
+          "Fee estimation failed because the transaction XDR is malformed.",
+          input.transactionXdr,
+        );
+      }
       xdr = input.transactionXdr;
     } else {
       // Build a minimal sample payment transaction to simulate
@@ -191,7 +216,7 @@ export async function estimateFee(
   } catch (cause) {
     return err(
       SorokitErrorCode.TX_SIMULATE_FAILED,
-      `Fee estimation failed: ${toMessage(cause)}`,
+      describeFeeEstimateFailure(cause),
       cause,
     );
   }

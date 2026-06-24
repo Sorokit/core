@@ -7,12 +7,27 @@ import {
 } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { toMessage, retryWithBackoff } from "../shared";
+import {
+  isNetworkConnectivityError,
+  isTimeoutError,
+  retryWithBackoff,
+  toMessage,
+} from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
 import { validateContractMethodMetadata } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
+
+function describePrepareFailure(cause: unknown): string {
+  if (isTimeoutError(cause)) {
+    return `Contract preparation timed out while contacting RPC: ${toMessage(cause)}`;
+  }
+  if (isNetworkConnectivityError(cause)) {
+    return `Contract preparation failed due to network connectivity: ${toMessage(cause)}`;
+  }
+  return `Failed to prepare contract call: ${toMessage(cause)}`;
+}
 
 /**
  * Prepare step of the Soroban invoke pipeline.
@@ -89,7 +104,7 @@ export async function prepareContractCall(
   } catch (cause) {
     return err(
       SorokitErrorCode.CONTRACT_PREPARE_FAILED,
-      `Failed to prepare contract call: ${toMessage(cause)}`,
+      describePrepareFailure(cause),
       cause,
     );
   }

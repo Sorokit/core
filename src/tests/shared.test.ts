@@ -6,8 +6,11 @@ import {
   isValidContractId,
   toMessage,
   isNotFoundError,
+  isNetworkConnectivityError,
   isUserRejection,
   isTransientError,
+  isTimeoutError,
+  isXdrInvalidError,
   applyErrorHandler,
   withErrorHandling,
   retryWithBackoff,
@@ -169,6 +172,94 @@ describe("shared/errors", () => {
 
     it("returns false for permanent errors", () => {
       expect(isTransientError(new Error("Invalid parameters"))).toBe(false);
+    });
+  });
+
+  describe("isTimeoutError", () => {
+    it("detects AbortError", () => {
+      const error = Object.assign(new Error("The operation was aborted"), {
+        name: "AbortError",
+      });
+
+      expect(isTimeoutError(error)).toBe(true);
+    });
+
+    it("detects ETIMEDOUT code", () => {
+      expect(isTimeoutError({ code: "ETIMEDOUT" })).toBe(true);
+    });
+
+    it("detects RPC deadline messages", () => {
+      expect(isTimeoutError(new Error("RPC deadline exceeded"))).toBe(true);
+    });
+
+    it("returns false for non-timeout errors", () => {
+      expect(isTimeoutError(new Error("Invalid parameters"))).toBe(false);
+      expect(isTimeoutError({ response: { status: 404 } })).toBe(false);
+    });
+  });
+
+  describe("isNetworkConnectivityError", () => {
+    it("detects DNS and connection failures by code", () => {
+      expect(isNetworkConnectivityError({ code: "ENOTFOUND" })).toBe(true);
+      expect(isNetworkConnectivityError({ code: "ECONNREFUSED" })).toBe(true);
+    });
+
+    it("detects fetch/network failure messages", () => {
+      expect(isNetworkConnectivityError(new Error("fetch failed"))).toBe(true);
+      expect(isNetworkConnectivityError(new Error("Network error"))).toBe(true);
+    });
+
+    it("does not treat RPC service responses as connectivity failures", () => {
+      expect(isNetworkConnectivityError({ response: { status: 500 } })).toBe(
+        false,
+      );
+      expect(isNetworkConnectivityError({ response: { status: 404 } })).toBe(
+        false,
+      );
+    });
+
+    it("returns false for wallet rejection", () => {
+      expect(isNetworkConnectivityError(new Error("User rejected request"))).toBe(
+        false,
+      );
+    });
+  });
+
+  describe("isXdrInvalidError", () => {
+    it("detects empty and invalid-character XDR strings", () => {
+      expect(isXdrInvalidError("")).toBe(true);
+      expect(isXdrInvalidError("not valid xdr!")).toBe(true);
+    });
+
+    it("detects Stellar SDK XDR parse errors", () => {
+      expect(isXdrInvalidError(new Error("invalid xdr"))).toBe(true);
+      expect(isXdrInvalidError(new Error("XDR decode failed: read past end"))).toBe(
+        true,
+      );
+    });
+
+    it("detects malformed XDR errors thrown by TransactionBuilder.fromXDR", () => {
+      expect(
+        isXdrInvalidError(
+          new TypeError(
+            "XDR Read Error: attempt to read outside the boundary of the buffer",
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        isXdrInvalidError(
+          new TypeError("XDR Read Error: unknown EnvelopeType member for value -1635029142"),
+        ),
+      ).toBe(true);
+    });
+
+    it("returns false for plausible base64 XDR input", () => {
+      expect(isXdrInvalidError("AAAAAQAAAAA=")).toBe(false);
+    });
+
+    it("returns false for unrelated timeout and network errors", () => {
+      expect(isXdrInvalidError(new Error("Request timeout"))).toBe(false);
+      expect(isXdrInvalidError(new Error("fetch failed"))).toBe(false);
     });
   });
 

@@ -1,8 +1,26 @@
 import { rpc as SorobanRpc, TransactionBuilder } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { toMessage } from "../shared";
+import {
+  isNetworkConnectivityError,
+  isTimeoutError,
+  isXdrInvalidError,
+  toMessage,
+} from "../shared";
 import type { SimulateTransactionResult } from "./types";
+
+function describeSimulationFailure(cause: unknown): string {
+  if (isXdrInvalidError(cause)) {
+    return `Transaction simulation failed because the transaction XDR is malformed: ${toMessage(cause)}`;
+  }
+  if (isTimeoutError(cause)) {
+    return `Transaction simulation timed out while contacting RPC: ${toMessage(cause)}`;
+  }
+  if (isNetworkConnectivityError(cause)) {
+    return `Transaction simulation failed due to network connectivity: ${toMessage(cause)}`;
+  }
+  return `Transaction simulation failed: ${toMessage(cause)}`;
+}
 
 /**
  * Simulate any transaction XDR against the Soroban RPC.
@@ -17,6 +35,14 @@ export async function simulateTransaction(
   networkPassphrase: string,
   transactionXdr: string,
 ): Promise<SorokitResult<SimulateTransactionResult>> {
+  if (isXdrInvalidError(transactionXdr)) {
+    return err(
+      SorokitErrorCode.TX_SIMULATE_FAILED,
+      "Transaction simulation failed because the transaction XDR is malformed.",
+      transactionXdr,
+    );
+  }
+
   try {
     const rpc = new SorobanRpc.Server(rpcUrl);
     const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase);
@@ -38,7 +64,7 @@ export async function simulateTransaction(
   } catch (cause) {
     return err(
       SorokitErrorCode.TX_SIMULATE_FAILED,
-      `Transaction simulation failed: ${toMessage(cause)}`,
+      describeSimulationFailure(cause),
       cause,
     );
   }
