@@ -112,3 +112,33 @@ export async function retryWithBackoff<T>(
 
   throw lastError;
 }
+
+/** Module-level map of in-flight requests keyed by a caller-supplied key. */
+const _inflightRequests = new Map<string, Promise<unknown>>();
+
+/**
+ * Deduplicate concurrent identical API calls.
+ *
+ * Multiple concurrent callers with the same `key` share a single Promise.
+ * Once the Promise settles (resolve or reject), it is removed from the map
+ * so the next call with the same key starts a fresh request.
+ *
+ * The caller is responsible for computing a stable, unique `key` from the
+ * function identity and its parameters (e.g. `getAccount:${publicKey}`).
+ *
+ * @example
+ * function getAccount(url: string, key: string) {
+ *   return deduplicateRequest(`getAccount:${key}`, () => fetchAccount(url, key));
+ * }
+ */
+export function deduplicateRequest<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = _inflightRequests.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+
+  const promise = fn().finally(() => {
+    _inflightRequests.delete(key);
+  });
+
+  _inflightRequests.set(key, promise);
+  return promise;
+}

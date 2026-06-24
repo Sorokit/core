@@ -11,6 +11,7 @@ import {
   applyErrorHandler,
   withErrorHandling,
   retryWithBackoff,
+  deduplicateRequest,
   type RetryConfig,
   type ErrorHandler,
   type ErrorContext,
@@ -357,5 +358,83 @@ describe("retryWithBackoff", () => {
 
     expect(fn).toHaveBeenCalledTimes(3);
     expect(elapsed).toBeGreaterThanOrEqual(150);
+  });
+});
+
+describe("shared/utils — deduplicateRequest (#24)", () => {
+  it("returns the resolved value", async () => {
+    const result = await deduplicateRequest("key-1", () => Promise.resolve("value"));
+    expect(result).toBe("value");
+  });
+
+  it("concurrent calls with the same key share a single Promise", async () => {
+    let callCount = 0;
+    const fn = () => new Promise<string>((resolve) => {
+      callCount++;
+      setTimeout(() => resolve("shared"), 10);
+    });
+
+    const [a, b] = await Promise.all([
+      deduplicateRequest("key-concurrent", fn),
+      deduplicateRequest("key-concurrent", fn),
+    ]);
+
+    expect(a).toBe("shared");
+    expect(b).toBe("shared");
+    expect(callCount).toBe(1); // Only one underlying call was made
+  });
+
+  it("concurrent calls with different keys are independent", async () => {
+    let callCount = 0;
+    const fn = (suffix: string) => () => new Promise<string>((resolve) => {
+      callCount++;
+      setTimeout(() => resolve(suffix), 10);
+    });
+
+    const [a, b] = await Promise.all([
+      deduplicateRequest("key-a", fn("a")),
+      deduplicateRequest("key-b", fn("b")),
+    ]);
+
+    expect(a).toBe("a");
+    expect(b).toBe("b");
+    expect(callCount).toBe(2);
+  });
+
+  it("removes the in-flight entry after resolution so the next call runs fresh", async () => {
+    let callCount = 0;
+    const fn = () => Promise.resolve(++callCount);
+
+    await deduplicateRequest("key-seq", fn);
+    await deduplicateRequest("key-seq", fn);
+
+    expect(callCount).toBe(2); // Each sequential call triggers a new request
+  });
+
+  it("propagates rejections and cleans up the in-flight entry", async () => {
+    let callCount = 0;
+    const fn = () => {
+      callCount++;
+      return Promise.reject(new Error("boom"));
+    };
+
+    await expect(deduplicateRequest("key-fail", fn)).rejects.toThrow("boom");
+    // After rejection, the entry is removed — next call starts fresh
+    await expect(deduplicateRequest("key-fail", fn)).rejects.toThrow("boom");
+    expect(callCount).toBe(2);
+  });
+
+  it("concurrent callers all receive the rejection", async () => {
+    const fn = () => new Promise<string>((_, reject) =>
+      setTimeout(() => reject(new Error("shared-err")), 5),
+    );
+
+    const results = await Promise.allSettled([
+      deduplicateRequest("key-shared-fail", fn),
+      deduplicateRequest("key-shared-fail", fn),
+    ]);
+
+    expect(results[0]?.status).toBe("rejected");
+    expect(results[1]?.status).toBe("rejected");
   });
 });
