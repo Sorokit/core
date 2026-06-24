@@ -12,6 +12,7 @@ import { toMessage } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractReadParams, ContractCallResult } from "./types";
+import { validateContractAbi } from "./validateContractAbi";
 
 /**
  * Read contract data — view/read-only call, no signing required.
@@ -25,6 +26,13 @@ export async function readContract(
   networkConfig: ResolvedNetworkConfig,
   params: ContractReadParams,
 ): Promise<SorokitResult<ContractCallResult>> {
+  const validation = validateContractAbi({
+    contractAbi: params.contractAbi,
+    method: params.method,
+    argCount: params.args?.length ?? 0,
+  });
+  if (validation.status === "error") return validation;
+
   try {
     const rpc = new SorobanRpc.Server(rpcUrl);
     const horizonServer = new Horizon.Server(horizonUrl);

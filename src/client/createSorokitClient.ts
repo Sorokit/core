@@ -344,81 +344,45 @@ export function createSorokitClient(
     },
 
     transaction: {
-      buildPayment: (sourcePublicKey, params) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "transaction.buildPayment", params: { sourcePublicKey } },
-          () => {
-            logger.debug("transaction.buildPayment", { sourcePublicKey });
-            return buildPaymentTransaction(
-              horizonUrl,
-              networkConfig,
-              sourcePublicKey,
-              params,
-            );
-          },
-        ),
-      buildCreateAccount: (sourcePublicKey, params) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "transaction.buildCreateAccount", params: { sourcePublicKey } },
-          () => {
-            logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
-            return buildCreateAccountTransaction(
-              horizonUrl,
-              networkConfig,
-              sourcePublicKey,
-              params,
-            );
-          },
-        ),
-      buildTrustline: (sourcePublicKey, params) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "transaction.buildTrustline", params: { sourcePublicKey } },
-          () => {
-            logger.debug("transaction.buildTrustline", { sourcePublicKey });
-            return buildTrustlineTransaction(
-              horizonUrl,
-              networkConfig,
-              sourcePublicKey,
-              params,
-            );
-          },
-        ),
-      submit: (signedXdr) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "transaction.submit" },
-          () => {
-            logger.debug("transaction.submit");
-            return submitTransaction(horizonUrl, networkPassphrase, signedXdr, config.cache);
-          },
-        ),
-      getStatus: (hash) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "transaction.getStatus", params: { hash } },
-          () => {
-            logger.debug("transaction.getStatus", { hash });
-            return getTransactionStatus(horizonUrl, hash, config.cache);
-          },
-        ),
-      estimateFee: (input) =>
-        withErrorHandling(
-          errorHandler,
-          { functionName: "transaction.estimateFee" },
-          () => {
-            logger.debug("transaction.estimateFee");
-            return estimateFee(
-              rpcUrl,
-              horizonUrl,
-              networkConfig,
-              input,
-              feeEstimateOptions,
-            );
-          },
-        ),
+      buildPayment: (sourcePublicKey, params) => {
+        logger.debug("transaction.buildPayment", { sourcePublicKey });
+        return buildPaymentTransaction(
+          horizonUrl,
+          networkConfig,
+          sourcePublicKey,
+          params,
+        );
+      },
+      buildCreateAccount: (sourcePublicKey, params) => {
+        logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
+        return buildCreateAccountTransaction(
+          horizonUrl,
+          networkConfig,
+          sourcePublicKey,
+          params,
+        );
+      },
+      buildTrustline: (sourcePublicKey, params) => {
+        logger.debug("transaction.buildTrustline", { sourcePublicKey });
+        return buildTrustlineTransaction(
+          horizonUrl,
+          networkConfig,
+          sourcePublicKey,
+          params,
+        );
+      },
+      submit: (signedXdr) => {
+        logger.debug("transaction.submit");
+        return submitTransaction(horizonUrl, networkPassphrase, signedXdr);
+      },
+      getStatus: (hash) => {
+        logger.debug("transaction.getStatus", { hash });
+        return getTransactionStatus(horizonUrl, hash);
+      },
+      estimateFee: (input) => {
+        logger.debug("transaction.estimateFee");
+        return estimateFee(rpcUrl, horizonUrl, networkConfig, input, config.cache);
+      },
       stream: (publicKey, config, signal) => {
         logger.debug("transaction.stream", { publicKey });
         return streamTransactions(horizonUrl, publicKey, config, signal);

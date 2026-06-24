@@ -1,5 +1,6 @@
 import { err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import { isUserRejection, toMessage } from "../shared";
 import type { WalletAdapter, SignTransactionInput } from "./types";
 
 /**
@@ -18,5 +19,17 @@ export async function signTransaction(
       `${adapter.walletType} requires a browser environment.`,
     );
   }
-  return adapter.signTransaction(input);
+  try {
+    return await adapter.signTransaction(input);
+  } catch (cause) {
+    return err(
+      isUserRejection(cause)
+        ? SorokitErrorCode.WALLET_SIGN_REJECTED
+        : SorokitErrorCode.WALLET_SIGN_FAILED,
+      isUserRejection(cause)
+        ? "User rejected the signature request."
+        : `Signing failed: ${toMessage(cause)}`,
+      cause,
+    );
+  }
 }

@@ -1,9 +1,13 @@
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { sleep, toMessage } from "../shared";
+import { sleep, toMessage, deepEqual } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
 import type { AccountInfo } from "./types";
 import { getAccount } from "./getAccount";
+
+const MIN_POLL_INTERVAL_MS = 1_000;
+const DEFAULT_POLL_INTERVAL_MS = 5_000;
+const ADAPTIVE_INTERVAL_STEP_MS = 1_000;
 
 /**
  * Configuration for account streaming.
@@ -14,6 +18,21 @@ export interface AccountStreamConfig {
    * Minimum enforced: 1000 ms to avoid hammering Horizon.
    */
   intervalMs?: number;
+  /**
+   * Minimum polling interval in milliseconds when adaptive polling is enabled.
+   * Default: 1000 ms.
+   */
+  minIntervalMs?: number;
+  /**
+   * Maximum polling interval in milliseconds when adaptive polling is enabled.
+   * Default: the base interval.
+   */
+  maxIntervalMs?: number;
+  /**
+   * Number of unchanged polls before increasing the interval.
+   * Default: 3.
+   */
+  adaptiveThreshold?: number;
   /**
    * Maximum number of polls before the stream ends.
    * Omit for an infinite stream.
@@ -51,11 +70,56 @@ export async function* streamAccount(
   signal?: AbortSignal,
   logger?: SorokitLogger,
 ): AsyncGenerator<SorokitResult<AccountInfo>> {
-  const intervalMs = Math.max(config?.intervalMs ?? 5_000, 1_000);
+  const baseIntervalMs = Math.max(
+    config?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS,
+    MIN_POLL_INTERVAL_MS,
+  );
+  const adaptiveEnabled =
+    config?.minIntervalMs !== undefined ||
+    config?.maxIntervalMs !== undefined ||
+    config?.adaptiveThreshold !== undefined;
+  const minIntervalMs = Math.max(
+    config?.minIntervalMs ?? MIN_POLL_INTERVAL_MS,
+    MIN_POLL_INTERVAL_MS,
+  );
+  const maxIntervalMs = Math.max(
+    config?.maxIntervalMs ?? baseIntervalMs,
+    minIntervalMs,
+  );
+  const adaptiveThreshold = Math.max(config?.adaptiveThreshold ?? 3, 1);
   const maxPolls = config?.maxPolls;
   const emitOnStart = config?.emitOnStart ?? true;
 
   let polls = 0;
+  let currentIntervalMs = Math.min(
+    Math.max(baseIntervalMs, minIntervalMs),
+    maxIntervalMs,
+  );
+  let unchangedPolls = 0;
+  let lastSnapshot: string | null = null;
+
+  const adjustInterval = (changed: boolean): void => {
+    if (!adaptiveEnabled) return;
+
+    if (changed) {
+      unchangedPolls = 0;
+      currentIntervalMs = Math.max(
+        minIntervalMs,
+        currentIntervalMs - ADAPTIVE_INTERVAL_STEP_MS,
+      );
+      return;
+    }
+
+    unchangedPolls++;
+    if (unchangedPolls < adaptiveThreshold) return;
+
+    unchangedPolls = 0;
+    currentIntervalMs = Math.min(
+      maxIntervalMs,
+      currentIntervalMs + ADAPTIVE_INTERVAL_STEP_MS,
+    );
+  };
+  let lastEmitted: AccountInfo | undefined;
 
   logger?.debug("account.stream", {
     operation: "account.stream",
@@ -82,7 +146,7 @@ export async function* streamAccount(
     // Skip the initial sleep when emitOnStart is true
     if (polls > 0 || !emitOnStart) {
       try {
-        await sleep(intervalMs);
+        await sleep(currentIntervalMs);
       } catch {
         return;
       }

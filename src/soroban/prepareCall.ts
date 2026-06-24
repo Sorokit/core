@@ -11,6 +11,7 @@ import { toMessage, retryWithBackoff } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
+import { validateContractAbi } from "./validateContractAbi";
 
 /**
  * Prepare step of the Soroban invoke pipeline.
@@ -28,6 +29,13 @@ export async function prepareContractCall(
   horizonUrl: string,
   params: ContractInvokeParams,
 ): Promise<SorokitResult<PreparedContractCall>> {
+  const validation = validateContractAbi({
+    contractAbi: params.contractAbi,
+    method: params.method,
+    argCount: params.args?.length ?? 0,
+  });
+  if (validation.status === "error") return validation;
+
   try {
     const rpc = new SorobanRpc.Server(rpcUrl);
     const horizonServer = new Horizon.Server(horizonUrl);
