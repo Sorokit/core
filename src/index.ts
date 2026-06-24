@@ -16,7 +16,7 @@ export type {
 export { FreighterAdapter } from "./wallet/adapters/freighter";
 export { XBullAdapter } from "./wallet/adapters/xbull";
 export { LobstrAdapter } from "./wallet/adapters/lobstr";
-export { collectMultiSignatures } from "./wallet";
+export { collectMultiSignatures, diagnoseWalletConnection } from "./wallet";
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
 export type {
@@ -24,6 +24,10 @@ export type {
   WalletState,
   SignTransactionInput,
   SWKInstance,
+  DiagnosticStatus,
+  DiagnosticCheck,
+  WalletDiagnosticReport,
+  WalletDiagnosticOptions,
 } from "./wallet/types";
 export { WalletType } from "./wallet/types";
 
