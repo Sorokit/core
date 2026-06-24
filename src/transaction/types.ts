@@ -38,4 +38,18 @@ export interface AccountCreateParams {
   startingBalance: string;
 }
 
+export interface PaymentWithTrustlineParams {
+  /** Trustline parameters to establish before payment */
+  trustline: TrustlineParams;
+  /** Payment parameters to execute after trustline */
+  payment: PaymentParams;
+}
+
+export interface SwapTransactionParams {
+  /** First payment (send asset A) */
+  paymentA: PaymentParams;
+  /** Second payment (receive asset B) */
+  paymentB: PaymentParams;
+}
+
 export type { FeeEstimate, FeeEstimateOptions } from "./estimateFee";

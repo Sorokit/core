@@ -17,3 +17,6 @@ export const MIN_ACCOUNT_BALANCE_XLM = "1";
 
 /** Number of chars shown on each side of a shortened address */
 export const DEFAULT_ADDRESS_DISPLAY_CHARS = 4;
+
+/** Default cache TTL for transaction results in milliseconds (10 minutes) */
+export const DEFAULT_TX_CACHE_TTL_MS = 10 * 60 * 1000;

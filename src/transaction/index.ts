@@ -2,6 +2,8 @@ export {
   buildPaymentTransaction,
   buildCreateAccountTransaction,
   buildTrustlineTransaction,
+  buildPaymentWithTrustline,
+  buildSwapTransaction,
 } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
@@ -13,6 +15,8 @@ export type {
   PaymentParams,
   TrustlineParams,
   AccountCreateParams,
+  PaymentWithTrustlineParams,
+  SwapTransactionParams,
 } from "./types";
 export type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "./estimateFee";
 export type {

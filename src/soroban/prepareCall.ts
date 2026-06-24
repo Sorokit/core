@@ -7,7 +7,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { toMessage } from "../shared";
+import { toMessage, retryWithBackoff } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
@@ -44,7 +44,9 @@ export async function prepareContractCall(
       .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
       .build();
 
-    const simResult = await rpc.simulateTransaction(tx);
+    const simResult = await retryWithBackoff(async () => {
+      return await rpc.simulateTransaction(tx);
+    });
 
     if (SorobanRpc.Api.isSimulationError(simResult)) {
       return err(

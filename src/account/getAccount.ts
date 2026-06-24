@@ -1,7 +1,7 @@
 import { Horizon } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { formatAddress, isNotFoundError, toMessage } from "../shared";
+import { formatAddress, isNotFoundError, toMessage, retryWithBackoff } from "../shared";
 import type { AccountInfo, AssetBalance } from "./types";
 
 /**
@@ -12,8 +12,10 @@ export async function getAccount(
   publicKey: string,
 ): Promise<SorokitResult<AccountInfo>> {
   try {
-    const server = new Horizon.Server(horizonUrl);
-    const account = await server.loadAccount(publicKey);
+    const account = await retryWithBackoff(async () => {
+      const server = new Horizon.Server(horizonUrl);
+      return await server.loadAccount(publicKey);
+    });
 
     const balances: AssetBalance[] = account.balances.map((b) => {
       if (b.asset_type === "native") {
