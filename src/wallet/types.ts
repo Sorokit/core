@@ -28,6 +28,12 @@ export interface SignTransactionInput {
   networkPassphrase: string;
   /** Optional: specific account to sign as (multisig scenarios) */
   accountToSign?: string;
+  /**
+   * Optional list of additional signer public keys required for multi-signature
+   * transactions. When provided, use `collectMultiSignatures()` to gather all
+   * required signatures before submission.
+   */
+  signers?: string[];
 }
 
 /**

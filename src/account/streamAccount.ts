@@ -6,6 +6,17 @@ import type { AccountInfo } from "./types";
 import { getAccount } from "./getAccount";
 
 /**
+ * Callback fired when a specific asset balance changes between polls.
+ * Receives the asset code, the old balance string, and the new balance string.
+ * The callback is optional; omitting it has no effect on the generator output.
+ */
+export type BalanceChangeCallback = (
+  assetCode: string,
+  oldBalance: string,
+  newBalance: string,
+) => void;
+
+/**
  * Configuration for account streaming.
  */
 export interface AccountStreamConfig {
@@ -24,6 +35,13 @@ export interface AccountStreamConfig {
    * Default: true.
    */
   emitOnStart?: boolean;
+  /**
+   * Optional callback fired whenever a specific asset balance changes between
+   * consecutive polls. Receives the asset code, the previous balance string,
+   * and the new balance string. The full account state is still yielded via
+   * the generator regardless of whether this callback is provided.
+   */
+  onBalanceChange?: BalanceChangeCallback;
 }
 
 /**
@@ -54,6 +72,10 @@ export async function* streamAccount(
   const intervalMs = Math.max(config?.intervalMs ?? 5_000, 1_000);
   const maxPolls = config?.maxPolls;
   const emitOnStart = config?.emitOnStart ?? true;
+  const onBalanceChange = config?.onBalanceChange;
+
+  // Keyed by "<assetCode>:<assetIssuer|native>" → last-seen balance string.
+  const prevBalances = new Map<string, string>();
 
   let polls = 0;
 
@@ -107,6 +129,18 @@ export async function* streamAccount(
           publicKey,
           poll: polls + 1,
         });
+
+        // Fire onBalanceChange for every asset whose balance changed since last poll.
+        if (onBalanceChange) {
+          for (const bal of result.data.balances) {
+            const key = `${bal.assetCode}:${bal.assetIssuer ?? "native"}`;
+            const prev = prevBalances.get(key);
+            if (prev !== undefined && prev !== bal.balance) {
+              onBalanceChange(bal.assetCode, prev, bal.balance);
+            }
+            prevBalances.set(key, bal.balance);
+          }
+        }
       } else {
         logger?.warn("account.stream.poll", {
           operation: "account.stream.poll",

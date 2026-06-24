@@ -36,7 +36,10 @@ export type { ResolvedNetworkConfig } from "./shared/types";
 // ─── Account types ────────────────────────────────────────────────────────────
 export type { AccountInfo, AssetBalance } from "./account/types";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
-export type { AccountStreamConfig } from "./account/streamAccount";
+export type {
+  AccountStreamConfig,
+  BalanceChangeCallback,
+} from "./account/streamAccount";
 
 // ─── Transaction types ────────────────────────────────────────────────────────
 export type {
@@ -61,6 +64,12 @@ export type {
   SorobanPollConfig,
   SimulateTransactionResult,
 } from "./soroban/types";
+
+// ─── Wallet utilities ─────────────────────────────────────────────────────────
+export { collectMultiSignatures, emptyWalletState } from "./wallet/index";
+
+// ─── Shared utilities ─────────────────────────────────────────────────────────
+export { deduplicateRequest } from "./shared/utils";
 
 // ─── Response system ──────────────────────────────────────────────────────────
 export type { SorokitResult, SorokitError } from "./shared/response";

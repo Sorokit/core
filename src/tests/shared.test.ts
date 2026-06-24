@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   formatAddress,
   isBrowser,
@@ -7,6 +7,8 @@ import {
   toMessage,
   isNotFoundError,
   isUserRejection,
+  deduplicateRequest,
+  _inflightRequests,
 } from "../shared";
 
 describe("shared/utils", () => {
@@ -131,5 +133,108 @@ describe("shared/errors", () => {
     it("returns false for non-rejection errors", () => {
       expect(isUserRejection(new Error("Network error"))).toBe(false);
     });
+  });
+});
+
+// ── deduplicateRequest tests (#24) ────────────────────────────────────────────
+
+describe("deduplicateRequest (#24)", () => {
+  beforeEach(() => {
+    _inflightRequests.clear();
+  });
+
+  it("calls fn once for a single request and returns the result", async () => {
+    const fn = vi.fn().mockResolvedValue("result-a");
+
+    const result = await deduplicateRequest("getAccount", { key: "GABC" }, fn);
+
+    expect(result).toBe("result-a");
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("deduplicates concurrent identical requests — fn called only once", async () => {
+    let resolve!: (v: string) => void;
+    const pending = new Promise<string>((r) => { resolve = r; });
+    const fn = vi.fn().mockReturnValue(pending);
+
+    const p1 = deduplicateRequest("getAccount", { key: "GABC" }, fn);
+    const p2 = deduplicateRequest("getAccount", { key: "GABC" }, fn);
+
+    resolve("shared-result");
+    const [r1, r2] = await Promise.all([p1, p2]);
+
+    expect(r1).toBe("shared-result");
+    expect(r2).toBe("shared-result");
+    expect(fn).toHaveBeenCalledOnce();
+  });
+
+  it("does not deduplicate requests with different params", async () => {
+    const fn = vi
+      .fn()
+      .mockResolvedValueOnce("result-a")
+      .mockResolvedValueOnce("result-b");
+
+    const r1 = await deduplicateRequest("getAccount", { key: "GABC" }, fn);
+    const r2 = await deduplicateRequest("getAccount", { key: "GXYZ" }, fn);
+
+    expect(r1).toBe("result-a");
+    expect(r2).toBe("result-b");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not deduplicate requests with different function names", async () => {
+    const fn = vi
+      .fn()
+      .mockResolvedValueOnce("from-getAccount")
+      .mockResolvedValueOnce("from-getBalances");
+
+    const r1 = await deduplicateRequest("getAccount", { key: "GABC" }, fn);
+    const r2 = await deduplicateRequest("getBalances", { key: "GABC" }, fn);
+
+    expect(r1).toBe("from-getAccount");
+    expect(r2).toBe("from-getBalances");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes completed request from registry, allowing a fresh call next time", async () => {
+    const fn = vi
+      .fn()
+      .mockResolvedValueOnce("first")
+      .mockResolvedValueOnce("second");
+
+    const r1 = await deduplicateRequest("getAccount", { key: "GABC" }, fn);
+    // First call settled — registry should be empty
+    expect(_inflightRequests.size).toBe(0);
+
+    const r2 = await deduplicateRequest("getAccount", { key: "GABC" }, fn);
+    expect(r1).toBe("first");
+    expect(r2).toBe("second");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes rejected request from registry so next call retries", async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("network error"))
+      .mockResolvedValueOnce("recovered");
+
+    await expect(
+      deduplicateRequest("getAccount", { key: "GABC" }, fn),
+    ).rejects.toThrow("network error");
+
+    // After rejection, registry cleared — next call should succeed
+    expect(_inflightRequests.size).toBe(0);
+    const r2 = await deduplicateRequest("getAccount", { key: "GABC" }, fn);
+    expect(r2).toBe("recovered");
+  });
+
+  it("handles non-serialisable params gracefully", async () => {
+    const circular: Record<string, unknown> = {};
+    circular["self"] = circular;
+    const fn = vi.fn().mockResolvedValue("ok");
+
+    const result = await deduplicateRequest("test", circular, fn);
+    expect(result).toBe("ok");
+    expect(fn).toHaveBeenCalledOnce();
   });
 });

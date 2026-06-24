@@ -6,10 +6,14 @@ const {
   mockSimulateTransaction,
   mockTransactionsCall,
   mockIsSimulationSuccess,
+  mockFromXDR,
+  mockSubmitTransaction,
 } = vi.hoisted(() => ({
   mockSimulateTransaction: vi.fn(),
   mockTransactionsCall: vi.fn(),
   mockIsSimulationSuccess: vi.fn(),
+  mockFromXDR: vi.fn().mockReturnValue({}),
+  mockSubmitTransaction: vi.fn(),
 }));
 
 vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
@@ -26,11 +30,12 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
             }),
           }),
         }),
+        submitTransaction: mockSubmitTransaction,
       })),
     },
     TransactionBuilder: {
       ...actual.TransactionBuilder,
-      fromXDR: vi.fn().mockReturnValue({}),
+      fromXDR: mockFromXDR,
     },
     rpc: {
       ...actual.rpc,
@@ -53,6 +58,8 @@ import {
   MEDIAN_FEE_CACHE_KEY,
 } from "../transaction/feeSurge";
 import { estimateFee } from "../transaction/estimateFee";
+import { submitTransaction } from "../transaction/submitTransaction";
+import { SorokitErrorCode } from "../shared/response";
 
 const networkConfig: ResolvedNetworkConfig = {
   network: "testnet",
@@ -271,5 +278,93 @@ describe("transaction fee surge", () => {
         expect(result.data.surge).toBe(true);
       }
     });
+  });
+});
+
+describe("submitTransaction — network passphrase validation (#6)", () => {
+  const TESTNET = "Test SDF Network ; September 2015";
+  const MAINNET = "Public Global Stellar Network ; September 2015";
+  const horizonUrl = "https://horizon-testnet.stellar.org";
+  const signedXdr = "AAAAAgAAAABmockxdr==";
+
+  beforeEach(() => {
+    mockFromXDR.mockReset();
+    mockSubmitTransaction.mockReset();
+  });
+
+  it("returns ok when XDR parses successfully and Horizon accepts the transaction", async () => {
+    mockFromXDR.mockReturnValue({ mock: "tx" });
+    mockSubmitTransaction.mockResolvedValue({
+      hash: "abc123",
+      ledger: 1,
+      envelope_xdr: signedXdr,
+      result_xdr: "result",
+    });
+
+    const result = await submitTransaction(horizonUrl, TESTNET, signedXdr);
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.hash).toBe("abc123");
+      expect(result.data.status).toBe("success");
+    }
+  });
+
+  it("returns TX_SUBMIT_FAILED when fromXDR throws a network/passphrase error", async () => {
+    mockFromXDR.mockImplementation(() => {
+      throw new Error("invalid network passphrase");
+    });
+
+    const result = await submitTransaction(horizonUrl, MAINNET, signedXdr);
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+      expect(result.error.message).toContain("Network passphrase mismatch");
+      expect(result.error.message).toContain(MAINNET);
+    }
+  });
+
+  it("returns TX_SUBMIT_FAILED with XDR error message when fromXDR throws a non-network error", async () => {
+    mockFromXDR.mockImplementation(() => {
+      throw new Error("base64 decode failed");
+    });
+
+    const result = await submitTransaction(horizonUrl, TESTNET, "not-valid-xdr");
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+      expect(result.error.message).toContain("Invalid transaction XDR");
+    }
+  });
+
+  it("returns TX_SUBMIT_FAILED when Horizon rejects the transaction after parse succeeds", async () => {
+    mockFromXDR.mockReturnValue({ mock: "tx" });
+    mockSubmitTransaction.mockRejectedValue(
+      new Error("tx_bad_seq"),
+    );
+
+    const result = await submitTransaction(horizonUrl, TESTNET, signedXdr);
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+      expect(result.error.message).toContain("Transaction submission failed");
+    }
+  });
+
+  it("calls fromXDR with the correct networkPassphrase", async () => {
+    mockFromXDR.mockReturnValue({ mock: "tx" });
+    mockSubmitTransaction.mockResolvedValue({
+      hash: "h",
+      ledger: 1,
+      envelope_xdr: signedXdr,
+      result_xdr: "r",
+    });
+
+    await submitTransaction(horizonUrl, TESTNET, signedXdr);
+
+    expect(mockFromXDR).toHaveBeenCalledWith(signedXdr, TESTNET);
   });
 });
