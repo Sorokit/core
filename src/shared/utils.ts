@@ -3,6 +3,7 @@
  * Nothing here should import from any module — only from types and constants.
  */
 
+import { StrKey } from "@stellar/stellar-sdk";
 import { DEFAULT_ADDRESS_DISPLAY_CHARS } from "./constants";
 
 /**
@@ -34,11 +35,25 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Validate that a string looks like a Stellar public key (G...).
- * This is a lightweight format check, not a cryptographic validation.
+ * Validate a Stellar public key (Ed25519 G... address).
+ *
+ * Checks:
+ * - Must be a non-empty string
+ * - Must start with 'G'
+ * - Must be exactly 56 characters (base32-encoded with version byte)
+ * - Must contain only valid base32 characters (A-Z, 2-7)
+ * - Must pass checksum validation via the Stellar SDK
+ *
+ * Uses `StrKey.isValidEd25519PublicKey()` from `@stellar/stellar-sdk`,
+ * which performs full format, length, and CRC-16 checksum validation.
  */
-export function isValidPublicKey(key: string): boolean {
-  return /^G[A-Z2-7]{55}$/.test(key);
+export function isValidPublicKey(key: unknown): boolean {
+  if (typeof key !== "string" || key.length === 0) return false;
+  try {
+    return StrKey.isValidEd25519PublicKey(key);
+  } catch {
+    return false;
+  }
 }
 
 /**

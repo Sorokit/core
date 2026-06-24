@@ -1,6 +1,6 @@
-import { ok, err, SorokitErrorCode } from "../shared/response";
+import { err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { sleep, toMessage, deepEqual } from "../shared";
+import { sleep, toMessage, isValidPublicKey } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
 import type { AccountInfo } from "./types";
 import { getAccount } from "./getAccount";
@@ -51,6 +51,9 @@ export interface AccountStreamConfig {
  * Yields SorokitResult<AccountInfo> on every poll. Errors mid-stream are
  * yielded as error results — the stream does not stop on a single failure.
  *
+ * An invalid public key yields a single error result immediately, then ends
+ * the stream — no Horizon calls are made.
+ *
  * Use `for await...of` to consume:
  * @example
  * for await (const result of streamAccount(horizonUrl, publicKey)) {
@@ -70,6 +73,17 @@ export async function* streamAccount(
   signal?: AbortSignal,
   logger?: SorokitLogger,
 ): AsyncGenerator<SorokitResult<AccountInfo>> {
+  // Validate the public key before entering the polling loop.
+  // Yields a single error result and ends the stream immediately — avoids
+  // hammering Horizon with a bad key on every poll tick.
+  if (!isValidPublicKey(publicKey)) {
+    yield err(
+      SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+      `Invalid Stellar public key: "${publicKey}". Expected a 56-character Ed25519 address starting with 'G'.`,
+    );
+    return;
+  }
+
   const baseIntervalMs = Math.max(
     config?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS,
     MIN_POLL_INTERVAL_MS,
@@ -96,7 +110,6 @@ export async function* streamAccount(
     maxIntervalMs,
   );
   let unchangedPolls = 0;
-  let lastSnapshot: string | null = null;
 
   const adjustInterval = (changed: boolean): void => {
     if (!adaptiveEnabled) return;
@@ -119,13 +132,14 @@ export async function* streamAccount(
       currentIntervalMs + ADAPTIVE_INTERVAL_STEP_MS,
     );
   };
+
   let lastEmitted: AccountInfo | undefined;
 
   logger?.debug("account.stream", {
     operation: "account.stream",
     status: "start",
     publicKey,
-    intervalMs,
+    intervalMs: baseIntervalMs,
     maxPolls,
   });
 
@@ -165,6 +179,12 @@ export async function* streamAccount(
       const result = await getAccount(horizonUrl, publicKey);
 
       if (result.status === "ok") {
+        const changed = lastEmitted !== undefined
+          ? JSON.stringify(lastEmitted) !== JSON.stringify(result.data)
+          : true;
+        lastEmitted = result.data;
+        adjustInterval(changed);
+
         logger?.debug("account.stream.poll", {
           operation: "account.stream.poll",
           status: "ok",
@@ -172,6 +192,7 @@ export async function* streamAccount(
           poll: polls + 1,
         });
       } else {
+        adjustInterval(false);
         logger?.warn("account.stream.poll", {
           operation: "account.stream.poll",
           status: "error",
@@ -185,6 +206,7 @@ export async function* streamAccount(
       yield result;
     } catch (cause) {
       const message = `Account stream poll failed: ${toMessage(cause)}`;
+      adjustInterval(false);
       logger?.warn("account.stream.poll", {
         operation: "account.stream.poll",
         status: "error",

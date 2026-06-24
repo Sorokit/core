@@ -75,13 +75,17 @@ describe("account", () => {
         createAccount("2"),
       ];
 
-      const stream = streamAccount("https://horizon.test", "G...", {
-        intervalMs: 2000,
-        minIntervalMs: 1000,
-        maxIntervalMs: 4000,
-        adaptiveThreshold: 2,
-        maxPolls: 4,
-      });
+      const stream = streamAccount(
+        "https://horizon.test",
+        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        {
+          intervalMs: 2000,
+          minIntervalMs: 1000,
+          maxIntervalMs: 4000,
+          adaptiveThreshold: 2,
+          maxPolls: 4,
+        },
+      );
 
       await stream.next();
       await stream.next();
@@ -103,13 +107,17 @@ describe("account", () => {
         createAccount("2"),
       ];
 
-      const stream = streamAccount("https://horizon.test", "G...", {
-        intervalMs: 2000,
-        minIntervalMs: 1000,
-        maxIntervalMs: 3000,
-        adaptiveThreshold: 1,
-        maxPolls: 8,
-      });
+      const stream = streamAccount(
+        "https://horizon.test",
+        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        {
+          intervalMs: 2000,
+          minIntervalMs: 1000,
+          maxIntervalMs: 3000,
+          adaptiveThreshold: 1,
+          maxPolls: 8,
+        },
+      );
 
       for (let i = 0; i < 8; i++) {
         await stream.next();

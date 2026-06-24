@@ -38,15 +38,15 @@ describe("shared/utils", () => {
   });
 
   describe("isValidPublicKey", () => {
+    // A known-valid Stellar public key (from Stellar's own test suite)
+    const VALID_KEY = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+
     it("accepts a valid 56-char Stellar public key", () => {
-      expect(
-        isValidPublicKey(
-          "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
-        ),
-      ).toBe(true);
+      expect(isValidPublicKey(VALID_KEY)).toBe(true);
     });
 
     it("rejects a key not starting with G", () => {
+      // S... is a secret key — different version byte
       expect(
         isValidPublicKey(
           "SAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
@@ -56,6 +56,68 @@ describe("shared/utils", () => {
 
     it("rejects a key that is too short", () => {
       expect(isValidPublicKey("GABCD")).toBe(false);
+    });
+
+    it("rejects a key that is too long", () => {
+      expect(isValidPublicKey(VALID_KEY + "A")).toBe(false);
+    });
+
+    it("rejects an empty string", () => {
+      expect(isValidPublicKey("")).toBe(false);
+    });
+
+    it("rejects null", () => {
+      expect(isValidPublicKey(null as unknown as string)).toBe(false);
+    });
+
+    it("rejects undefined", () => {
+      expect(isValidPublicKey(undefined as unknown as string)).toBe(false);
+    });
+
+    it("rejects a number", () => {
+      expect(isValidPublicKey(12345 as unknown as string)).toBe(false);
+    });
+
+    it("rejects a key with invalid base32 characters (lowercase)", () => {
+      // lowercase letters are not valid base32 in Stellar encoding
+      expect(
+        isValidPublicKey(
+          "gaazi4tcr3ty5ojhctjc2a4qsy6cjwjh5iajtgkin2er7lbnvkoccwna",
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects a key with invalid characters (0, 1, 8, 9)", () => {
+      // base32 uses A-Z and 2-7 only; 0/1/8/9 are invalid
+      expect(
+        isValidPublicKey(
+          "G0AZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects a valid-format key with a corrupted checksum", () => {
+      // Flip the last character to break the CRC-16 checksum
+      const corrupted =
+        VALID_KEY.slice(0, -1) + (VALID_KEY.endsWith("A") ? "B" : "A");
+      expect(isValidPublicKey(corrupted)).toBe(false);
+    });
+
+    it("rejects a whitespace-only string", () => {
+      expect(isValidPublicKey("   ")).toBe(false);
+    });
+
+    it("rejects a key with leading/trailing whitespace", () => {
+      expect(isValidPublicKey(" " + VALID_KEY)).toBe(false);
+      expect(isValidPublicKey(VALID_KEY + " ")).toBe(false);
+    });
+
+    it("rejects a contract ID (C...) as a public key", () => {
+      expect(
+        isValidPublicKey(
+          "CAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        ),
+      ).toBe(false);
     });
   });
 
