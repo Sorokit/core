@@ -12,6 +12,7 @@ import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
 import { validateContractMethodMetadata } from "./contractMetadata";
+import { validateContractAbi } from "./validateContractAbi";
 
 /**
  * Prepare step of the Soroban invoke pipeline.
@@ -29,6 +30,13 @@ export async function prepareContractCall(
   horizonUrl: string,
   params: ContractInvokeParams,
 ): Promise<SorokitResult<PreparedContractCall>> {
+  const abiValidation = validateContractAbi({
+    contractAbi: params.contractAbi,
+    method: params.method,
+    argCount: params.args?.length ?? 0,
+  });
+  if (abiValidation.status === "error") return abiValidation;
+
   const metadataResult = validateContractMethodMetadata(
     params.cachedMetadata,
     params.method,

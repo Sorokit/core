@@ -13,6 +13,7 @@ import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractReadParams, ContractCallResult } from "./types";
 import { validateContractMethodMetadata } from "./contractMetadata";
+import { validateContractAbi } from "./validateContractAbi";
 
 /**
  * Read contract data — view/read-only call, no signing required.
@@ -26,6 +27,19 @@ export async function readContract(
   networkConfig: ResolvedNetworkConfig,
   params: ContractReadParams,
 ): Promise<SorokitResult<ContractCallResult>> {
+  const abiValidation = validateContractAbi({
+    contractAbi: params.contractAbi,
+    method: params.method,
+    argCount: params.args?.length ?? 0,
+  });
+  if (abiValidation.status === "error") {
+    return err(
+      SorokitErrorCode.CONTRACT_READ_FAILED,
+      abiValidation.error.message,
+      abiValidation.error.cause,
+    );
+  }
+
   const metadataResult = validateContractMethodMetadata(
     params.cachedMetadata,
     params.method,

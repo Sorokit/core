@@ -20,3 +20,6 @@ export const DEFAULT_ADDRESS_DISPLAY_CHARS = 4;
 
 /** Default contract metadata cache TTL in milliseconds */
 export const DEFAULT_CONTRACT_METADATA_TTL_MS = 60 * 60 * 1000;
+
+/** Default cache TTL for fee estimates in milliseconds (5 minutes) */
+export const DEFAULT_FEE_CACHE_TTL_MS = 300_000;

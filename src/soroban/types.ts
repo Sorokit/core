@@ -14,11 +14,37 @@ export interface ContractMethod {
   returnType: string | null;
 }
 
+export interface ContractAbiMethod {
+  name: string;
+  args: unknown[];
+  returns?: unknown;
+}
+
+export interface ContractAbiObject {
+  methods: ContractAbiMethod[];
+}
+
+export interface ContractAbiFunctionObject {
+  functions: ContractAbiMethod[];
+}
+
+export interface ContractAbiSpec {
+  funcs(): xdr.ScSpecFunctionV0[];
+}
+
+export type ContractAbi =
+  | ContractAbiObject
+  | ContractAbiFunctionObject
+  | ContractAbiSpec
+  | xdr.ScSpecFunctionV0[];
+
 export interface ContractInvokeParams {
   contractId: string;
   method: string;
   args?: xdr.ScVal[];
   cachedMetadata?: ContractMethod[];
+  /** Optional ABI used to validate method name and argument count before simulation */
+  contractAbi?: ContractAbi;
   /** Public key of the invoking account */
   publicKey: string;
 }
@@ -28,6 +54,8 @@ export interface ContractReadParams {
   method: string;
   args?: xdr.ScVal[];
   cachedMetadata?: ContractMethod[];
+  /** Optional ABI used to validate method name and argument count before simulation */
+  contractAbi?: ContractAbi;
   /**
    * Public key of a funded account to use as the simulation source.
    * Required — the Soroban RPC needs a real account to simulate against.

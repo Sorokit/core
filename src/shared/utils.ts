@@ -47,3 +47,16 @@ export function isValidPublicKey(key: string): boolean {
 export function isValidContractId(id: string): boolean {
   return /^C[A-Z2-7]{55}$/.test(id);
 }
+
+/**
+ * Deep equality check using JSON serialisation.
+ * Sufficient for plain data objects with no circular references or functions.
+ */
+export function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}

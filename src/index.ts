@@ -56,6 +56,8 @@ export type {
 export type {
   ContractMethod,
   ContractMethodInput,
+  ContractAbi,
+  ContractAbiMethod,
   ContractInvokeParams,
   ContractReadParams,
   ContractCallResult,

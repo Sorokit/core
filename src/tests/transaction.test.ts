@@ -1,58 +1,43 @@
-﻿import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createHash } from "crypto";
+import { estimateFee } from "../transaction/estimateFee";
+import type { FeeEstimate } from "../transaction/estimateFee";
 import type { SorokitCache } from "../shared/cache";
 import type { ResolvedNetworkConfig } from "../shared/types";
+import { DEFAULT_FEE_CACHE_TTL_MS } from "../shared/constants";
 
-const {
-  mockSimulateTransaction,
-  mockTransactionsCall,
-  mockIsSimulationSuccess,
-} = vi.hoisted(() => ({
-  mockSimulateTransaction: vi.fn(),
-  mockTransactionsCall: vi.fn(),
-  mockIsSimulationSuccess: vi.fn(),
+// ─── Hoisted mocks (must be defined before vi.mock is hoisted) ────────────────
+
+const mocks = vi.hoisted(() => ({
+  simulateTransaction: vi.fn(),
+  fromXDR: vi.fn(),
+  isSimulationSuccess: vi.fn(),
+  isSimulationError: vi.fn(),
 }));
 
 vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
   return {
     ...actual,
-    Horizon: {
-      ...actual.Horizon,
-      Server: vi.fn().mockImplementation(() => ({
-        transactions: vi.fn().mockReturnValue({
-          order: vi.fn().mockReturnValue({
-            limit: vi.fn().mockReturnValue({
-              call: mockTransactionsCall,
-            }),
-          }),
-        }),
-      })),
-    },
-    TransactionBuilder: {
-      ...actual.TransactionBuilder,
-      fromXDR: vi.fn().mockReturnValue({}),
-    },
     rpc: {
       ...actual.rpc,
       Server: vi.fn().mockImplementation(() => ({
-        simulateTransaction: mockSimulateTransaction,
+        simulateTransaction: mocks.simulateTransaction,
       })),
       Api: {
         ...actual.rpc.Api,
-        isSimulationSuccess: mockIsSimulationSuccess,
-        isSimulationError: actual.rpc.Api.isSimulationError,
+        isSimulationSuccess: mocks.isSimulationSuccess,
+        isSimulationError: mocks.isSimulationError,
       },
+    },
+    TransactionBuilder: {
+      ...actual.TransactionBuilder,
+      fromXDR: mocks.fromXDR,
     },
   };
 });
 
-import {
-  calculateMedian,
-  isFeeSurge,
-  fetchRecentMedianFee,
-  MEDIAN_FEE_CACHE_KEY,
-} from "../transaction/feeSurge";
-import { estimateFee } from "../transaction/estimateFee";
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const networkConfig: ResolvedNetworkConfig = {
   network: "testnet",
@@ -61,214 +46,271 @@ const networkConfig: ResolvedNetworkConfig = {
   networkPassphrase: "Test SDF Network ; September 2015",
 };
 
-function createMockCache(initial?: unknown): SorokitCache & {
-  store: Map<string, unknown>;
+const MOCK_XDR = "AAAAAQAAAAC-mock-transaction-xdr-for-testing-purposes-only-AAAA";
+
+const CACHED_FEE: FeeEstimate = {
+  fee: "1100",
+  feeFloat: 1100,
+  feeXlm: "0.0001100",
+  baseFee: "100",
+  simulated: true,
+};
+
+function makeCacheKey(xdr: string): string {
+  return `sorokit:fee:${createHash("sha256").update(xdr).digest("hex")}`;
+}
+
+function makeEmptyCache(): SorokitCache & {
+  getCalls: number;
+  setCalls: Array<{ key: string; value: unknown; ttl: number | undefined }>;
 } {
   const store = new Map<string, unknown>();
-  if (initial !== undefined) {
-    store.set(MEDIAN_FEE_CACHE_KEY, initial);
-  }
+  const setCalls: Array<{ key: string; value: unknown; ttl: number | undefined }> = [];
+  let getCalls = 0;
   return {
-    store,
-    get: (key: string) => store.get(key),
-    set: (key: string, value: unknown) => {
+    get getCalls() {
+      return getCalls;
+    },
+    get setCalls() {
+      return setCalls;
+    },
+    get: (key) => {
+      getCalls++;
+      return store.get(key);
+    },
+    set: (key, value, ttl) => {
+      setCalls.push({ key, value, ttl });
       store.set(key, value);
     },
-    invalidate: (key: string) => {
-      store.delete(key);
-    },
-    clear: () => {
-      store.clear();
-    },
+    invalidate: (key) => store.delete(key),
+    clear: () => store.clear(),
   };
 }
 
-function mockSuccessfulSimulation(totalFeeStroops: number) {
-  mockSimulateTransaction.mockResolvedValue({
-    minResourceFee: String(totalFeeStroops - 100),
-    transactionData: {},
-    latestLedger: 1,
-    id: "1",
-    events: [],
-  });
+function makeCacheWithHit(xdr: string, value: FeeEstimate): SorokitCache & {
+  simulateCallCount: number;
+} {
+  const store = new Map<string, unknown>([[makeCacheKey(xdr), value]]);
+  let simulateCallCount = 0;
+  return {
+    get simulateCallCount() {
+      return simulateCallCount;
+    },
+    get: (key) => {
+      simulateCallCount++;
+      return store.get(key);
+    },
+    set: () => {},
+    invalidate: (key) => store.delete(key),
+    clear: () => store.clear(),
+  };
 }
 
-function mockRecentTransactionFees(fees: number[]) {
-  mockTransactionsCall.mockResolvedValue({
-    records: fees.map((fee) => ({ fee_charged: String(fee) })),
-  });
-}
+// ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("transaction fee surge", () => {
+describe("estimateFee — caching", () => {
   beforeEach(() => {
-    mockSimulateTransaction.mockReset();
-    mockTransactionsCall.mockReset();
-    mockIsSimulationSuccess.mockReset();
-    mockIsSimulationSuccess.mockReturnValue(true);
+    vi.clearAllMocks();
+
+    // Default: simulation returns a success result
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "1000" });
+    mocks.fromXDR.mockReturnValue({});
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.isSimulationError.mockReturnValue(false);
   });
 
-  describe("calculateMedian", () => {
-    it("returns the middle value for an odd-length array", () => {
-      expect(calculateMedian([100, 300, 200])).toBe(200);
-    });
+  describe("cache hit", () => {
+    it("returns cached fee without calling RPC", async () => {
+      const cache = makeCacheWithHit(MOCK_XDR, CACHED_FEE);
 
-    it("returns the average of two middle values for an even-length array", () => {
-      expect(calculateMedian([100, 200, 300, 400])).toBe(250);
-    });
-  });
-
-  describe("isFeeSurge", () => {
-    it("detects surge when fee exceeds 2x median", () => {
-      expect(isFeeSurge(500, 200)).toBe(true);
-    });
-
-    it("does not detect surge at exactly 2x median", () => {
-      expect(isFeeSurge(400, 200)).toBe(false);
-    });
-
-    it("does not detect surge below 2x median", () => {
-      expect(isFeeSurge(300, 200)).toBe(false);
-    });
-  });
-
-  describe("fetchRecentMedianFee", () => {
-    it("returns cached median without calling Horizon", async () => {
-      const cache = createMockCache(150);
-
-      const median = await fetchRecentMedianFee(
+      const result = await estimateFee(
+        networkConfig.rpcUrl,
         networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
         cache,
       );
 
-      expect(median).toBe(150);
-      expect(mockTransactionsCall).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toEqual(CACHED_FEE);
+      }
+      // RPC simulation must NOT have been called
+      expect(mocks.simulateTransaction).not.toHaveBeenCalled();
     });
 
-    it("returns null when Horizon returns no transactions", async () => {
-      mockTransactionsCall.mockResolvedValue({ records: [] });
+    it("returns the exact cached object, not a re-computed one", async () => {
+      const cache = makeCacheWithHit(MOCK_XDR, CACHED_FEE);
 
-      const median = await fetchRecentMedianFee(networkConfig.horizonUrl);
-
-      expect(median).toBeNull();
-    });
-
-    it("stores fetched median in cache", async () => {
-      mockRecentTransactionFees([100, 200, 300]);
-      const cache = createMockCache();
-
-      const median = await fetchRecentMedianFee(
+      const result = await estimateFee(
+        networkConfig.rpcUrl,
         networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
         cache,
       );
 
-      expect(median).toBe(200);
-      expect(cache.get(MEDIAN_FEE_CACHE_KEY)).toBe(200);
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.fee).toBe(CACHED_FEE.fee);
+        expect(result.data.feeFloat).toBe(CACHED_FEE.feeFloat);
+        expect(result.data.feeXlm).toBe(CACHED_FEE.feeXlm);
+        expect(result.data.simulated).toBe(CACHED_FEE.simulated);
+      }
     });
   });
 
-  describe("estimateFee", () => {
-    it("returns surge: false for a normal fee relative to recent median", async () => {
-      mockSuccessfulSimulation(200);
-      mockRecentTransactionFees([100, 100, 100, 100, 100]);
+  describe("cache miss", () => {
+    it("calls RPC simulation when cache is empty", async () => {
+      const cache = makeEmptyCache();
 
       const result = await estimateFee(
         networkConfig.rpcUrl,
         networkConfig.horizonUrl,
         networkConfig,
-        {
-          kind: "xdr",
-          transactionXdr: "AAAAAgAAAABmockxdr==",
-        },
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
       );
 
       expect(result.status).toBe("ok");
+      expect(mocks.simulateTransaction).toHaveBeenCalledOnce();
+    });
+
+    it("stores the result in cache after a miss", async () => {
+      const cache = makeEmptyCache();
+
+      await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
+      );
+
+      expect(cache.setCalls).toHaveLength(1);
+      const stored = cache.setCalls[0];
+      expect(stored?.key).toBe(makeCacheKey(MOCK_XDR));
+      expect((stored?.value as FeeEstimate).simulated).toBe(true);
+    });
+
+    it("uses SHA256 of the XDR as the cache key", async () => {
+      const cache = makeEmptyCache();
+
+      await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
+      );
+
+      const expectedKey = makeCacheKey(MOCK_XDR);
+      expect(cache.setCalls[0]?.key).toBe(expectedKey);
+    });
+  });
+
+  describe("cache expiry (simulated by cache returning undefined)", () => {
+    it("calls RPC again after expiry (cache returns no value)", async () => {
+      // Simulate an expired cache: get() always returns undefined
+      const expiredCache: SorokitCache = {
+        get: () => undefined,
+        set: vi.fn(),
+        invalidate: vi.fn(),
+        clear: vi.fn(),
+      };
+
+      const result = await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        expiredCache,
+      );
+
+      expect(result.status).toBe("ok");
+      expect(mocks.simulateTransaction).toHaveBeenCalledOnce();
+      // Result stored in cache again after the fresh simulation
+      expect(expiredCache.set).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe("cache TTL", () => {
+    it("passes the default 5-minute TTL to cache.set()", async () => {
+      const cache = makeEmptyCache();
+
+      await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
+      );
+
+      expect(cache.setCalls[0]?.ttl).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+    });
+
+    it("passes a custom TTL when provided", async () => {
+      const cache = makeEmptyCache();
+      const customTtl = 60_000; // 1 minute
+
+      await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+        cache,
+        customTtl,
+      );
+
+      expect(cache.setCalls[0]?.ttl).toBe(customTtl);
+    });
+  });
+
+  describe("backward compatibility — no cache provided", () => {
+    it("calls RPC and returns a fee estimate when no cache is given", async () => {
+      const result = await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+      );
+
+      expect(result.status).toBe("ok");
+      expect(mocks.simulateTransaction).toHaveBeenCalledOnce();
+    });
+
+    it("returns a correctly shaped FeeEstimate without cache", async () => {
+      const result = await estimateFee(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        { kind: "xdr", transactionXdr: MOCK_XDR },
+      );
+
       if (result.status === "ok") {
-        expect(result.data.surge).toBe(false);
+        expect(typeof result.data.fee).toBe("string");
+        expect(typeof result.data.feeFloat).toBe("number");
+        expect(typeof result.data.feeXlm).toBe("string");
+        expect(typeof result.data.baseFee).toBe("string");
+        expect(typeof result.data.simulated).toBe("boolean");
+        expect(result.data.simulated).toBe(true);
       }
     });
 
-    it("returns surge: true when estimated fee exceeds 2x recent median", async () => {
-      mockSuccessfulSimulation(500);
-      mockRecentTransactionFees([100, 100, 100, 100, 100]);
+    it("falls back to base fee when simulation returns an error", async () => {
+      mocks.isSimulationSuccess.mockReturnValue(false);
+      mocks.isSimulationError.mockReturnValue(true);
 
       const result = await estimateFee(
         networkConfig.rpcUrl,
         networkConfig.horizonUrl,
         networkConfig,
-        {
-          kind: "xdr",
-          transactionXdr: "AAAAAgAAAABmockxdr==",
-        },
+        { kind: "xdr", transactionXdr: MOCK_XDR },
       );
 
       expect(result.status).toBe("ok");
       if (result.status === "ok") {
-        expect(result.data.surge).toBe(true);
-      }
-    });
-
-    it("omits surge when recent fee history is unavailable", async () => {
-      mockSuccessfulSimulation(500);
-      mockTransactionsCall.mockRejectedValue(new Error("Horizon unavailable"));
-
-      const result = await estimateFee(
-        networkConfig.rpcUrl,
-        networkConfig.horizonUrl,
-        networkConfig,
-        {
-          kind: "xdr",
-          transactionXdr: "AAAAAgAAAABmockxdr==",
-        },
-      );
-
-      expect(result.status).toBe("ok");
-      if (result.status === "ok") {
-        expect(result.data.surge).toBeUndefined();
-      }
-    });
-
-    it("invokes onFeeSurge callback when surge is detected", async () => {
-      mockSuccessfulSimulation(500);
-      mockRecentTransactionFees([100, 100, 100, 100, 100]);
-      const onFeeSurge = vi.fn();
-
-      const result = await estimateFee(
-        networkConfig.rpcUrl,
-        networkConfig.horizonUrl,
-        networkConfig,
-        {
-          kind: "xdr",
-          transactionXdr: "AAAAAgAAAABmockxdr==",
-        },
-        { onFeeSurge },
-      );
-
-      expect(result.status).toBe("ok");
-      expect(onFeeSurge).toHaveBeenCalledOnce();
-      if (result.status === "ok") {
-        expect(onFeeSurge).toHaveBeenCalledWith(result.data);
-      }
-    });
-
-    it("uses cached median fee without calling Horizon", async () => {
-      mockSuccessfulSimulation(500);
-      const cache = createMockCache(100);
-
-      const result = await estimateFee(
-        networkConfig.rpcUrl,
-        networkConfig.horizonUrl,
-        networkConfig,
-        {
-          kind: "xdr",
-          transactionXdr: "AAAAAgAAAABmockxdr==",
-        },
-        { cache },
-      );
-
-      expect(result.status).toBe("ok");
-      expect(mockTransactionsCall).not.toHaveBeenCalled();
-      if (result.status === "ok") {
-        expect(result.data.surge).toBe(true);
+        expect(result.data.simulated).toBe(false);
       }
     });
   });

@@ -128,4 +128,40 @@ describe("wallet module functions", () => {
       expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
     }
   });
+
+  it("signTransaction() returns WALLET_SIGN_REJECTED when adapter throws a rejection error", async () => {
+    const rejectingAdapter: import("../wallet/types").WalletAdapter = {
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      signTransaction: vi.fn().mockRejectedValue(new Error("User rejected the request")),
+    };
+    const result = await signTransaction(rejectingAdapter, {
+      transactionXdr: "some-xdr",
+      networkPassphrase: "Test SDF Network ; September 2015",
+    });
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
+    }
+  });
+
+  it("signTransaction() returns WALLET_SIGN_FAILED when adapter throws a non-rejection error", async () => {
+    const failingAdapter: import("../wallet/types").WalletAdapter = {
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      signTransaction: vi.fn().mockRejectedValue(new Error("Network timeout")),
+    };
+    const result = await signTransaction(failingAdapter, {
+      transactionXdr: "some-xdr",
+      networkPassphrase: "Test SDF Network ; September 2015",
+    });
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_FAILED);
+    }
+  });
 });

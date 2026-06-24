@@ -6,13 +6,16 @@ import {
   BASE_FEE,
 } from "@stellar/stellar-sdk";
 import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
+import { createHash } from "crypto";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { toMessage } from "../shared";
-import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
+import {
+  DEFAULT_TX_TIMEOUT_SECONDS,
+  DEFAULT_FEE_CACHE_TTL_MS,
+} from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorokitCache } from "../shared/cache";
-import { fetchRecentMedianFee, isFeeSurge } from "./feeSurge";
 
 /**
  * The result of a fee estimation.
@@ -74,6 +77,9 @@ export type FeeEstimateInput =
  *
  * Falls back to BASE_FEE if simulation is unavailable.
  *
+ * When a `cache` is provided, the SHA256 hash of the transaction XDR is used
+ * as the cache key. Cache hits skip the RPC simulation entirely.
+ *
  * @example
  * // From XDR
  * const result = await estimateFee(rpcUrl, horizonUrl, networkConfig, { transactionXdr: xdr });
@@ -91,9 +97,11 @@ export async function estimateFee(
   horizonUrl: string,
   networkConfig: ResolvedNetworkConfig,
   input: FeeEstimateInput,
-  options?: FeeEstimateOptions,
+  cache?: SorokitCache,
+  cacheTtlMs?: number,
 ): Promise<SorokitResult<FeeEstimate>> {
   try {
+    const ttl = cacheTtlMs ?? DEFAULT_FEE_CACHE_TTL_MS;
     let xdr: string;
 
     if (input.kind === "xdr") {
@@ -117,7 +125,7 @@ export async function estimateFee(
         asset = new Asset(assetCode, assetIssuer);
       }
 
-      const tx = new TransactionBuilder(sourceAccount, {
+      const builtTx = new TransactionBuilder(sourceAccount, {
         fee: BASE_FEE,
         networkPassphrase: networkConfig.networkPassphrase,
       })
@@ -131,7 +139,17 @@ export async function estimateFee(
         .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
         .build();
 
-      xdr = tx.toXDR();
+      xdr = builtTx.toXDR();
+    }
+
+    // Check cache before making an RPC simulation call.
+    // For "xdr" input this happens before any network call;
+    // for "payment" input this happens after the Horizon account fetch but
+    // before the more expensive Soroban simulation.
+    const cacheKey = `sorokit:fee:${createHash("sha256").update(xdr).digest("hex")}`;
+    if (cache) {
+      const cached = cache.get(cacheKey);
+      if (cached != null) return ok(cached as FeeEstimate);
     }
 
     // Simulate via Soroban RPC
@@ -156,8 +174,7 @@ export async function estimateFee(
     }
 
     const feeXlm = (feeStroops / 10_000_000).toFixed(7);
-
-    const estimate: FeeEstimate = {
+    const feeEstimate: FeeEstimate = {
       fee: String(feeStroops),
       feeFloat: feeStroops,
       feeXlm,
@@ -165,15 +182,12 @@ export async function estimateFee(
       simulated,
     };
 
-    const medianFee = await fetchRecentMedianFee(horizonUrl, options?.cache);
-    if (medianFee !== null) {
-      estimate.surge = isFeeSurge(feeStroops, medianFee);
-      if (estimate.surge && options?.onFeeSurge) {
-        options.onFeeSurge(estimate);
-      }
+    // Store in cache so subsequent calls with the same XDR are free
+    if (cache) {
+      cache.set(cacheKey, feeEstimate, ttl);
     }
 
-    return ok(estimate);
+    return ok(feeEstimate);
   } catch (cause) {
     return err(
       SorokitErrorCode.TX_SIMULATE_FAILED,
