@@ -73,7 +73,7 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
       ...actual.Horizon,
       Server: vi.fn().mockImplementation(() => ({
         transactions: vi.fn().mockImplementation(() => {
-          const builder = {
+          const builder: any = {
             forAccount: vi.fn(() => builder),
             limit: vi.fn(() => builder),
             order: vi.fn(() => builder),
@@ -91,7 +91,7 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
     },
     TransactionBuilder: {
       ...actual.TransactionBuilder,
-      fromXDR: vi.fn().mockReturnValue({}),
+      fromXDR: mocks.fromXDR,
       mockImplementation: vi.fn(() => ({
         addOperation: mockAddOperation,
         addMemo: mockAddMemo,
@@ -110,10 +110,7 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
         isSimulationError: mocks.isSimulationError,
       },
     },
-    TransactionBuilder: {
-      ...actual.TransactionBuilder,
-      fromXDR: mocks.fromXDR,
-    },
+
   };
 });
 
