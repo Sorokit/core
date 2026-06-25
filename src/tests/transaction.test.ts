@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHash } from "crypto";
 import { estimateFee } from "../transaction/estimateFee";
 import type { FeeEstimate } from "../transaction/estimateFee";
@@ -8,6 +8,8 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import {
   buildPaymentWithTrustline,
   buildSwapTransaction,
+  buildPaymentTransaction,
+  clearSequenceCache,
 } from "../transaction/buildTransaction";
 import type {
   PaymentWithTrustlineParams,
@@ -20,6 +22,7 @@ import {
   applyTransactionFilters,
   streamTransactions,
 } from "../transaction/streamTransactions";
+import { TokenBucketRateLimiter } from "../shared/utils";
 
 const {
   mockSimulateTransaction,
@@ -1016,5 +1019,178 @@ describe("transaction caching", () => {
       expect(result.status).toBe("ok");
       expect(mockTransactionCall).toHaveBeenCalledOnce();
     });
+  });
+});
+
+describe("sequence number auto-fetch cache", () => {
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    clearSequenceCache();
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
+  });
+
+  it("calls Horizon on cache miss and returns a result", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      sequence: "100",
+      sequenceNumber: () => "100",
+      incrementSequenceNumber: vi.fn(),
+      subentry_count: 0,
+      balances: [],
+      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+    });
+
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        destination: "GBBD47IF6LWK5P7V6XZCHJSAXTSPG4FJHOUOHAUZTF5YQK4Q2GB7S7V2",
+        amount: "10",
+        autoFetchSequence: true,
+      },
+    );
+
+    expect(mockLoadAccount).toHaveBeenCalledOnce();
+    // Result may succeed or fail depending on mock build; we just verify Horizon was called
+    expect(result).toBeDefined();
+  });
+
+  it("does not call Horizon when cache is populated within TTL", async () => {
+    const mockAccount = {
+      sequence: "100",
+      sequenceNumber: vi.fn().mockReturnValue("101"),
+      incrementSequenceNumber: vi.fn(),
+      subentry_count: 0,
+      balances: [],
+      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+    };
+    mockLoadAccount.mockResolvedValue(mockAccount);
+
+    const params = {
+      destination: "GBBD47IF6LWK5P7V6XZCHJSAXTSPG4FJHOUOHAUZTF5YQK4Q2GB7S7V2",
+      amount: "10",
+      autoFetchSequence: true as const,
+    };
+    const sourceKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+
+    // First call populates the cache
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    mockLoadAccount.mockReset();
+
+    // Second call within TTL should use cache
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("calls Horizon again after cache TTL expires", async () => {
+    const mockAccount = {
+      sequence: "100",
+      sequenceNumber: vi.fn().mockReturnValue("101"),
+      incrementSequenceNumber: vi.fn(),
+      subentry_count: 0,
+      balances: [],
+      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+    };
+    mockLoadAccount.mockResolvedValue(mockAccount);
+
+    const params = {
+      destination: "GBBD47IF6LWK5P7V6XZCHJSAXTSPG4FJHOUOHAUZTF5YQK4Q2GB7S7V2",
+      amount: "10",
+      autoFetchSequence: true as const,
+    };
+    const sourceKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+
+    // Populate cache using a past timestamp
+    const realDateNow = Date.now;
+    // First call with normal time
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    mockLoadAccount.mockReset();
+    mockLoadAccount.mockResolvedValue(mockAccount);
+
+    // Simulate time past TTL by mocking Date.now to return future time
+    Date.now = vi.fn().mockReturnValue(realDateNow() + 6_000); // 6 seconds later
+
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+
+    Date.now = realDateNow; // restore
+    expect(mockLoadAccount).toHaveBeenCalledOnce();
+  });
+
+  it("does not use cache when autoFetchSequence is false", async () => {
+    const mockAccount = {
+      sequence: "100",
+      sequenceNumber: vi.fn().mockReturnValue("101"),
+      incrementSequenceNumber: vi.fn(),
+      subentry_count: 0,
+      balances: [],
+      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+    };
+    mockLoadAccount.mockResolvedValue(mockAccount);
+
+    const sourceKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+    const params = {
+      destination: "GBBD47IF6LWK5P7V6XZCHJSAXTSPG4FJHOUOHAUZTF5YQK4Q2GB7S7V2",
+      amount: "10",
+    };
+
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+
+    expect(mockLoadAccount).toHaveBeenCalledTimes(2);
+  });
+
+  it("clearSequenceCache() removes all cached entries", async () => {
+    const mockAccount = {
+      sequence: "100",
+      sequenceNumber: vi.fn().mockReturnValue("101"),
+      incrementSequenceNumber: vi.fn(),
+      subentry_count: 0,
+      balances: [],
+      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+    };
+    mockLoadAccount.mockResolvedValue(mockAccount);
+
+    const sourceKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+    const params = {
+      destination: "GBBD47IF6LWK5P7V6XZCHJSAXTSPG4FJHOUOHAUZTF5YQK4Q2GB7S7V2",
+      amount: "10",
+      autoFetchSequence: true as const,
+    };
+
+    // Populate cache
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    mockLoadAccount.mockReset();
+    mockLoadAccount.mockResolvedValue(mockAccount);
+
+    clearSequenceCache();
+
+    // Cache cleared — should fetch again
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    expect(mockLoadAccount).toHaveBeenCalledOnce();
+  });
+});
+
+describe("TokenBucketRateLimiter — rate limiting on submit", () => {
+  it("acquire() resolves immediately when tokens are available", async () => {
+    const limiter = new TokenBucketRateLimiter(5);
+    const start = Date.now();
+    await limiter.acquire();
+    expect(Date.now() - start).toBeLessThan(50);
+  });
+
+  it("constructor throws when maxRequestsPerSecond is 0", () => {
+    expect(() => new TokenBucketRateLimiter(0)).toThrow(
+      "maxRequestsPerSecond must be a positive number",
+    );
+  });
+
+  it("constructor throws when maxRequestsPerSecond is negative", () => {
+    expect(() => new TokenBucketRateLimiter(-5)).toThrow(
+      "maxRequestsPerSecond must be a positive number",
+    );
   });
 });

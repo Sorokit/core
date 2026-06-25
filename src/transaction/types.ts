@@ -23,6 +23,8 @@ export interface PaymentParams {
   assetCode?: string;
   assetIssuer?: string;
   memo?: string;
+  /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
+  autoFetchSequence?: boolean;
 }
 
 export interface TrustlineParams {
@@ -30,12 +32,16 @@ export interface TrustlineParams {
   assetIssuer: string;
   /** Defaults to max limit */
   limit?: string;
+  /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
+  autoFetchSequence?: boolean;
 }
 
 export interface AccountCreateParams {
   destination: string;
   /** Starting balance in XLM — minimum 1 XLM */
   startingBalance: string;
+  /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
+  autoFetchSequence?: boolean;
 }
 
 export interface PaymentWithTrustlineParams {

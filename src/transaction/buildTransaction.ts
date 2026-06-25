@@ -5,6 +5,7 @@ import {
   Asset,
   Memo,
   BASE_FEE,
+  Account,
 } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -20,6 +21,35 @@ import type {
   PaymentWithTrustlineParams,
   SwapTransactionParams,
 } from "./types";
+
+// ─── Sequence cache (shared across builders for autoFetchSequence) ────────────
+
+const SEQUENCE_CACHE_TTL_MS = 5_000;
+const _sequenceCache = new Map<string, { sequence: string; cachedAt: number }>();
+
+function getSequenceCacheEntry(publicKey: string): Account | null {
+  const entry = _sequenceCache.get(publicKey);
+  if (!entry || Date.now() - entry.cachedAt > SEQUENCE_CACHE_TTL_MS) {
+    _sequenceCache.delete(publicKey);
+    return null;
+  }
+  return new Account(publicKey, entry.sequence);
+}
+
+function updateSequenceCache(publicKey: string, postBuildSequence: string): void {
+  const existing = _sequenceCache.get(publicKey);
+  _sequenceCache.set(publicKey, {
+    sequence: postBuildSequence,
+    cachedAt: existing?.cachedAt ?? Date.now(),
+  });
+}
+
+/** Clear the module-level sequence cache. Useful for test isolation. */
+export function clearSequenceCache(): void {
+  _sequenceCache.clear();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function describeTransactionBuildFailure(action: string, cause: unknown): string {
   if (isTimeoutError(cause)) {
@@ -86,8 +116,21 @@ export async function buildPaymentTransaction(
   }
 
   try {
-    const server = new Horizon.Server(horizonUrl);
-    const sourceAccount = await server.loadAccount(sourcePublicKey);
+    const useCache = params.autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
 
     const builder = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
@@ -106,7 +149,12 @@ export async function buildPaymentTransaction(
       builder.addMemo(Memo.text(params.memo));
     }
 
-    return ok(builder.build().toXDR());
+    const tx = builder.build();
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
+
+    return ok(tx.toXDR());
   } catch (cause) {
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
@@ -126,8 +174,21 @@ export async function buildCreateAccountTransaction(
   params: AccountCreateParams,
 ): Promise<SorokitResult<string>> {
   try {
-    const server = new Horizon.Server(horizonUrl);
-    const sourceAccount = await server.loadAccount(sourcePublicKey);
+    const useCache = params.autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
 
     const tx = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
@@ -141,6 +202,10 @@ export async function buildCreateAccountTransaction(
       )
       .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
       .build();
+
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
 
     return ok(tx.toXDR());
   } catch (cause) {
@@ -180,8 +245,21 @@ export async function buildTrustlineTransaction(
   }
 
   try {
-    const server = new Horizon.Server(horizonUrl);
-    const sourceAccount = await server.loadAccount(sourcePublicKey);
+    const useCache = params.autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
 
     const asset = new Asset(params.assetCode, params.assetIssuer);
 
@@ -197,6 +275,10 @@ export async function buildTrustlineTransaction(
       )
       .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
       .build();
+
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
 
     return ok(tx.toXDR());
   } catch (cause) {
