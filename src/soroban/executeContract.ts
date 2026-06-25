@@ -1,7 +1,13 @@
 import { rpc as SorobanRpc, TransactionBuilder } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { toMessage, sleep } from "../shared";
+import {
+  isNetworkConnectivityError,
+  isTimeoutError,
+  isXdrInvalidError,
+  sleep,
+  toMessage,
+} from "../shared";
 import type { SorokitLogger } from "../shared/logger";
 import {
   DEFAULT_POLL_MAX_ATTEMPTS,
@@ -9,6 +15,29 @@ import {
 } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorobanPollConfig } from "./types";
+
+function describeContractSubmissionFailure(cause: unknown): string {
+  if (isXdrInvalidError(cause)) {
+    return `Failed to submit contract transaction because the signed XDR is malformed: ${toMessage(cause)}`;
+  }
+  if (isTimeoutError(cause)) {
+    return `Failed to submit contract transaction because RPC timed out: ${toMessage(cause)}`;
+  }
+  if (isNetworkConnectivityError(cause)) {
+    return `Failed to submit contract transaction due to network connectivity: ${toMessage(cause)}`;
+  }
+  return `Failed to submit contract transaction: ${toMessage(cause)}`;
+}
+
+function describeContractPollingFailure(cause: unknown): string {
+  if (isTimeoutError(cause)) {
+    return `Contract transaction polling timed out: ${toMessage(cause)}`;
+  }
+  if (isNetworkConnectivityError(cause)) {
+    return `Contract transaction polling failed due to network connectivity: ${toMessage(cause)}`;
+  }
+  return `Error while polling contract transaction: ${toMessage(cause)}`;
+}
 
 /**
  * Execute step of the Soroban invoke flow: submit → poll for confirmation.
@@ -32,6 +61,14 @@ export async function executeContract(
     operation: "soroban.execute",
     status: "start",
   });
+
+  if (isXdrInvalidError(signedXdr)) {
+    return err(
+      SorokitErrorCode.CONTRACT_INVOKE_FAILED,
+      "Failed to submit contract transaction because the signed XDR is malformed.",
+      signedXdr,
+    );
+  }
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   let hash: string;
@@ -66,7 +103,7 @@ export async function executeContract(
       hash,
     });
   } catch (cause) {
-    const message = `Failed to submit contract transaction: ${toMessage(cause)}`;
+    const message = describeContractSubmissionFailure(cause);
     logger?.warn("soroban.execute.submit", {
       operation: "soroban.execute.submit",
       status: "error",
@@ -147,7 +184,7 @@ export async function executeContract(
     });
     return err(SorokitErrorCode.CONTRACT_INVOKE_FAILED, message);
   } catch (cause) {
-    const message = `Error while polling contract transaction: ${toMessage(cause)}`;
+    const message = describeContractPollingFailure(cause);
     logger?.warn("soroban.execute.poll", {
       operation: "soroban.execute.poll",
       status: "error",

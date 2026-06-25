@@ -16,6 +16,7 @@ export type {
 export { FreighterAdapter } from "./wallet/adapters/freighter";
 export { XBullAdapter } from "./wallet/adapters/xbull";
 export { LobstrAdapter } from "./wallet/adapters/lobstr";
+export { collectMultiSignatures } from "./wallet";
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
 export type {
@@ -54,6 +55,8 @@ export type {
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
 export type {
+  ContractMethod,
+  ContractMethodInput,
   ContractAbi,
   ContractAbiMethod,
   ContractInvokeParams,
@@ -63,9 +66,17 @@ export type {
   SorobanPollConfig,
   SimulateTransactionResult,
 } from "./soroban/types";
+export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
+export { buildContractDeploy } from "./soroban/deployContract";
+export type { BuildContractDeployOptions } from "./soroban/deployContract";
+export type {
+  ContractEvent,
+  ContractEventFilter,
+  ContractEventSubscriptionOptions,
+} from "./soroban/subscribeContractEvents";
 
 // ─── Response system ──────────────────────────────────────────────────────────
 export type { SorokitResult, SorokitError } from "./shared/response";
-export { SorokitErrorCode, ok, err, isOk, isErr } from "./shared/response";
+export { SorokitErrorCode, ok, err, isOk, isErr, isErrorCode, assertOk } from "./shared/response";
 export type { SorokitLogger, LogLevel, LoggerConfig } from "./shared/logger";
 export type { SorokitCache } from "./shared/cache";

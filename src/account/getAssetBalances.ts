@@ -1,7 +1,9 @@
 import { ok } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import { SorokitErrorCode } from "../shared/response";
 import type { AssetBalance } from "./types";
 import { getAccount } from "./getAccount";
+import { validateIssuer } from "../shared/validateIssuer";
 
 /**
  * Filter criteria for getAssetBalances().
@@ -46,11 +48,34 @@ export async function getAssetBalances(
   horizonUrl: string,
   publicKey: string,
   filter?: AssetBalanceFilter,
+  trustedIssuers?: string[] | null,
 ): Promise<SorokitResult<AssetBalance[]>> {
   const result = await getAccount(horizonUrl, publicKey);
   if (result.status === "error") return result;
 
   let balances = result.data.balances;
+
+  // Validate issuers against whitelist if configured
+  if (trustedIssuers !== null && trustedIssuers !== undefined && trustedIssuers.length > 0) {
+    for (const balance of balances) {
+      // Skip native asset validation — only validate issued assets
+      if (balance.assetIssuer !== null) {
+        try {
+          validateIssuer(balance.assetIssuer, trustedIssuers);
+        } catch (cause: unknown) {
+          return {
+            status: "error",
+            data: null,
+            error: {
+              code: (cause as any)?.code || "TX_BUILD_FAILED",
+              message: (cause as Error)?.message || String(cause),
+              cause,
+            },
+          };
+        }
+      }
+    }
+  }
 
   if (!filter) return ok(balances);
 

@@ -7,11 +7,27 @@ import {
 } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { toMessage } from "../shared";
+import {
+  isNetworkConnectivityError,
+  isTimeoutError,
+  retryWithBackoff,
+  toMessage,
+} from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
+import { validateContractMethodMetadata } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
+
+function describePrepareFailure(cause: unknown): string {
+  if (isTimeoutError(cause)) {
+    return `Contract preparation timed out while contacting RPC: ${toMessage(cause)}`;
+  }
+  if (isNetworkConnectivityError(cause)) {
+    return `Contract preparation failed due to network connectivity: ${toMessage(cause)}`;
+  }
+  return `Failed to prepare contract call: ${toMessage(cause)}`;
+}
 
 /**
  * Prepare step of the Soroban invoke pipeline.
@@ -29,12 +45,20 @@ export async function prepareContractCall(
   horizonUrl: string,
   params: ContractInvokeParams,
 ): Promise<SorokitResult<PreparedContractCall>> {
-  const validation = validateContractAbi({
+  const abiValidation = validateContractAbi({
     contractAbi: params.contractAbi,
     method: params.method,
     argCount: params.args?.length ?? 0,
   });
-  if (validation.status === "error") return validation;
+  if (abiValidation.status === "error") return abiValidation;
+
+  const metadataResult = validateContractMethodMetadata(
+    params.cachedMetadata,
+    params.method,
+    params.args?.length ?? 0,
+    SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+  );
+  if (metadataResult.status === "error") return metadataResult;
 
   try {
     const rpc = new SorobanRpc.Server(rpcUrl);
@@ -52,7 +76,9 @@ export async function prepareContractCall(
       .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
       .build();
 
-    const simResult = await rpc.simulateTransaction(tx);
+    const simResult = await retryWithBackoff(async () => {
+      return await rpc.simulateTransaction(tx);
+    });
 
     if (SorobanRpc.Api.isSimulationError(simResult)) {
       return err(
@@ -78,7 +104,7 @@ export async function prepareContractCall(
   } catch (cause) {
     return err(
       SorokitErrorCode.CONTRACT_PREPARE_FAILED,
-      `Failed to prepare contract call: ${toMessage(cause)}`,
+      describePrepareFailure(cause),
       cause,
     );
   }

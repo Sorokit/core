@@ -31,6 +31,7 @@ import { prepareContractCall } from "../soroban/prepareCall";
 import { simulateTransaction } from "../soroban/simulateTransaction";
 import { executeContract } from "../soroban/executeContract";
 import { invokeContract } from "../soroban/invokeContract";
+import { getContractMethods } from "../soroban/contractMetadata";
 import { createLogger, withLogging } from "../shared/logger";
 import { formatAddress } from "../shared/utils";
 import { ok } from "../shared/response";
@@ -38,6 +39,10 @@ import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
 import type { SorokitCache } from "../shared/cache";
 import type { ResolvedNetworkConfig } from "../shared/types";
+import type { ErrorHandler, ErrorContext } from "../shared/errors";
+import { applyErrorHandler, withErrorHandling, applyCodeTransformer } from "../shared/errors";
+import type { ErrorCodeTransformer } from "../shared/errors";
+import { TokenBucketRateLimiter } from "../shared/utils";
 import type { NetworkType } from "../network/config";
 import type {
   WalletAdapter,
@@ -59,6 +64,7 @@ import type {
   TransactionPage,
 } from "../transaction/streamTransactions";
 import type {
+  ContractMethod,
   ContractInvokeParams,
   ContractReadParams,
   ContractCallResult,
@@ -94,6 +100,14 @@ export interface SorokitClientConfig {
   sorobanPoll?: SorobanPollConfig;
   /** Invoked when estimateFee detects a fee surge (>2x recent median) */
   onFeeSurge?: FeeEstimateOptions["onFeeSurge"];
+  /** Optional error handler for centralized error processing and recovery */
+  errorHandler?: ErrorHandler;
+  /** Trusted asset issuers whitelist — null means no whitelist (all issuers allowed) */
+  trustedIssuers?: string[];
+  /** Optional error code transformer — maps SDK error codes to consumer-specific strings before returning any error result */
+  errorCodeTransformer?: ErrorCodeTransformer;
+  /** Max transaction submissions per second — activates token bucket rate limiting on transaction.submit() */
+  maxTxPerSecond?: number;
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────
@@ -101,6 +115,8 @@ export interface SorokitClientConfig {
 export interface SorokitClient {
   /** Resolved network configuration for this client instance */
   readonly networkConfig: ResolvedNetworkConfig;
+  /** Trusted asset issuers whitelist — null means no whitelist (all issuers allowed) */
+  readonly trustedIssuers: string[] | null;
 
   readonly wallet: {
     /** Connect and return WalletState */
@@ -185,6 +201,11 @@ export interface SorokitClient {
   };
 
   readonly soroban: {
+    /** Discover available contract methods and cache metadata by contract ID */
+    getContractMethods(
+      contractId: string,
+      ttlMs?: number,
+    ): Promise<SorokitResult<ContractMethod[]>>;
     /**
      * Simulate any transaction XDR for fee estimation and pre-flight checks.
      * Uses the Soroban RPC.
@@ -268,12 +289,21 @@ export function createSorokitClient(
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
     });
   const defaultPollConfig = config.sorobanPoll;
+  const errorHandler = config.errorHandler;
   const feeEstimateOptions: FeeEstimateOptions = {
     ...(config.cache !== undefined ? { cache: config.cache } : {}),
     ...(config.onFeeSurge !== undefined
       ? { onFeeSurge: config.onFeeSurge }
       : {}),
   };
+
+  const applyTx = <T>(r: SorokitResult<T>): SorokitResult<T> =>
+    applyCodeTransformer(r, config.errorCodeTransformer);
+
+  const rateLimiter =
+    config.maxTxPerSecond !== undefined
+      ? new TokenBucketRateLimiter(config.maxTxPerSecond)
+      : null;
 
   logger.info("client.create", {
     operation: "client.create",
@@ -285,39 +315,55 @@ export function createSorokitClient(
 
   const client: SorokitClient = {
     networkConfig,
+    trustedIssuers: config.trustedIssuers ?? null,
 
     wallet: {
       connect: (adapter) =>
         withLogging(logger, "wallet.connect", { walletType: adapter.walletType }, () =>
           connectWallet(adapter),
-        ),
+        ).then(applyTx),
       disconnect: (adapter) =>
         withLogging(logger, "wallet.disconnect", { walletType: adapter.walletType }, () =>
           disconnectWallet(adapter),
-        ),
+        ).then(applyTx),
       signTransaction: (adapter, input) =>
         withLogging(
           logger,
           "wallet.signTransaction",
           { walletType: adapter.walletType },
           () => signTransaction(adapter, input),
-        ),
+        ).then(applyTx),
       emptyState: () => emptyWalletState(),
     },
 
     account: {
       get: (publicKey) =>
-        withLogging(logger, "account.get", { publicKey }, () =>
-          getAccount(horizonUrl, publicKey),
-        ),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "account.get", params: { publicKey } },
+          () =>
+            withLogging(logger, "account.get", { publicKey }, () =>
+              getAccount(horizonUrl, publicKey),
+            ),
+        ).then(applyTx),
       getBalances: (publicKey) =>
-        withLogging(logger, "account.getBalances", { publicKey }, () =>
-          getBalances(horizonUrl, publicKey),
-        ),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "account.getBalances", params: { publicKey } },
+          () =>
+            withLogging(logger, "account.getBalances", { publicKey }, () =>
+              getBalances(horizonUrl, publicKey),
+            ),
+        ).then(applyTx),
       getAssetBalances: (publicKey, filter) =>
-        withLogging(logger, "account.getAssetBalances", { publicKey, filter }, () =>
-          getAssetBalances(horizonUrl, publicKey, filter),
-        ),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "account.getAssetBalances", params: { publicKey, filter } },
+          () =>
+            withLogging(logger, "account.getAssetBalances", { publicKey, filter }, () =>
+              getAssetBalances(horizonUrl, publicKey, filter),
+            ),
+        ).then(applyTx),
       stream: (publicKey, streamConfig, signal) =>
         streamAccount(horizonUrl, publicKey, streamConfig, signal, logger),
       formatAddress: (publicKey, chars) => formatAddress(publicKey, chars),
@@ -331,7 +377,8 @@ export function createSorokitClient(
           networkConfig,
           sourcePublicKey,
           params,
-        );
+          client.trustedIssuers,
+        ).then(applyTx);
       },
       buildCreateAccount: (sourcePublicKey, params) => {
         logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
@@ -340,7 +387,7 @@ export function createSorokitClient(
           networkConfig,
           sourcePublicKey,
           params,
-        );
+        ).then(applyTx);
       },
       buildTrustline: (sourcePublicKey, params) => {
         logger.debug("transaction.buildTrustline", { sourcePublicKey });
@@ -349,19 +396,21 @@ export function createSorokitClient(
           networkConfig,
           sourcePublicKey,
           params,
-        );
+          client.trustedIssuers,
+        ).then(applyTx);
       },
-      submit: (signedXdr) => {
+      submit: async (signedXdr) => {
         logger.debug("transaction.submit");
-        return submitTransaction(horizonUrl, networkPassphrase, signedXdr);
+        if (rateLimiter) await rateLimiter.acquire();
+        return submitTransaction(horizonUrl, networkPassphrase, signedXdr, config.cache).then(applyTx);
       },
       getStatus: (hash) => {
         logger.debug("transaction.getStatus", { hash });
-        return getTransactionStatus(horizonUrl, hash);
+        return getTransactionStatus(horizonUrl, hash).then(applyTx);
       },
       estimateFee: (input) => {
         logger.debug("transaction.estimateFee");
-        return estimateFee(rpcUrl, horizonUrl, networkConfig, input, config.cache);
+        return estimateFee(rpcUrl, horizonUrl, networkConfig, input, config.cache).then(applyTx);
       },
       stream: (publicKey, config, signal) => {
         logger.debug("transaction.stream", { publicKey });
@@ -370,48 +419,84 @@ export function createSorokitClient(
     },
 
     soroban: {
-      simulate: (transactionXdr) =>
-        withLogging(logger, "soroban.simulate", undefined, () =>
-          simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
-        ),
-      prepare: (params) =>
+      getContractMethods: (contractId, ttlMs) =>
         withLogging(
           logger,
-          "soroban.prepare",
-          { contractId: params.contractId, method: params.method },
-          () => prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
-        ),
-      execute: (signedXdr, pollConfig) =>
-        executeContract(
-          rpcUrl,
-          networkConfig,
-          signedXdr,
-          pollConfig ?? defaultPollConfig,
-          logger,
-        ),
-      invoke: (params, signFn, pollConfig) =>
-        withLogging(
-          logger,
-          "soroban.invoke",
-          { contractId: params.contractId, method: params.method },
+          "soroban.getContractMethods",
+          { contractId },
           () =>
-            invokeContract(
+            getContractMethods(rpcUrl, contractId, {
+              ...(config.cache && { cache: config.cache }),
+              ...(ttlMs !== undefined && { ttlMs }),
+            }),
+        ).then(applyTx),
+      simulate: (transactionXdr) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.simulate" },
+          () =>
+            withLogging(logger, "soroban.simulate", undefined, () =>
+              simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
+            ),
+        ).then(applyTx),
+      prepare: (params) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.prepare", params: { contractId: params.contractId, method: params.method } },
+          () =>
+            withLogging(
+              logger,
+              "soroban.prepare",
+              { contractId: params.contractId, method: params.method },
+              () => prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
+            ),
+        ).then(applyTx),
+      execute: (signedXdr, pollConfig) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.execute" },
+          () =>
+            executeContract(
               rpcUrl,
               networkConfig,
-              horizonUrl,
-              params,
-              signFn,
+              signedXdr,
               pollConfig ?? defaultPollConfig,
               logger,
             ),
-        ),
+        ).then(applyTx),
+      invoke: (params, signFn, pollConfig) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.invoke", params: { contractId: params.contractId, method: params.method } },
+          () =>
+            withLogging(
+              logger,
+              "soroban.invoke",
+              { contractId: params.contractId, method: params.method },
+              () =>
+                invokeContract(
+                  rpcUrl,
+                  networkConfig,
+                  horizonUrl,
+                  params,
+                  signFn,
+                  pollConfig ?? defaultPollConfig,
+                  logger,
+                ),
+            ),
+        ).then(applyTx),
       read: (params) =>
-        withLogging(
-          logger,
-          "soroban.read",
-          { contractId: params.contractId, method: params.method },
-          () => readContract(rpcUrl, horizonUrl, networkConfig, params),
-        ),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.read", params: { contractId: params.contractId, method: params.method } },
+          () =>
+            withLogging(
+              logger,
+              "soroban.read",
+              { contractId: params.contractId, method: params.method },
+              () => readContract(rpcUrl, horizonUrl, networkConfig, params),
+            ),
+        ).then(applyTx),
     },
 
     network: {

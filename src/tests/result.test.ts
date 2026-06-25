@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ok, err, isOk, isErr, SorokitErrorCode } from "../shared/response";
+import { ok, err, isOk, isErr, isErrorCode, assertOk, SorokitErrorCode } from "../shared/response";
 
 describe("shared/response", () => {
   describe("ok()", () => {
@@ -62,5 +62,41 @@ describe("shared/response", () => {
     it("isErr() returns false for ok result", () => {
       expect(isErr(ok(42))).toBe(false);
     });
+  });
+});
+
+describe("isErrorCode()", () => {
+  it("returns true when result is error with the matching code", () => {
+    const result = err(SorokitErrorCode.ACCOUNT_NOT_FOUND, "not found");
+    expect(isErrorCode(result, SorokitErrorCode.ACCOUNT_NOT_FOUND)).toBe(true);
+  });
+
+  it("returns false when result is ok", () => {
+    const result = ok(42);
+    expect(isErrorCode(result, SorokitErrorCode.ACCOUNT_NOT_FOUND)).toBe(false);
+  });
+
+  it("returns false when result is error with a different code", () => {
+    const result = err(SorokitErrorCode.ACCOUNT_FETCH_FAILED, "fetch failed");
+    expect(isErrorCode(result, SorokitErrorCode.ACCOUNT_NOT_FOUND)).toBe(false);
+  });
+});
+
+describe("assertOk()", () => {
+  it("does not throw when result is ok", () => {
+    const result = ok({ value: 1 });
+    expect(() => assertOk(result)).not.toThrow();
+  });
+
+  it("throws when result is error", () => {
+    const result = err(SorokitErrorCode.TX_SUBMIT_FAILED, "submission failed");
+    expect(() => assertOk(result)).toThrow();
+  });
+
+  it("thrown message includes the error code and message", () => {
+    const result = err(SorokitErrorCode.TX_SUBMIT_FAILED, "submission failed");
+    expect(() => assertOk(result)).toThrow(
+      "[TX_SUBMIT_FAILED] submission failed",
+    );
   });
 });

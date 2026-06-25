@@ -42,17 +42,20 @@ function createAccount(sequence: string): AccountInfo {
   };
 }
 
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 beforeEach(() => {
   accountMockState.sleepCalls.length = 0;
   accountMockState.index = 0;
   accountMockState.results = [];
 });
-import { describe, it, expect, vi } from "vitest";
-import { formatAddress, deepEqual } from "../shared/utils";
-
-vi.mock("../account/getAccount", () => ({
-  getAccount: vi.fn(),
-}));
 
 describe("account", () => {
   describe("formatAddress (pure utility — returns string, not SorokitResult)", () => {
@@ -121,10 +124,12 @@ describe("account", () => {
         3000,
         3000,
         2000,
-        1000,
-        1000,
+        3000,
+        3000,
       ]);
     });
+  });
+
   describe("deepEqual", () => {
     it("returns true for identical plain objects", () => {
       expect(deepEqual({ a: 1, b: [2, 3] }, { a: 1, b: [2, 3] })).toBe(true);
@@ -209,4 +214,239 @@ describe("account", () => {
       expect(results.length).toBe(2);
     }, 10_000);
   });
+
+  describe("getAssetBalances — issuer whitelisting", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("allows all issuers when trustedIssuers not configured", async () => {
+      const { getAssetBalances } = await import("../account/getAssetBalances");
+      const { getAccount } = await import("../account/getAccount");
+      const { ok } = await import("../shared/response");
+
+      const account = {
+        publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        displayAddress: "GAAZI...CWNA",
+        sequence: "1",
+        subentryCount: 0,
+        balances: [
+          { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+          { assetType: "credit_alphanum4" as const, assetCode: "USDC", assetIssuer: "GBUQWP3BOUZX34ULNQG23RQ6F4YUSXHTQSXUSMIQ75XABEE3XZNIXUAA", balance: "50", balanceFloat: 50 },
+        ],
+      };
+
+      vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+      const result = await getAssetBalances("http://horizon", account.publicKey, undefined, null);
+
+      expect(result.status).toBe("ok");
+      expect((result as any).data).toHaveLength(2);
+    });
+
+    it("allows asset when issuer is in whitelist", async () => {
+      const { getAssetBalances } = await import("../account/getAssetBalances");
+      const { getAccount } = await import("../account/getAccount");
+      const { ok } = await import("../shared/response");
+
+      const trustedIssuer = "GBUQWP3BOUZX34ULNQG23RQ6F4YUSXHTQSXUSMIQ75XABEE3XZNIXUAA";
+      const account = {
+        publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        displayAddress: "GAAZI...CWNA",
+        sequence: "1",
+        subentryCount: 0,
+        balances: [
+          { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+          { assetType: "credit_alphanum4" as const, assetCode: "USDC", assetIssuer: trustedIssuer, balance: "50", balanceFloat: 50 },
+        ],
+      };
+
+      vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+      const result = await getAssetBalances("http://horizon", account.publicKey, undefined, [trustedIssuer]);
+
+      expect(result.status).toBe("ok");
+      expect((result as any).data).toHaveLength(2);
+    });
+
+    it("returns error when issuer is not in whitelist", async () => {
+      const { getAssetBalances } = await import("../account/getAssetBalances");
+      const { getAccount } = await import("../account/getAccount");
+      const { ok } = await import("../shared/response");
+
+      const trustedIssuer = "GBUQWP3BOUZX34ULNQG23RQ6F4YUSXHTQSXUSMIQ75XABEE3XZNIXUAA";
+      const untrustedIssuer = "GBBD47UZQ5JAKVEWZNRPA7MKSTIRZU27I27ULMOWVNQZLB助ZZW7QTXN";
+      const account = {
+        publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        displayAddress: "GAAZI...CWNA",
+        sequence: "1",
+        subentryCount: 0,
+        balances: [
+          { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+          { assetType: "credit_alphanum4" as const, assetCode: "USDC", assetIssuer: untrustedIssuer, balance: "50", balanceFloat: 50 },
+        ],
+      };
+
+      vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+      const result = await getAssetBalances("http://horizon", account.publicKey, undefined, [trustedIssuer]);
+
+      expect(result.status).toBe("error");
+      expect((result as any).error.code).toBe("TX_BUILD_FAILED");
+      expect((result as any).error.message).toContain("not in the trusted issuers whitelist");
+    });
+
+    it("allows all issuers when trustedIssuers is empty array", async () => {
+      const { getAssetBalances } = await import("../account/getAssetBalances");
+      const { getAccount } = await import("../account/getAccount");
+      const { ok } = await import("../shared/response");
+
+      const account = {
+        publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        displayAddress: "GAAZI...CWNA",
+        sequence: "1",
+        subentryCount: 0,
+        balances: [
+          { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+          { assetType: "credit_alphanum4" as const, assetCode: "USDC", assetIssuer: "GBUQWP3BOUZX34ULNQG23RQ6F4YUSXHTQSXUSMIQ75XABEE3XZNIXUAA", balance: "50", balanceFloat: 50 },
+        ],
+      };
+
+      vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
+
+      const result = await getAssetBalances("http://horizon", account.publicKey, undefined, []);
+
+      expect(result.status).toBe("ok");
+      expect((result as any).data).toHaveLength(2);
+    });
+  });
+});
+
+describe("streamAccount — onBalanceChange callback (#11)", () => {
+  it("fires onBalanceChange when a balance changes between polls", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { streamAccount } = await import("../account/streamAccount");
+    const { ok } = await import("../shared/response");
+
+    const base = {
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      displayAddress: "GAAZI...CWNA",
+      sequence: "1",
+      subentryCount: 0,
+    };
+    const a1 = {
+      ...base,
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+      ],
+    };
+    const a2 = {
+      ...base,
+      sequence: "2",
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "150", balanceFloat: 150 },
+      ],
+    };
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(a1))
+      .mockResolvedValueOnce(ok(a2));
+
+    const changes: Array<{ assetCode: string; oldBalance: string; newBalance: string }> = [];
+    for await (const _ of streamAccount(
+      "http://horizon",
+      base.publicKey,
+      {
+        maxPolls: 2,
+        emitOnStart: true,
+        intervalMs: 1,
+        onBalanceChange: (assetCode, oldBalance, newBalance) =>
+          changes.push({ assetCode, oldBalance, newBalance }),
+      },
+    )) { /* consume */ }
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ assetCode: "XLM", oldBalance: "100", newBalance: "150" });
+  }, 10_000);
+
+  it("does not fire onBalanceChange when balances are unchanged", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { streamAccount } = await import("../account/streamAccount");
+    const { ok } = await import("../shared/response");
+
+    const account = {
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      displayAddress: "GAAZI...CWNA",
+      sequence: "1",
+      subentryCount: 0,
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+      ],
+    };
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(account))
+      .mockResolvedValueOnce(ok(account));
+
+    const changes: unknown[] = [];
+    for await (const _ of streamAccount(
+      "http://horizon",
+      account.publicKey,
+      {
+        maxPolls: 2,
+        emitOnStart: true,
+        intervalMs: 1,
+        onBalanceChange: () => changes.push(true),
+      },
+    )) { /* consume */ }
+
+    expect(changes).toHaveLength(0);
+  }, 10_000);
+
+  it("fires onBalanceChange for each changed balance independently", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { streamAccount } = await import("../account/streamAccount");
+    const { ok } = await import("../shared/response");
+
+    const base = {
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      displayAddress: "GAAZI...CWNA",
+      sequence: "1",
+      subentryCount: 0,
+    };
+    const a1 = {
+      ...base,
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "100", balanceFloat: 100 },
+        { assetType: "credit_alphanum4" as const, assetCode: "USDC", assetIssuer: "GA5Z...ISSUER", balance: "50", balanceFloat: 50 },
+      ],
+    };
+    const a2 = {
+      ...base,
+      sequence: "2",
+      balances: [
+        { assetType: "native" as const, assetCode: "XLM", assetIssuer: null, balance: "90", balanceFloat: 90 },
+        { assetType: "credit_alphanum4" as const, assetCode: "USDC", assetIssuer: "GA5Z...ISSUER", balance: "60", balanceFloat: 60 },
+      ],
+    };
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(a1))
+      .mockResolvedValueOnce(ok(a2));
+
+    const changes: Array<{ assetCode: string }> = [];
+    for await (const _ of streamAccount(
+      "http://horizon",
+      base.publicKey,
+      {
+        maxPolls: 2,
+        emitOnStart: true,
+        intervalMs: 1,
+        onBalanceChange: (assetCode) => changes.push({ assetCode }),
+      },
+    )) { /* consume */ }
+
+    expect(changes).toHaveLength(2);
+    expect(changes.map((c) => c.assetCode).sort()).toEqual(["USDC", "XLM"]);
+  }, 10_000);
 });

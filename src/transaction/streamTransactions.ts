@@ -1,13 +1,29 @@
 import { Horizon } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { sleep, toMessage, isNotFoundError, deepEqual } from "../shared";
+import { sleep, toMessage, isNotFoundError } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
-import type { TransactionResult } from "./types";
+import type { TransactionResult, TransactionStatus } from "./types";
 
 const MIN_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const ADAPTIVE_INTERVAL_STEP_MS = 1_000;
+const DEFAULT_PAGE_LIMIT = 10;
+const HORIZON_MAX_LIMIT = 200;
+
+type StreamableTransactionStatus = Extract<
+  TransactionStatus,
+  "success" | "failed" | "pending"
+>;
+
+function sameSnapshot(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Configuration for transaction streaming.
@@ -43,6 +59,21 @@ export interface TransactionStreamConfig {
    */
   limit?: number;
   /**
+   * Number of filtered transactions to skip before yielding. Default: 0.
+   * Applied client-side after Horizon returns a page.
+   */
+  offset?: number;
+  /** Only include transactions at or after this ledger. */
+  minLedger?: number;
+  /** Only include transactions at or before this ledger. */
+  maxLedger?: number;
+  /** Only include transactions with one of these statuses. */
+  statuses?: StreamableTransactionStatus[];
+  /** Only include transactions created before or at this date. */
+  beforeDate?: string | Date;
+  /** Only include transactions created after or at this date. */
+  afterDate?: string | Date;
+  /**
    * Return transactions in ascending or descending order. Default: "desc".
    */
   order?: "asc" | "desc";
@@ -64,6 +95,80 @@ export interface TransactionPage {
   transactions: TransactionResult[];
   /** Cursor pointing to the last record — pass as `cursor` to resume */
   nextCursor: string | null;
+}
+
+function normalizeNonNegativeInteger(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return 0;
+  return Math.max(Math.floor(value), 0);
+}
+
+function normalizePositiveInteger(
+  value: number | undefined,
+  fallback: number,
+): number {
+  if (value === undefined || !Number.isFinite(value)) return fallback;
+  return Math.max(Math.floor(value), 1);
+}
+
+function toTimestamp(value: string | Date | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const timestamp = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function isWithinLedgerRange(
+  tx: TransactionResult,
+  config: TransactionStreamConfig,
+): boolean {
+  if (config.minLedger === undefined && config.maxLedger === undefined) {
+    return true;
+  }
+  if (tx.ledger === undefined) return false;
+  if (config.minLedger !== undefined && tx.ledger < config.minLedger) {
+    return false;
+  }
+  return config.maxLedger === undefined || tx.ledger <= config.maxLedger;
+}
+
+function isWithinDateRange(
+  tx: TransactionResult,
+  beforeTimestamp: number | undefined,
+  afterTimestamp: number | undefined,
+): boolean {
+  if (beforeTimestamp === undefined && afterTimestamp === undefined) {
+    return true;
+  }
+  if (tx.createdAt === undefined) return false;
+
+  const createdAt = Date.parse(tx.createdAt);
+  if (!Number.isFinite(createdAt)) return false;
+  if (afterTimestamp !== undefined && createdAt < afterTimestamp) return false;
+  return beforeTimestamp === undefined || createdAt <= beforeTimestamp;
+}
+
+/**
+ * Apply client-side transaction filters and pagination to a Horizon page.
+ */
+export function applyTransactionFilters(
+  transactions: TransactionResult[],
+  config?: TransactionStreamConfig,
+): TransactionResult[] {
+  const statuses =
+    config?.statuses && config.statuses.length > 0
+      ? new Set<TransactionStatus>(config.statuses)
+      : undefined;
+  const beforeTimestamp = toTimestamp(config?.beforeDate);
+  const afterTimestamp = toTimestamp(config?.afterDate);
+  const offset = normalizeNonNegativeInteger(config?.offset);
+  const limit = normalizePositiveInteger(config?.limit, DEFAULT_PAGE_LIMIT);
+
+  const filtered = transactions.filter((tx) => {
+    if (config && !isWithinLedgerRange(tx, config)) return false;
+    if (statuses !== undefined && !statuses.has(tx.status)) return false;
+    return isWithinDateRange(tx, beforeTimestamp, afterTimestamp);
+  });
+
+  return filtered.slice(offset, offset + limit);
 }
 
 /**
@@ -110,7 +215,9 @@ export async function* streamTransactions(
   );
   const adaptiveThreshold = Math.max(config?.adaptiveThreshold ?? 3, 1);
   const maxPolls = config?.maxPolls;
-  const limit = config?.limit ?? 10;
+  const limit = normalizePositiveInteger(config?.limit, DEFAULT_PAGE_LIMIT);
+  const offset = normalizeNonNegativeInteger(config?.offset);
+  const horizonLimit = Math.min(limit + offset, HORIZON_MAX_LIMIT);
   const order = config?.order ?? "desc";
   const emitOnStart = config?.emitOnStart ?? true;
 
@@ -121,7 +228,6 @@ export async function* streamTransactions(
     maxIntervalMs,
   );
   let unchangedPolls = 0;
-  let lastSnapshot: string | null = null;
 
   const adjustInterval = (changed: boolean): void => {
     if (!adaptiveEnabled) return;
@@ -150,9 +256,10 @@ export async function* streamTransactions(
     operation: "transaction.stream",
     status: "start",
     publicKey,
-    intervalMs,
+    intervalMs: currentIntervalMs,
     maxPolls,
     limit,
+    offset,
   });
 
   while (true) {
@@ -192,7 +299,7 @@ export async function* streamTransactions(
       let builder = server
         .transactions()
         .forAccount(publicKey)
-        .limit(limit)
+        .limit(horizonLimit)
         .order(order);
 
       if (cursor !== undefined) {
@@ -214,17 +321,27 @@ export async function* streamTransactions(
       // Advance cursor to the last record for next poll
       const lastRecord = page.records[page.records.length - 1];
       const nextCursor = lastRecord?.paging_token ?? null;
+      const filteredTransactions = applyTransactionFilters(transactions, config);
 
       logger?.debug("transaction.stream.poll", {
         operation: "transaction.stream.poll",
         status: "ok",
         publicKey,
         poll: polls + 1,
-        transactionCount: transactions.length,
+        transactionCount: filteredTransactions.length,
         nextCursor,
       });
 
-      yield ok({ transactions, nextCursor });
+      const transactionPage = { transactions: filteredTransactions, nextCursor };
+      const hasBaseline = lastEmitted !== undefined;
+      const changed = !hasBaseline || !sameSnapshot(lastEmitted, transactionPage);
+      if (hasBaseline) adjustInterval(changed);
+      cursor = nextCursor ?? cursor;
+
+      if (changed) {
+        lastEmitted = transactionPage;
+        yield ok(transactionPage);
+      }
     } catch (cause) {
       const code = isNotFoundError(cause)
         ? SorokitErrorCode.ACCOUNT_NOT_FOUND
@@ -242,6 +359,7 @@ export async function* streamTransactions(
         errorMessage: message,
       });
 
+      adjustInterval(false);
       yield err(code, message, cause);
     }
 

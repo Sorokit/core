@@ -25,6 +25,7 @@ describe("createSorokitClient", () => {
       expect(typeof client.transaction.submit).toBe("function");
       expect(typeof client.transaction.getStatus).toBe("function");
       // soroban namespace
+      expect(typeof client.soroban.getContractMethods).toBe("function");
       expect(typeof client.soroban.simulate).toBe("function");
       expect(typeof client.soroban.prepare).toBe("function");
       expect(typeof client.soroban.execute).toBe("function");
@@ -123,6 +124,7 @@ describe("createSorokitClient", () => {
   it("soroban exposes the full prepare → execute pipeline", () => {
     const result = createSorokitClient({ network: "testnet" });
     if (result.status === "ok") {
+      expect(typeof result.data.soroban.getContractMethods).toBe("function");
       expect(typeof result.data.soroban.prepare).toBe("function");
       expect(typeof result.data.soroban.execute).toBe("function");
       expect(typeof result.data.soroban.invoke).toBe("function");

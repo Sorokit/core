@@ -3,6 +3,17 @@
  */
 import type { xdr } from "@stellar/stellar-sdk";
 
+export interface ContractMethodInput {
+  name: string;
+  type: string;
+}
+
+export interface ContractMethod {
+  name: string;
+  inputs: ContractMethodInput[];
+  returnType: string | null;
+}
+
 export interface ContractAbiMethod {
   name: string;
   args: unknown[];
@@ -31,6 +42,7 @@ export interface ContractInvokeParams {
   contractId: string;
   method: string;
   args?: xdr.ScVal[];
+  cachedMetadata?: ContractMethod[];
   /** Optional ABI used to validate method name and argument count before simulation */
   contractAbi?: ContractAbi;
   /** Public key of the invoking account */
@@ -41,6 +53,7 @@ export interface ContractReadParams {
   contractId: string;
   method: string;
   args?: xdr.ScVal[];
+  cachedMetadata?: ContractMethod[];
   /** Optional ABI used to validate method name and argument count before simulation */
   contractAbi?: ContractAbi;
   /**
