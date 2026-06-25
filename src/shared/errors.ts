@@ -1,6 +1,24 @@
 import { SorokitErrorCode, ok } from "./response";
 import type { SorokitError, SorokitResult } from "./response";
 
+/** Maps SDK error codes to consumer-specific strings. Return value replaces error.code at runtime. */
+export type ErrorCodeTransformer = (code: SorokitErrorCode) => string;
+
+/**
+ * Apply an error code transformer to a result.
+ * No-op when transformer is undefined or result is ok.
+ */
+export function applyCodeTransformer<T>(
+  result: SorokitResult<T>,
+  transformer: ErrorCodeTransformer | undefined,
+): SorokitResult<T> {
+  if (result.status === "ok" || !transformer) return result;
+  return {
+    ...result,
+    error: { ...result.error, code: transformer(result.error.code) as SorokitErrorCode },
+  };
+}
+
 /**
  * Recovery action that an error handler can request.
  */

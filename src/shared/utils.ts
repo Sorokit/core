@@ -113,6 +113,68 @@ export async function retryWithBackoff<T>(
   throw lastError;
 }
 
+/**
+ * Token bucket rate limiter.
+ * Allows up to `maxRequestsPerSecond` calls to acquire() per second.
+ * Excess calls are queued and resolved as tokens refill.
+ */
+export class TokenBucketRateLimiter {
+  private tokens: number;
+  private lastRefill: number;
+  private readonly capacity: number;
+  private readonly refillRate: number; // tokens per ms
+  private readonly queue: Array<() => void>;
+  private drainTimer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(maxRequestsPerSecond: number) {
+    if (maxRequestsPerSecond <= 0) {
+      throw new Error("maxRequestsPerSecond must be a positive number");
+    }
+    this.capacity = maxRequestsPerSecond;
+    this.tokens = maxRequestsPerSecond;
+    this.lastRefill = Date.now();
+    this.refillRate = maxRequestsPerSecond / 1000;
+    this.queue = [];
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    this.tokens = Math.min(this.capacity, this.tokens + (now - this.lastRefill) * this.refillRate);
+    this.lastRefill = now;
+  }
+
+  private scheduleDrain(): void {
+    if (this.drainTimer !== null) return;
+    const msUntilToken = Math.ceil((1 - this.tokens) / this.refillRate);
+    this.drainTimer = setTimeout(() => {
+      this.drainTimer = null;
+      this.drain();
+    }, Math.max(0, msUntilToken));
+  }
+
+  private drain(): void {
+    this.refill();
+    while (this.queue.length > 0 && this.tokens >= 1) {
+      this.tokens -= 1;
+      this.queue.shift()!();
+    }
+    if (this.queue.length > 0) this.scheduleDrain();
+  }
+
+  /** Acquire a token, waiting if the bucket is empty. */
+  async acquire(): Promise<void> {
+    this.refill();
+    if (this.tokens >= 1) {
+      this.tokens -= 1;
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this.queue.push(resolve);
+      this.scheduleDrain();
+    });
+  }
+}
+
 /** Module-level map of in-flight requests keyed by a caller-supplied key. */
 const _inflightRequests = new Map<string, Promise<unknown>>();
 
