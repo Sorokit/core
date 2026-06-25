@@ -5,18 +5,54 @@ import type { FeeEstimate } from "../transaction/estimateFee";
 import type { SorokitCache } from "../shared/cache";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import { DEFAULT_FEE_CACHE_TTL_MS } from "../shared/constants";
+import {
+  buildPaymentTransaction,
+  buildCreateAccountTransaction,
+  buildTrustlineTransaction,
+} from "../transaction/buildTransaction";
+import { SorokitErrorCode } from "../shared/response";
 
 // ─── Hoisted mocks (must be defined before vi.mock is hoisted) ────────────────
+
+const transactionBuilderInstances: Array<{ memo?: unknown }> = [];
 
 const mocks = vi.hoisted(() => ({
   simulateTransaction: vi.fn(),
   fromXDR: vi.fn(),
   isSimulationSuccess: vi.fn(),
   isSimulationError: vi.fn(),
+  loadAccount: vi.fn(),
 }));
 
 vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
+
+  class MockTransactionBuilder {
+    static fromXDR = mocks.fromXDR;
+    memo?: unknown;
+
+    constructor(_sourceAccount: unknown, _options: unknown) {
+      transactionBuilderInstances.push(this);
+    }
+
+    addOperation() {
+      return this;
+    }
+
+    setTimeout() {
+      return this;
+    }
+
+    addMemo(memo: unknown) {
+      this.memo = memo;
+      return this;
+    }
+
+    build() {
+      return { toXDR: () => MOCK_XDR };
+    }
+  }
+
   return {
     ...actual,
     rpc: {
@@ -30,10 +66,13 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
         isSimulationError: mocks.isSimulationError,
       },
     },
-    TransactionBuilder: {
-      ...actual.TransactionBuilder,
-      fromXDR: mocks.fromXDR,
+    Horizon: {
+      ...actual.Horizon,
+      Server: vi.fn().mockImplementation(() => ({
+        loadAccount: mocks.loadAccount,
+      })),
     },
+    TransactionBuilder: MockTransactionBuilder,
   };
 });
 
@@ -110,6 +149,7 @@ function makeCacheWithHit(xdr: string, value: FeeEstimate): SorokitCache & {
 
 describe("estimateFee — caching", () => {
   beforeEach(() => {
+    transactionBuilderInstances.length = 0;
     vi.clearAllMocks();
 
     // Default: simulation returns a success result
@@ -117,6 +157,7 @@ describe("estimateFee — caching", () => {
     mocks.fromXDR.mockReturnValue({});
     mocks.isSimulationSuccess.mockReturnValue(true);
     mocks.isSimulationError.mockReturnValue(false);
+    mocks.loadAccount.mockResolvedValue({});
   });
 
   describe("cache hit", () => {
@@ -312,6 +353,128 @@ describe("estimateFee — caching", () => {
       if (result.status === "ok") {
         expect(result.data.simulated).toBe(false);
       }
+    });
+  });
+
+  describe("transaction builders — memo validation", () => {
+    const sourcePublicKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+    const destination = "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+    const issuerPublicKey = "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+
+    beforeEach(() => {
+      mocks.loadAccount.mockResolvedValue({
+        accountId: () => sourcePublicKey,
+        sequenceNumber: () => "1",
+        incrementSequenceNumber: () => {},
+      });
+      transactionBuilderInstances.length = 0;
+    });
+
+    it("fails payment build when requireMemo is true and no memo provided", async () => {
+      const result = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          requireMemo: true,
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+        expect(result.error.message).toContain("Memo is required");
+      }
+    });
+
+    it("builds payment transaction with valid text memo", async () => {
+      const result = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "hello",
+          memoType: "text",
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe(MOCK_XDR);
+      }
+      expect(transactionBuilderInstances).toHaveLength(1);
+      expect((transactionBuilderInstances[0].memo as any)?.type).toBe("text");
+      expect((transactionBuilderInstances[0].memo as any)?.value).toBe("hello");
+    });
+
+    it("fails payment transaction with invalid hash memo", async () => {
+      const result = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "deadbeef",
+          memoType: "hash",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+        expect(result.error.message).toContain("Invalid memo for type hash");
+      }
+    });
+
+    it("builds create account transaction with valid id memo", async () => {
+      const result = await buildCreateAccountTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          startingBalance: "2",
+          memo: "1234567890",
+          memoType: "id",
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe(MOCK_XDR);
+      }
+      expect(transactionBuilderInstances).toHaveLength(1);
+      expect((transactionBuilderInstances[0].memo as any)?.type).toBe("id");
+    });
+
+    it("builds trustline transaction with valid return memo", async () => {
+      const result = await buildTrustlineTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetCode: "USD",
+          assetIssuer: issuerPublicKey,
+          memo: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          memoType: "return",
+        },
+      );
+
+      if (result.status === "error") {
+        console.error("Trustline build error", result.error);
+      }
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe(MOCK_XDR);
+      }
+      expect(transactionBuilderInstances).toHaveLength(1);
+      expect((transactionBuilderInstances[0].memo as any)?.type).toBe("return");
     });
   });
 });

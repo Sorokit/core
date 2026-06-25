@@ -12,6 +12,7 @@ import { toMessage } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type {
+  MemoParams,
   PaymentParams,
   TrustlineParams,
   AccountCreateParams,
@@ -35,6 +36,44 @@ function resolveAsset(
     );
   }
   return ok(new Asset(assetCode, assetIssuer));
+}
+
+function validateMemoParams(params: MemoParams): SorokitResult<Memo | undefined> {
+  if (!params.memo) {
+    if (params.requireMemo) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        "Memo is required for this transaction",
+      );
+    }
+    return ok(undefined);
+  }
+
+  const memoType = params.memoType ?? "text";
+
+  try {
+    switch (memoType) {
+      case "text":
+        return ok(Memo.text(params.memo));
+      case "id":
+        return ok(Memo.id(params.memo));
+      case "hash":
+        return ok(Memo.hash(params.memo));
+      case "return":
+        return ok(Memo["return"](params.memo));
+      default:
+        return err(
+          SorokitErrorCode.TX_BUILD_FAILED,
+          `Unsupported memo type: ${memoType}. Supported memo types are text, id, hash, return.`,
+        );
+    }
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Invalid memo for type ${memoType}: ${toMessage(cause)}`,
+      cause,
+    );
+  }
 }
 
 /**
@@ -67,8 +106,10 @@ export async function buildPaymentTransaction(
       )
       .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
 
-    if (params.memo) {
-      builder.addMemo(Memo.text(params.memo));
+    const memoResult = validateMemoParams(params);
+    if (memoResult.status === "error") return memoResult;
+    if (memoResult.status === "ok" && memoResult.data) {
+      builder.addMemo(memoResult.data);
     }
 
     return ok(builder.build().toXDR());
@@ -94,7 +135,7 @@ export async function buildCreateAccountTransaction(
     const server = new Horizon.Server(horizonUrl);
     const sourceAccount = await server.loadAccount(sourcePublicKey);
 
-    const tx = new TransactionBuilder(sourceAccount, {
+    const builder = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
       networkPassphrase: networkConfig.networkPassphrase,
     })
@@ -104,9 +145,15 @@ export async function buildCreateAccountTransaction(
           startingBalance: params.startingBalance,
         }),
       )
-      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
-      .build();
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
 
+    const memoResult = validateMemoParams(params);
+    if (memoResult.status === "error") return memoResult;
+    if (memoResult.status === "ok" && memoResult.data) {
+      builder.addMemo(memoResult.data);
+    }
+
+    const tx = builder.build();
     return ok(tx.toXDR());
   } catch (cause) {
     return err(
@@ -132,7 +179,7 @@ export async function buildTrustlineTransaction(
 
     const asset = new Asset(params.assetCode, params.assetIssuer);
 
-    const tx = new TransactionBuilder(sourceAccount, {
+    const builder = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
       networkPassphrase: networkConfig.networkPassphrase,
     })
@@ -142,9 +189,15 @@ export async function buildTrustlineTransaction(
           ...(params.limit !== undefined && { limit: params.limit }),
         }),
       )
-      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
-      .build();
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
 
+    const memoResult = validateMemoParams(params);
+    if (memoResult.status === "error") return memoResult;
+    if (memoResult.status === "ok" && memoResult.data) {
+      builder.addMemo(memoResult.data);
+    }
+
+    const tx = builder.build();
     return ok(tx.toXDR());
   } catch (cause) {
     return err(
