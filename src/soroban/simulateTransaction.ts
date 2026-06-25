@@ -1,4 +1,5 @@
-import { rpc as SorobanRpc, TransactionBuilder } from "@stellar/stellar-sdk";
+import { rpc as SorobanRpc, TransactionBuilder, Address } from "@stellar/stellar-sdk";
+import { createHash } from "crypto";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import {
@@ -8,6 +9,39 @@ import {
   toMessage,
 } from "../shared";
 import type { SimulateTransactionResult } from "./types";
+import type { SorokitCache } from "../shared/cache";
+
+export interface SimulateTransactionOptions {
+  cache?: SorokitCache;
+  ttlMs?: number;
+}
+
+function tryGetCacheKey(
+  transactionXdr: string,
+  networkPassphrase: string,
+): string | undefined {
+  try {
+    const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase);
+    if (!("operations" in tx)) return undefined;
+
+    const op = tx.operations.find((o) => o.type === "invokeHostFunction");
+    if (!op) return undefined;
+
+    const hostFn = (op as any).func;
+    if (!hostFn || hostFn.arm() !== "invokeContract") return undefined;
+
+    const invokeArgs = hostFn.invokeContract();
+    const scAddr = invokeArgs.contractAddress();
+    const contractId = Address.fromScAddress(scAddr).toString();
+    const method = invokeArgs.functionName().toString("utf8");
+    const argsXdr = invokeArgs.args().map((arg: any) => arg.toXDR("base64")).join("");
+
+    const inputString = contractId + method + argsXdr;
+    return createHash("sha256").update(inputString).digest("hex");
+  } catch {
+    return undefined;
+  }
+}
 
 function describeSimulationFailure(cause: unknown): string {
   if (isXdrInvalidError(cause)) {
@@ -34,6 +68,7 @@ export async function simulateTransaction(
   rpcUrl: string,
   networkPassphrase: string,
   transactionXdr: string,
+  options?: SimulateTransactionOptions,
 ): Promise<SorokitResult<SimulateTransactionResult>> {
   if (isXdrInvalidError(transactionXdr)) {
     return err(
@@ -43,17 +78,37 @@ export async function simulateTransaction(
     );
   }
 
+  const cache = options?.cache;
+  const cacheKey = cache ? tryGetCacheKey(transactionXdr, networkPassphrase) : undefined;
+
+  if (cache && cacheKey) {
+    const cached = cache.get(cacheKey);
+    if (cached != null) {
+      return ok(cached as SimulateTransactionResult);
+    }
+  }
+
   try {
     const rpc = new SorobanRpc.Server(rpcUrl);
     const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase);
     const simResult = await rpc.simulateTransaction(tx);
 
     if (SorobanRpc.Api.isSimulationError(simResult)) {
-      return ok({ success: false, fee: "0", error: simResult.error });
+      const result: SimulateTransactionResult = { success: false, fee: "0", error: simResult.error };
+      if (cache && cacheKey) {
+        const ttlMs = options?.ttlMs ?? 5 * 60 * 1000;
+        cache.set(cacheKey, result, ttlMs);
+      }
+      return ok(result);
     }
 
     if (SorobanRpc.Api.isSimulationSuccess(simResult)) {
-      return ok({ success: true, fee: simResult.minResourceFee ?? "0" });
+      const result: SimulateTransactionResult = { success: true, fee: simResult.minResourceFee ?? "0" };
+      if (cache && cacheKey) {
+        const ttlMs = options?.ttlMs ?? 5 * 60 * 1000;
+        cache.set(cacheKey, result, ttlMs);
+      }
+      return ok(result);
     }
 
     return err(
@@ -69,3 +124,4 @@ export async function simulateTransaction(
     );
   }
 }
+

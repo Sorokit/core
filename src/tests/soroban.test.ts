@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { Keypair, StrKey, xdr } from "@stellar/stellar-sdk";
 import type { ContractAbi } from "../soroban/types";
 import type { ResolvedNetworkConfig } from "../shared/types";
@@ -9,6 +9,7 @@ import { readContract } from "../soroban/readContract";
 import { subscribeContractEvents } from "../soroban/subscribeContractEvents";
 import { buildContractDeploy } from "../soroban/deployContract";
 import { SorokitErrorCode } from "../shared/response";
+import { simulateTransaction } from "../soroban/simulateTransaction";
 
 const {
   mockGetLedgerEntries,
@@ -69,6 +70,8 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
       };
     }
   }
+
+  (MockTransactionBuilder as any).fromXDR = actual.TransactionBuilder.fromXDR;
 
   return {
     ...actual,
@@ -635,6 +638,102 @@ describe("soroban contract ABI validation", () => {
       expect(result.error.message).toContain("Invalid contract ABI");
     }
     expect(mockSimulateTransaction).not.toHaveBeenCalled();
+  });
+
+  describe("simulateTransaction caching", () => {
+    let transactionXdr: string;
+    let networkPassphrase: string;
+
+    beforeAll(async () => {
+      const actualSdk = await vi.importActual<typeof import("@stellar/stellar-sdk")>("@stellar/stellar-sdk");
+      const contractId = actualSdk.StrKey.encodeContract(Buffer.alloc(32));
+      const contract = new actualSdk.Contract(contractId);
+      const op = contract.call("hello", actualSdk.xdr.ScVal.scvSymbol("world"));
+      const sourceAccount = new actualSdk.Account(actualSdk.Keypair.random().publicKey(), "1");
+      const tx = new actualSdk.TransactionBuilder(sourceAccount, {
+        fee: actualSdk.BASE_FEE,
+        networkPassphrase: actualSdk.Networks.TESTNET,
+      })
+        .addOperation(op)
+        .setTimeout(100)
+        .build();
+      transactionXdr = tx.toXDR();
+      networkPassphrase = actualSdk.Networks.TESTNET;
+    });
+
+    beforeEach(() => {
+      resetRpcSimulationMocks();
+    });
+
+    it("behaves as before if no cache option is provided (backward compatible)", async () => {
+      const result1 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr);
+      const result2 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr);
+
+      expect(result1.status).toBe("ok");
+      expect(result2.status).toBe("ok");
+      expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
+    });
+
+    it("caches the result on cache miss and returns it on cache hit", async () => {
+      const cache = new MemoryCache();
+
+      const result1 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr, { cache });
+      const result2 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr, { cache });
+
+      expect(result1.status).toBe("ok");
+      expect(result2.status).toBe("ok");
+      expect(result1.data).toEqual(result2.data);
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+    });
+
+    it("respects the TTL and expires the cache entry", async () => {
+      let currentTime = 1000;
+      const nowFn = () => currentTime;
+
+      class ExpirableCache implements SorokitCache {
+        private store = new Map<string, { value: any; expiresAt: number }>();
+        get(key: string): unknown {
+          const entry = this.store.get(key);
+          if (!entry) return undefined;
+          if (nowFn() >= entry.expiresAt) {
+            this.store.delete(key);
+            return undefined;
+          }
+          return entry.value;
+        }
+        set(key: string, value: unknown, ttlMs?: number): void {
+          const ttl = ttlMs ?? 5 * 60 * 1000;
+          this.store.set(key, { value, expiresAt: nowFn() + ttl });
+        }
+        invalidate(key: string): void { this.store.delete(key); }
+        clear(): void { this.store.clear(); }
+      }
+
+      const cache = new ExpirableCache();
+
+      // First call (miss, TTL 10ms)
+      const result1 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr, {
+        cache,
+        ttlMs: 10,
+      });
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+
+      // Second call before expiry (hit)
+      currentTime = 1005;
+      const result2 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr, {
+        cache,
+        ttlMs: 10,
+      });
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce(); // still once
+
+      // Third call after expiry (miss)
+      currentTime = 1011;
+      const result3 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr, {
+        cache,
+        ttlMs: 10,
+      });
+      expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
+    });
   });
 });
 

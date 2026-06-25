@@ -79,7 +79,7 @@ function matchesFilter(event: ContractEvent, filter?: ContractEventFilter): bool
   if (filter.topicPatterns?.length) {
     const topics = Array.isArray(event.topics) ? event.topics : [];
     const matchesTopic = topics.some((topic) =>
-      filter.topicPatterns!.some((pattern) => matchesTopicPattern(topic, pattern)),
+      topic != null && filter.topicPatterns!.some((pattern) => matchesTopicPattern(topic, pattern)),
     );
     if (!matchesTopic) return false;
   }
