@@ -38,7 +38,8 @@ describe("shared/utils", () => {
   });
 
   describe("isValidPublicKey", () => {
-    it("accepts a valid 56-char Stellar public key", () => {
+    // Valid keys
+    it("accepts a well-known valid Stellar public key", () => {
       expect(
         isValidPublicKey(
           "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
@@ -46,7 +47,16 @@ describe("shared/utils", () => {
       ).toBe(true);
     });
 
-    it("rejects a key not starting with G", () => {
+    it("accepts another well-known valid key", () => {
+      expect(
+        isValidPublicKey(
+          "GBVVJJNTRPJBXQFVNGRAOQFZUEFIVNVYJQWVBLNC5QYIBZYYB7NIUC3Y",
+        ),
+      ).toBe(true);
+    });
+
+    // Wrong prefix
+    it("rejects a secret key starting with S", () => {
       expect(
         isValidPublicKey(
           "SAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
@@ -54,8 +64,82 @@ describe("shared/utils", () => {
       ).toBe(false);
     });
 
+    it("rejects a contract ID starting with C", () => {
+      expect(
+        isValidPublicKey(
+          "CAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        ),
+      ).toBe(false);
+    });
+
+    // Wrong length
     it("rejects a key that is too short", () => {
       expect(isValidPublicKey("GABCD")).toBe(false);
+    });
+
+    it("rejects a key that is one character too short (55 chars)", () => {
+      expect(
+        isValidPublicKey("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN"),
+      ).toBe(false);
+    });
+
+    it("rejects a key that is one character too long (57 chars)", () => {
+      expect(
+        isValidPublicKey(
+          "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNAA",
+        ),
+      ).toBe(false);
+    });
+
+    // Invalid characters
+    it("rejects a key containing invalid base32 characters (lowercase)", () => {
+      expect(
+        isValidPublicKey(
+          "gaazi4tcr3ty5ojhctjc2a4qsy6cjwjh5iajtgkin2er7lbnvkoccwna",
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects a key containing a digit 1 (not valid base32)", () => {
+      // Replace a valid char with '1' which is not in the base32 alphabet
+      expect(
+        isValidPublicKey(
+          "G1AZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        ),
+      ).toBe(false);
+    });
+
+    // Edge cases — falsy / wrong type inputs
+    it("rejects an empty string", () => {
+      expect(isValidPublicKey("")).toBe(false);
+    });
+
+    it("rejects null", () => {
+      // Cast to test runtime safety; function accepts unknown internally
+      expect(isValidPublicKey(null as unknown as string)).toBe(false);
+    });
+
+    it("rejects undefined", () => {
+      expect(isValidPublicKey(undefined as unknown as string)).toBe(false);
+    });
+
+    it("rejects a number", () => {
+      expect(isValidPublicKey(12345 as unknown as string)).toBe(false);
+    });
+
+    it("rejects a plain object", () => {
+      expect(isValidPublicKey({} as unknown as string)).toBe(false);
+    });
+
+    // Valid format but invalid checksum
+    it("rejects a key with a valid format but corrupted checksum (last char changed)", () => {
+      // GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA is valid;
+      // changing the last character invalidates the CRC-16 checksum.
+      expect(
+        isValidPublicKey(
+          "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNB",
+        ),
+      ).toBe(false);
     });
   });
 

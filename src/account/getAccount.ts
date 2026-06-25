@@ -1,7 +1,7 @@
 import { Horizon } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { formatAddress, isNotFoundError, toMessage } from "../shared";
+import { formatAddress, isNotFoundError, toMessage, isValidPublicKey } from "../shared";
 import type { AccountInfo, AssetBalance } from "./types";
 
 /**
@@ -11,6 +11,13 @@ export async function getAccount(
   horizonUrl: string,
   publicKey: string,
 ): Promise<SorokitResult<AccountInfo>> {
+  if (!isValidPublicKey(publicKey)) {
+    return err(
+      SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+      `Invalid public key: "${publicKey}". Expected a 56-character base32-encoded Stellar public key starting with G.`,
+    );
+  }
+
   try {
     const server = new Horizon.Server(horizonUrl);
     const account = await server.loadAccount(publicKey);

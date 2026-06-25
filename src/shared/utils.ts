@@ -3,6 +3,7 @@
  * Nothing here should import from any module — only from types and constants.
  */
 
+import { StrKey } from "@stellar/stellar-sdk";
 import { DEFAULT_ADDRESS_DISPLAY_CHARS } from "./constants";
 
 /**
@@ -34,18 +35,39 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Validate that a string looks like a Stellar public key (G...).
- * This is a lightweight format check, not a cryptographic validation.
+ * Validate a Stellar public key.
+ *
+ * Uses the Stellar SDK's full validation which checks:
+ * - Non-null / non-empty input
+ * - Correct base32 encoding (valid alphabet, no padding issues)
+ * - Correct version byte (G… prefix = 0x30 = Ed25519 public key)
+ * - Correct length (56 characters, 32-byte payload)
+ * - Valid CRC-16 checksum
+ *
+ * Rejects anything that would fail when passed to Horizon — empty strings,
+ * wrong length, invalid characters, wrong prefix, and keys with a valid
+ * format but an incorrect checksum.
  */
-export function isValidPublicKey(key: string): boolean {
-  return /^G[A-Z2-7]{55}$/.test(key);
+export function isValidPublicKey(key: unknown): boolean {
+  if (typeof key !== "string" || key.length === 0) return false;
+  try {
+    return StrKey.isValidEd25519PublicKey(key);
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Validate that a string looks like a Stellar contract ID (C...).
+ * Uses the Stellar SDK's full base32 + checksum validation.
  */
-export function isValidContractId(id: string): boolean {
-  return /^C[A-Z2-7]{55}$/.test(id);
+export function isValidContractId(id: unknown): boolean {
+  if (typeof id !== "string" || id.length === 0) return false;
+  try {
+    return StrKey.isValidContract(id);
+  } catch {
+    return false;
+  }
 }
 
 /**

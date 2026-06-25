@@ -1,6 +1,6 @@
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { sleep, toMessage, deepEqual } from "../shared";
+import { sleep, toMessage, deepEqual, isValidPublicKey } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
 import type { AccountInfo } from "./types";
 import { getAccount } from "./getAccount";
@@ -70,6 +70,14 @@ export async function* streamAccount(
   signal?: AbortSignal,
   logger?: SorokitLogger,
 ): AsyncGenerator<SorokitResult<AccountInfo>> {
+  if (!isValidPublicKey(publicKey)) {
+    yield err(
+      SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+      `Invalid public key: "${publicKey}". Expected a 56-character base32-encoded Stellar public key starting with G.`,
+    );
+    return;
+  }
+
   const baseIntervalMs = Math.max(
     config?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS,
     MIN_POLL_INTERVAL_MS,
