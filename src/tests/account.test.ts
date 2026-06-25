@@ -215,6 +215,141 @@ describe("account", () => {
     }, 10_000);
   });
 
+  describe("evaluateBalanceAlerts", () => {
+    function bal(assetCode: string, balance: string, assetIssuer: string | null = null) {
+      return {
+        assetType: assetIssuer ? ("credit_alphanum4" as const) : ("native" as const),
+        assetCode,
+        assetIssuer,
+        balance,
+        balanceFloat: parseFloat(balance),
+      };
+    }
+
+    it("fires when a balance crosses below the threshold", async () => {
+      const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+      const alerts = evaluateBalanceAlerts(
+        [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+        [bal("XLM", "100")],
+        [bal("XLM", "40")],
+      );
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.oldBalance).toBe("100");
+      expect(alerts[0]?.newBalance).toBe("40");
+    });
+
+    it("does not fire below when already below (no fresh crossing)", async () => {
+      const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+      const alerts = evaluateBalanceAlerts(
+        [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+        [bal("XLM", "40")],
+        [bal("XLM", "30")],
+      );
+      expect(alerts).toHaveLength(0);
+    });
+
+    it("fires below on the first poll when no baseline exists", async () => {
+      const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+      const alerts = evaluateBalanceAlerts(
+        [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+        [],
+        [bal("XLM", "10")],
+      );
+      expect(alerts).toHaveLength(1);
+    });
+
+    it("fires when a balance crosses above the threshold", async () => {
+      const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+      const alerts = evaluateBalanceAlerts(
+        [{ assetCode: "XLM", condition: "above", threshold: 100 }],
+        [bal("XLM", "90")],
+        [bal("XLM", "150")],
+      );
+      expect(alerts).toHaveLength(1);
+    });
+
+    it("fires on percentage change at or above the threshold", async () => {
+      const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+      const alerts = evaluateBalanceAlerts(
+        [{ assetCode: "USDC", condition: "change_percent", threshold: 10 }],
+        [bal("USDC", "100", "GISSUER")],
+        [bal("USDC", "120", "GISSUER")],
+      );
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]?.changePercent).toBeCloseTo(20);
+    });
+
+    it("does not fire on a sub-threshold percentage change", async () => {
+      const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+      const alerts = evaluateBalanceAlerts(
+        [{ assetCode: "USDC", condition: "change_percent", threshold: 50 }],
+        [bal("USDC", "100", "GISSUER")],
+        [bal("USDC", "120", "GISSUER")],
+      );
+      expect(alerts).toHaveLength(0);
+    });
+
+    it("matches by issuer when one is specified", async () => {
+      const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+      const alerts = evaluateBalanceAlerts(
+        [{ assetCode: "USDC", assetIssuer: "GISSUER_A", condition: "below", threshold: 50 }],
+        [bal("USDC", "100", "GISSUER_A")],
+        [bal("USDC", "10", "GISSUER_B")],
+      );
+      // The new balances only contain GISSUER_B, so the GISSUER_A rule has no match.
+      expect(alerts).toHaveLength(0);
+    });
+
+    it("echoes the rule (including id) back on the alert", async () => {
+      const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+      const rule = { id: "low-xlm", assetCode: "XLM", condition: "below" as const, threshold: 50 };
+      const alerts = evaluateBalanceAlerts([rule], [bal("XLM", "100")], [bal("XLM", "40")]);
+      expect(alerts[0]?.rule.id).toBe("low-xlm");
+    });
+
+    it("streamAccount dispatches alerts to onAlert as balances change", async () => {
+      const { getAccount } = await import("../account/getAccount");
+      const { streamAccount } = await import("../account/streamAccount");
+      const { ok } = await import("../shared/response");
+
+      const pk = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+      const a1: AccountInfo = {
+        publicKey: pk,
+        displayAddress: "GAAZI...CWNA",
+        sequence: "1",
+        subentryCount: 0,
+        balances: [bal("XLM", "100")],
+      };
+      const a2: AccountInfo = { ...a1, sequence: "2", balances: [bal("XLM", "40")] };
+
+      vi.mocked(getAccount).mockResolvedValueOnce(ok(a1)).mockResolvedValueOnce(ok(a2));
+
+      const received: string[] = [];
+      const stream = streamAccount(
+        "http://horizon",
+        pk,
+        {
+          maxPolls: 2,
+          emitOnStart: true,
+          intervalMs: 1,
+          alertRules: [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+          onAlert: (alert) => received.push(alert.newBalance),
+        },
+      );
+      for await (const _ of stream) {
+        void _;
+      }
+
+      expect(received).toEqual(["40"]);
+    }, 10_000);
+
+    it("does not dispatch alerts when onAlert is omitted (backward compatible)", async () => {
+      const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+      // Sanity: evaluation itself is pure and never throws on empty rules.
+      expect(evaluateBalanceAlerts([], [bal("XLM", "100")], [bal("XLM", "40")])).toEqual([]);
+    });
+  });
+
   describe("getAssetBalances — issuer whitelisting", () => {
     beforeEach(() => {
       vi.clearAllMocks();

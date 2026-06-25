@@ -32,8 +32,8 @@ import { simulateTransaction } from "../soroban/simulateTransaction";
 import { executeContract } from "../soroban/executeContract";
 import { invokeContract } from "../soroban/invokeContract";
 import { getContractMethods } from "../soroban/contractMetadata";
-import { createLogger, withLogging } from "../shared/logger";
-import { formatAddress } from "../shared/utils";
+import { createLogger, createTracedLogger, withLogging } from "../shared/logger";
+import { formatAddress, generateTraceId } from "../shared/utils";
 import { ok } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
@@ -108,6 +108,11 @@ export interface SorokitClientConfig {
   errorCodeTransformer?: ErrorCodeTransformer;
   /** Max transaction submissions per second — activates token bucket rate limiting on transaction.submit() */
   maxTxPerSecond?: number;
+  /**
+   * Correlation ID for this client. Included in every log entry and stamped onto
+   * every error returned by client methods. Generated automatically when omitted.
+   */
+  traceId?: string;
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────
@@ -117,6 +122,8 @@ export interface SorokitClient {
   readonly networkConfig: ResolvedNetworkConfig;
   /** Trusted asset issuers whitelist — null means no whitelist (all issuers allowed) */
   readonly trustedIssuers: string[] | null;
+  /** Correlation ID stamped onto every error and log entry from this client. */
+  readonly traceId: string;
 
   readonly wallet: {
     /** Connect and return WalletState */
@@ -283,11 +290,13 @@ export function createSorokitClient(
 
   const networkConfig = networkResult.data;
   const { horizonUrl, rpcUrl, networkPassphrase } = networkConfig;
-  const logger =
+  const traceId = config.traceId ?? generateTraceId();
+  const baseLogger =
     config.logger ??
     createLogger({
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
     });
+  const logger = createTracedLogger(baseLogger, traceId);
   const defaultPollConfig = config.sorobanPoll;
   const errorHandler = config.errorHandler;
   const feeEstimateOptions: FeeEstimateOptions = {
@@ -316,6 +325,7 @@ export function createSorokitClient(
   const client: SorokitClient = {
     networkConfig,
     trustedIssuers: config.trustedIssuers ?? null,
+    traceId,
 
     wallet: {
       connect: (adapter) =>

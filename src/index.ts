@@ -16,7 +16,7 @@ export type {
 export { FreighterAdapter } from "./wallet/adapters/freighter";
 export { XBullAdapter } from "./wallet/adapters/xbull";
 export { LobstrAdapter } from "./wallet/adapters/lobstr";
-export { collectMultiSignatures } from "./wallet";
+export { collectMultiSignatures, diagnoseWalletConnection } from "./wallet";
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
 export type {
@@ -24,6 +24,10 @@ export type {
   WalletState,
   SignTransactionInput,
   SWKInstance,
+  DiagnosticStatus,
+  DiagnosticCheck,
+  WalletDiagnosticReport,
+  WalletDiagnosticOptions,
 } from "./wallet/types";
 export { WalletType } from "./wallet/types";
 
@@ -35,7 +39,14 @@ export { NETWORK_DEFAULTS } from "./network/config";
 export type { ResolvedNetworkConfig } from "./shared/types";
 
 // ─── Account types ────────────────────────────────────────────────────────────
-export type { AccountInfo, AssetBalance } from "./account/types";
+export type {
+  AccountInfo,
+  AssetBalance,
+  BalanceAlert,
+  BalanceAlertRule,
+  BalanceAlertCondition,
+} from "./account/types";
+export { evaluateBalanceAlerts } from "./account/balanceAlerts";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
 export type { AccountStreamConfig } from "./account/streamAccount";
 
@@ -77,6 +88,8 @@ export type {
 
 // ─── Response system ──────────────────────────────────────────────────────────
 export type { SorokitResult, SorokitError } from "./shared/response";
-export { SorokitErrorCode, ok, err, isOk, isErr, isErrorCode, assertOk } from "./shared/response";
+export { SorokitErrorCode, ok, err, isOk, isErr, isErrorCode, assertOk, attachTraceId } from "./shared/response";
+export { generateTraceId } from "./shared/utils";
 export type { SorokitLogger, LogLevel, LoggerConfig } from "./shared/logger";
+export { createTracedLogger } from "./shared/logger";
 export type { SorokitCache } from "./shared/cache";

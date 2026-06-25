@@ -607,3 +607,91 @@ describe("TokenBucketRateLimiter", () => {
     expect(Date.now() - start).toBeGreaterThanOrEqual(0);
   });
 });
+
+import {
+  generateTraceId,
+  attachTraceId,
+  createTracedLogger,
+  withLogging,
+  type SorokitLogger,
+  type StructuredLogMeta,
+} from "../shared";
+
+describe("trace IDs (#32)", () => {
+  it("generateTraceId returns a non-empty, unique string", () => {
+    const a = generateTraceId();
+    const b = generateTraceId();
+    expect(typeof a).toBe("string");
+    expect(a.length).toBeGreaterThan(0);
+    expect(a).not.toBe(b);
+  });
+
+  it("err accepts an optional traceId", () => {
+    const result = err(SorokitErrorCode.UNKNOWN, "boom", undefined, "trace-123");
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.traceId).toBe("trace-123");
+    }
+  });
+
+  it("err without a traceId leaves the field undefined", () => {
+    const result = err(SorokitErrorCode.UNKNOWN, "boom");
+    if (result.status === "error") {
+      expect(result.error.traceId).toBeUndefined();
+    }
+  });
+
+  it("attachTraceId stamps an error result without one", () => {
+    const stamped = attachTraceId(err(SorokitErrorCode.UNKNOWN, "boom"), "t-1");
+    if (stamped.status === "error") expect(stamped.error.traceId).toBe("t-1");
+  });
+
+  it("attachTraceId does not overwrite an existing traceId", () => {
+    const stamped = attachTraceId(
+      err(SorokitErrorCode.UNKNOWN, "boom", undefined, "original"),
+      "t-2",
+    );
+    if (stamped.status === "error") expect(stamped.error.traceId).toBe("original");
+  });
+
+  it("attachTraceId passes success results through untouched", () => {
+    const result = attachTraceId(ok(42), "t-3");
+    expect(result).toEqual(ok(42));
+  });
+
+  it("createTracedLogger injects the traceId into every log entry", () => {
+    const entries: { msg: string; meta?: StructuredLogMeta }[] = [];
+    const base: SorokitLogger = {
+      debug: (msg, meta) => entries.push({ msg, meta }),
+      info: (msg, meta) => entries.push({ msg, meta }),
+      warn: (msg, meta) => entries.push({ msg, meta }),
+      error: (msg, meta) => entries.push({ msg, meta }),
+    };
+    const traced = createTracedLogger(base, "trace-xyz");
+    traced.info("op", { operation: "op" });
+    expect(traced.traceId).toBe("trace-xyz");
+    expect(entries[0]?.meta?.traceId).toBe("trace-xyz");
+  });
+
+  it("withLogging stamps the logger traceId onto error results", async () => {
+    const traced = createTracedLogger(
+      { debug() {}, info() {}, warn() {}, error() {} },
+      "flow-1",
+    );
+    const result = await withLogging(traced, "account.get", undefined, async () =>
+      err(SorokitErrorCode.ACCOUNT_FETCH_FAILED, "down"),
+    );
+    if (result.status === "error") expect(result.error.traceId).toBe("flow-1");
+  });
+
+  it("withLogging leaves success results unchanged", async () => {
+    const traced = createTracedLogger(
+      { debug() {}, info() {}, warn() {}, error() {} },
+      "flow-2",
+    );
+    const result = await withLogging(traced, "account.get", undefined, async () =>
+      ok({ value: 1 }),
+    );
+    expect(result).toEqual(ok({ value: 1 }));
+  });
+});

@@ -2,8 +2,9 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { sleep, toMessage } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
-import type { AccountInfo } from "./types";
+import type { AccountInfo, BalanceAlert, BalanceAlertRule } from "./types";
 import { getAccount } from "./getAccount";
+import { evaluateBalanceAlerts } from "./balanceAlerts";
 
 const MIN_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -58,6 +59,17 @@ export interface AccountStreamConfig {
    * Only fires when the balance actually changes — unchanged balances are silent.
    */
   onBalanceChange?: (assetCode: string, oldBalance: string, newBalance: string) => void;
+  /**
+   * Optional balance alert rules evaluated on every successful poll.
+   * Each rule fires an alert via {@link onAlert} when its threshold is crossed.
+   * Requires {@link onAlert} to be set — rules without a callback are ignored.
+   */
+  alertRules?: BalanceAlertRule[];
+  /**
+   * Optional callback fired for each {@link BalanceAlert} produced by {@link alertRules}.
+   * Fired after `onBalanceChange` for the same poll.
+   */
+  onAlert?: (alert: BalanceAlert) => void;
 }
 
 /**
@@ -196,6 +208,19 @@ export async function* streamAccount(
               config.onBalanceChange(newBal.assetCode, oldBal.balance, newBal.balance);
             }
           }
+        }
+
+        // Evaluate balance alert rules against the transition from the last
+        // successful poll. The initial poll uses an empty baseline, so an
+        // account already past a below/above threshold alerts once on start.
+        if (config?.alertRules && config.alertRules.length > 0 && config.onAlert) {
+          const oldBalances = lastEmitted?.balances ?? [];
+          const alerts = evaluateBalanceAlerts(
+            config.alertRules,
+            oldBalances,
+            result.data.balances,
+          );
+          for (const alert of alerts) config.onAlert(alert);
         }
 
       } else {

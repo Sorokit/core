@@ -242,3 +242,107 @@ describe("collectMultiSignatures (#22)", () => {
     expect(signFn).toHaveBeenCalledOnce();
   });
 });
+
+import { diagnoseWalletConnection } from "../wallet/index";
+import type { WalletAdapter } from "../wallet/types";
+
+function fakeAdapter(overrides?: Partial<WalletAdapter>): WalletAdapter {
+  return {
+    walletType: WalletType.FREIGHTER,
+    isAvailable: () => true,
+    connect: async () => ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
+    disconnect: async () => ok(undefined),
+    signTransaction: async () => ok("signed"),
+    ...overrides,
+  };
+}
+
+describe("diagnoseWalletConnection (#34)", () => {
+  function find(report: { checks: { name: string; status: string }[] }, name: string) {
+    return report.checks.find((c) => c.name === name);
+  }
+
+  it("reports healthy when the wallet is available and connects", async () => {
+    const result = await diagnoseWalletConnection(fakeAdapter());
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.healthy).toBe(true);
+    expect(find(result.data, "wallet_installed")?.status).toBe("pass");
+    expect(find(result.data, "extension_responsive")?.status).toBe("pass");
+  });
+
+  it("flags an unavailable wallet and skips the connection probe", async () => {
+    const result = await diagnoseWalletConnection(
+      fakeAdapter({ isAvailable: () => false }),
+    );
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.healthy).toBe(false);
+    expect(find(result.data, "wallet_installed")?.status).toBe("fail");
+    expect(find(result.data, "extension_responsive")?.status).toBe("skipped");
+    expect(result.data.recommendations.length).toBeGreaterThan(0);
+  });
+
+  it("reports a failing connection probe with a rejection recommendation", async () => {
+    const result = await diagnoseWalletConnection(
+      fakeAdapter({
+        connect: async () =>
+          err(SorokitErrorCode.WALLET_CONNECT_FAILED, "user rejected"),
+      }),
+    );
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.healthy).toBe(false);
+    expect(find(result.data, "extension_responsive")?.status).toBe("fail");
+    expect(result.data.recommendations.some((r) => r.includes("approve"))).toBe(true);
+  });
+
+  it("passes the network check when the endpoint is reachable", async () => {
+    const fetchFn = vi.fn(async () => ({ ok: true, status: 200 })) as unknown as typeof fetch;
+    const result = await diagnoseWalletConnection(fakeAdapter(), {
+      networkUrl: "https://horizon.test",
+      fetchFn,
+    });
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(find(result.data, "network_connectivity")?.status).toBe("pass");
+    expect(fetchFn).toHaveBeenCalledWith("https://horizon.test", { method: "GET" });
+  });
+
+  it("fails the network check when fetch throws", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    const result = await diagnoseWalletConnection(fakeAdapter(), {
+      networkUrl: "https://horizon.test",
+      fetchFn,
+    });
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.healthy).toBe(false);
+    expect(find(result.data, "network_connectivity")?.status).toBe("fail");
+  });
+
+  it("warns when the network endpoint returns a non-ok status", async () => {
+    const fetchFn = vi.fn(async () => ({ ok: false, status: 503 })) as unknown as typeof fetch;
+    const result = await diagnoseWalletConnection(fakeAdapter(), {
+      networkUrl: "https://horizon.test",
+      fetchFn,
+    });
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(find(result.data, "network_connectivity")?.status).toBe("warn");
+  });
+
+  it("skips the network check when no URL is provided", async () => {
+    const result = await diagnoseWalletConnection(fakeAdapter());
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(find(result.data, "network_connectivity")?.status).toBe("skipped");
+  });
+
+  it("skips the connection probe when probeConnection is false", async () => {
+    const connect = vi.fn(async () => ok("G..."));
+    const result = await diagnoseWalletConnection(
+      fakeAdapter({ connect }),
+      { probeConnection: false },
+    );
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(find(result.data, "extension_responsive")?.status).toBe("skipped");
+    expect(connect).not.toHaveBeenCalled();
+  });
+});

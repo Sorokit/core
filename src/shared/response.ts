@@ -19,6 +19,11 @@ export interface SorokitError {
   code: SorokitErrorCode;
   message: string;
   cause?: unknown;
+  /**
+   * Optional correlation ID linking this error to the operation chain that
+   * produced it. Set automatically by client methods when a trace ID is active.
+   */
+  traceId?: string;
 }
 
 export enum SorokitErrorCode {
@@ -64,8 +69,27 @@ export function err<T>(
   code: SorokitErrorCode,
   message: string,
   cause?: unknown,
+  traceId?: string,
 ): SorokitResult<T> {
-  return { status: "error", data: null, error: { code, message, cause } };
+  return {
+    status: "error",
+    data: null,
+    error: traceId !== undefined ? { code, message, cause, traceId } : { code, message, cause },
+  };
+}
+
+/**
+ * Stamp a trace ID onto an error result if it does not already carry one.
+ * Success results pass through untouched.
+ */
+export function attachTraceId<T>(
+  result: SorokitResult<T>,
+  traceId: string,
+): SorokitResult<T> {
+  if (result.status === "error" && result.error.traceId === undefined) {
+    return { ...result, error: { ...result.error, traceId } };
+  }
+  return result;
 }
 
 /** Type guard — narrows to the success branch */

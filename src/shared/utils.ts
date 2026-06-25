@@ -50,6 +50,27 @@ export function isValidContractId(id: string): boolean {
 }
 
 /**
+ * Generate a short, URL-safe trace ID for correlating an operation chain.
+ *
+ * Prefers the platform crypto (`randomUUID`/`getRandomValues`) when available
+ * and falls back to `Math.random` so the SDK stays dependency-free and works
+ * in every runtime. The value is for correlation only, not security.
+ */
+export function generateTraceId(): string {
+  const c = (globalThis as { crypto?: Crypto }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  if (c?.getRandomValues) {
+    const bytes = c.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  return (
+    Date.now().toString(36) +
+    Math.random().toString(36).slice(2, 10) +
+    Math.random().toString(36).slice(2, 10)
+  );
+}
+
+/**
  * Retry configuration for exponential backoff.
  */
 export interface RetryConfig {
