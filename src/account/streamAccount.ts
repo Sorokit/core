@@ -1,6 +1,6 @@
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { sleep, toMessage, deepEqual, isValidPublicKey } from "../shared";
+import { sleep, toMessage, isValidPublicKey } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
 import type { AccountInfo } from "./types";
 import { getAccount } from "./getAccount";
