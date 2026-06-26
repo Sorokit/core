@@ -7,6 +7,13 @@ export { subscribeContractEvents } from "./subscribeContractEvents";
 export { getContractMethods } from "./contractMetadata";
 export { validateContractAbi } from "./validateContractAbi";
 export { buildContractDeploy } from "./deployContract";
+export {
+  snapshotContractState,
+  compareSnapshots,
+  listSnapshots,
+  clearSnapshots,
+} from "./contractSnapshot";
+export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
 export type { BuildContractDeployOptions } from "./deployContract";
 export type {
   ContractEvent,

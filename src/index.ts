@@ -79,6 +79,13 @@ export type {
 } from "./soroban/types";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
 export { buildContractDeploy } from "./soroban/deployContract";
+export {
+  snapshotContractState,
+  compareSnapshots,
+  listSnapshots,
+  clearSnapshots,
+} from "./soroban/contractSnapshot";
+export type { ContractSnapshot, SnapshotDiff } from "./soroban/contractSnapshot";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export type {
   ContractEvent,
