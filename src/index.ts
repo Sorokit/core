@@ -93,3 +93,7 @@ export { generateTraceId } from "./shared/utils";
 export type { SorokitLogger, LogLevel, LoggerConfig } from "./shared/logger";
 export { createTracedLogger } from "./shared/logger";
 export type { SorokitCache } from "./shared/cache";
+
+// ─── Metrics ──────────────────────────────────────────────────────────────────
+export type { MetricEntry, MetricSummary, MetricsFilter } from "./shared/metrics";
+export { recordMetric, getMetrics, clearMetrics, withMetrics, metricsCollector } from "./shared/metrics";
