@@ -1,7 +1,7 @@
 import { Horizon } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { formatAddress, isNotFoundError, toMessage, isValidPublicKey } from "../shared";
+import { formatAddress, isNotFoundError, toMessage, isValidPublicKey, retryWithBackoff } from "../shared";
 import type { AccountInfo, AssetBalance } from "./types";
 
 /**
