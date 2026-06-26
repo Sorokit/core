@@ -322,19 +322,59 @@ export function createSorokitClient(
     rpcUrl,
   });
 
+  // Client creation checks cache for recovered state
+  if (config.cache) {
+    const cachedVal = config.cache.get("wallet:state");
+    logger.debug("client.create: checked cache for recovered wallet state", {
+      hasCachedState: !!cachedVal,
+    });
+  }
+
   const client: SorokitClient = {
     networkConfig,
     trustedIssuers: config.trustedIssuers ?? null,
     traceId,
 
     wallet: {
-      connect: (adapter) =>
-        withLogging(logger, "wallet.connect", { walletType: adapter.walletType }, () =>
-          connectWallet(adapter),
-        ).then(applyTx),
+      connect: (adapter) => {
+        if (config.cache) {
+          const cachedVal = config.cache.get("wallet:state");
+          let cached: WalletState | null = null;
+          if (cachedVal) {
+            if (typeof cachedVal === "string") {
+              try {
+                cached = JSON.parse(cachedVal);
+              } catch {
+                // ignore
+              }
+            } else if (typeof cachedVal === "object") {
+              cached = cachedVal as WalletState;
+            }
+          }
+
+          if (cached && cached.connected && cached.walletType === adapter.walletType) {
+            if (adapter.isAvailable()) {
+              logger.info("wallet.connect.recover", { walletType: adapter.walletType, status: "ok" });
+              return Promise.resolve(applyTx(ok(cached)));
+            } else {
+              logger.warn("wallet.connect.recover.validation_failed", { walletType: adapter.walletType });
+              config.cache.invalidate("wallet:state");
+              return Promise.resolve(applyTx(ok({
+                connected: false,
+                publicKey: null,
+                walletType: null,
+              })));
+            }
+          }
+        }
+
+        return withLogging(logger, "wallet.connect", { walletType: adapter.walletType }, () =>
+          connectWallet(adapter, config.cache),
+        ).then(applyTx);
+      },
       disconnect: (adapter) =>
         withLogging(logger, "wallet.disconnect", { walletType: adapter.walletType }, () =>
-          disconnectWallet(adapter),
+          disconnectWallet(adapter, config.cache),
         ).then(applyTx),
       signTransaction: (adapter, input) =>
         withLogging(
@@ -345,6 +385,7 @@ export function createSorokitClient(
         ).then(applyTx),
       emptyState: () => emptyWalletState(),
     },
+
 
     account: {
       get: (publicKey) =>

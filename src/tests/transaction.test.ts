@@ -14,7 +14,6 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import {
   buildPaymentWithTrustline,
   buildSwapTransaction,
-  buildPaymentTransaction,
   clearSequenceCache,
 } from "../transaction/buildTransaction";
 import type {
