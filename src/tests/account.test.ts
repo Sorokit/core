@@ -584,4 +584,93 @@ describe("streamAccount — onBalanceChange callback (#11)", () => {
     expect(changes).toHaveLength(2);
     expect(changes.map((c) => c.assetCode).sort()).toEqual(["USDC", "XLM"]);
   }, 10_000);
+
+  describe("getAccountsBatch", () => {
+    it("handles all successes", async () => {
+      const { getAccountsBatch } = await import("../account/getAccountsBatch");
+      const { getAccount } = await import("../account/getAccount");
+      const { ok } = await import("../shared/response");
+
+      const a1 = createAccount("1");
+      const a2 = createAccount("2");
+
+      vi.mocked(getAccount)
+        .mockResolvedValueOnce(ok(a1))
+        .mockResolvedValueOnce(ok(a2));
+
+      const result = await getAccountsBatch("http://horizon", ["key1", "key2"]);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toHaveLength(2);
+        expect(result.data[0].status).toBe("ok");
+        expect(result.data[0].data).toEqual(a1);
+        expect(result.data[1].status).toBe("ok");
+        expect(result.data[1].data).toEqual(a2);
+      }
+    });
+
+    it("handles all failures", async () => {
+      const { getAccountsBatch } = await import("../account/getAccountsBatch");
+      const { getAccount } = await import("../account/getAccount");
+      const { err, SorokitErrorCode } = await import("../shared/response");
+
+      vi.mocked(getAccount)
+        .mockResolvedValueOnce(err(SorokitErrorCode.ACCOUNT_NOT_FOUND, "Not found"))
+        .mockResolvedValueOnce(err(SorokitErrorCode.ACCOUNT_FETCH_FAILED, "Fetch failed"));
+
+      const result = await getAccountsBatch("http://horizon", ["key1", "key2"]);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toHaveLength(2);
+        expect(result.data[0].status).toBe("error");
+        expect(result.data[0].error?.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
+        expect(result.data[1].status).toBe("error");
+        expect(result.data[1].error?.code).toBe(SorokitErrorCode.ACCOUNT_FETCH_FAILED);
+      }
+    });
+
+    it("handles mixed successes and failures", async () => {
+      const { getAccountsBatch } = await import("../account/getAccountsBatch");
+      const { getAccount } = await import("../account/getAccount");
+      const { ok, err, SorokitErrorCode } = await import("../shared/response");
+
+      const a1 = createAccount("1");
+
+      vi.mocked(getAccount)
+        .mockResolvedValueOnce(ok(a1))
+        .mockResolvedValueOnce(err(SorokitErrorCode.ACCOUNT_NOT_FOUND, "Not found"));
+
+      const result = await getAccountsBatch("http://horizon", ["key1", "key2"]);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toHaveLength(2);
+        expect(result.data[0].status).toBe("ok");
+        expect(result.data[0].data).toEqual(a1);
+        expect(result.data[1].status).toBe("error");
+        expect(result.data[1].error?.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
+      }
+    });
+
+    it("performance: queries Horizon in parallel", async () => {
+      const { getAccountsBatch } = await import("../account/getAccountsBatch");
+      const { getAccount } = await import("../account/getAccount");
+      const { ok } = await import("../shared/response");
+
+      vi.mocked(getAccount).mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        return ok(createAccount("1"));
+      });
+
+      const start = Date.now();
+      const result = await getAccountsBatch("http://horizon", ["key1", "key2", "key3"]);
+      const duration = Date.now() - start;
+
+      expect(result.status).toBe("ok");
+      // If run sequentially, it would take >= 300ms. Since it runs in parallel, it should take ~100ms.
+      expect(duration).toBeLessThan(250);
+    });
+  });
 });

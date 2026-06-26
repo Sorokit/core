@@ -14,6 +14,7 @@ import { disconnectWallet } from "../wallet/disconnect";
 import { signTransaction } from "../wallet/signTransaction";
 import { emptyWalletState } from "../wallet/index";
 import { getAccount } from "../account/getAccount";
+import { getAccountsBatch } from "../account/getAccountsBatch";
 import { getBalances } from "../account/getBalances";
 import { getAssetBalances } from "../account/getAssetBalances";
 import { streamAccount } from "../account/streamAccount";
@@ -145,6 +146,10 @@ export interface SorokitClient {
   readonly account: {
     /** Fetch full account info including all balances */
     get(publicKey: string): Promise<SorokitResult<AccountInfo>>;
+    /** Fetch full account info for multiple accounts in parallel */
+    getAccountsBatch(
+      publicKeys: string[],
+    ): Promise<SorokitResult<SorokitResult<AccountInfo>[]>>;
     /** Fetch balances only */
     getBalances(publicKey: string): Promise<SorokitResult<AssetBalance[]>>;
     /**
@@ -395,6 +400,15 @@ export function createSorokitClient(
           () =>
             withLogging(logger, "account.get", { publicKey }, () =>
               getAccount(horizonUrl, publicKey),
+            ),
+        ).then(applyTx),
+      getAccountsBatch: (publicKeys) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "account.getAccountsBatch", params: { publicKeys } },
+          () =>
+            withLogging(logger, "account.getAccountsBatch", { publicKeys }, () =>
+              getAccountsBatch(horizonUrl, publicKeys),
             ),
         ).then(applyTx),
       getBalances: (publicKey) =>
