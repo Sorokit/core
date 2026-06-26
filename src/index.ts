@@ -63,6 +63,15 @@ export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./transaction/streamTransactions";
+export { validateTransaction } from "./transaction/validateTransaction";
+export type {
+  ValidationIssue,
+  ValidationRules,
+  TransactionValidationReport,
+  TransactionValidationContext,
+  CustomValidationRule,
+  ParsedOperation,
+} from "./transaction/validateTransaction";
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
 export type {

@@ -9,6 +9,7 @@ export { submitTransaction } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";
 export { streamTransactions } from "./streamTransactions";
+export { validateTransaction } from "./validateTransaction";
 export type {
   TransactionResult,
   TransactionStatus,
@@ -23,3 +24,11 @@ export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
+export type {
+  ValidationIssue,
+  ValidationRules,
+  TransactionValidationReport,
+  TransactionValidationContext,
+  CustomValidationRule,
+  ParsedOperation,
+} from "./validateTransaction";

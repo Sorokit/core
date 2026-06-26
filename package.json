@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",
     "test:watch": "vitest",
+    "bench": "vitest bench",
     "lint": "eslint src --ext .ts",
     "clean": "rimraf dist"
   },
