@@ -75,20 +75,34 @@ export interface AccountStreamConfig {
 /**
  * Stream account state by polling Horizon at a configurable interval.
  *
- * Yields SorokitResult<AccountInfo> on every poll. Errors mid-stream are
- * yielded as error results — the stream does not stop on a single failure.
+ * Yields `SorokitResult<AccountInfo>` on every poll. Network errors mid-stream
+ * are yielded as error results rather than stopping the generator, allowing
+ * consumers to decide whether to retry or abort.
  *
- * Use `for await...of` to consume:
+ * Adaptive polling automatically increases the interval when consecutive polls
+ * return the same account state, and resets to the base interval on change.
+ * Balance-alert rules and `onBalanceChange` hooks are evaluated after each
+ * successful poll.
+ *
+ * @param horizonUrl - Base URL of the Horizon server.
+ * @param publicKey  - Stellar G-address of the account to monitor.
+ * @param config     - Optional streaming and polling configuration.
+ * @param signal     - Optional `AbortSignal` to stop the stream externally.
+ * @param logger     - Optional logger for diagnostic output.
+ * @yields `SorokitResult<AccountInfo>` on each poll cycle.
+ *
  * @example
  * for await (const result of streamAccount(horizonUrl, publicKey)) {
- *   if (result.status === 'ok') console.log(result.data.balances);
+ *   if (result.status === "ok") console.log(result.data.balances);
  * }
  *
- * To stop early, `break` out of the loop or use an AbortSignal:
  * @example
+ * // Stop after 30 s via AbortController
  * const ac = new AbortController();
- * for await (const result of streamAccount(horizonUrl, publicKey, {}, ac.signal)) { ... }
- * ac.abort();
+ * setTimeout(() => ac.abort(), 30_000);
+ * for await (const result of streamAccount(horizonUrl, publicKey, {}, ac.signal)) {
+ *   if (result.status === "ok") console.log(result.data.balances);
+ * }
  */
 export async function* streamAccount(
   horizonUrl: string,

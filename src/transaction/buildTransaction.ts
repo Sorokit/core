@@ -121,8 +121,30 @@ function validateMemoParams(params: MemoParams): SorokitResult<Memo | undefined>
 }
 
 /**
- * Build a payment transaction XDR.
- * Returns the unsigned XDR string ready for signing.
+ * Build an unsigned payment transaction XDR.
+ *
+ * Fetches the current sequence number from Horizon unless `autoFetchSequence`
+ * is `true` and a cached sequence is available (TTL: 5 s). Validates the asset
+ * issuer against `trustedIssuers` when provided.
+ *
+ * @param horizonUrl     - Base URL of the Horizon server.
+ * @param networkConfig  - Resolved network configuration (passphrase, URLs).
+ * @param sourcePublicKey - G-address of the transaction source account.
+ * @param params          - Payment parameters: destination, amount, asset, memo.
+ * @param trustedIssuers  - Optional whitelist of trusted issuer G-addresses.
+ * @returns `ok(xdr)` — unsigned transaction XDR ready for signing,
+ *          or `error(TX_BUILD_FAILED)` on any build error.
+ *
+ * @example
+ * const result = await buildPaymentTransaction(horizonUrl, networkConfig, sourceKey, {
+ *   destination: "GDEST...",
+ *   amount: "10",
+ *   assetCode: "USDC",
+ *   assetIssuer: "GA5ZS...",
+ * });
+ * if (result.status === "ok") {
+ *   const signed = await signTransaction(adapter, { transactionXdr: result.data, networkPassphrase });
+ * }
  */
 export async function buildPaymentTransaction(
   horizonUrl: string,
@@ -206,7 +228,23 @@ export async function buildPaymentTransaction(
 }
 
 /**
- * Build a create account transaction XDR.
+ * Build an unsigned create-account transaction XDR.
+ *
+ * Creates the target account on the Stellar network and funds it with
+ * `startingBalance` XLM. The source account must hold sufficient XLM to
+ * cover both the starting balance and transaction fee.
+ *
+ * @param horizonUrl      - Base URL of the Horizon server.
+ * @param networkConfig   - Resolved network configuration.
+ * @param sourcePublicKey - G-address of the funding account.
+ * @param params          - Destination address, starting balance in XLM, and optional memo.
+ * @returns `ok(xdr)` — unsigned transaction XDR, or `error(TX_BUILD_FAILED)`.
+ *
+ * @example
+ * const result = await buildCreateAccountTransaction(horizonUrl, networkConfig, sourceKey, {
+ *   destination: "GDEST...",
+ *   startingBalance: "1",
+ * });
  */
 export async function buildCreateAccountTransaction(
   horizonUrl: string,
@@ -265,7 +303,23 @@ export async function buildCreateAccountTransaction(
 }
 
 /**
- * Build a change trust (trustline) transaction XDR.
+ * Build an unsigned change-trust (trustline) transaction XDR.
+ *
+ * Adds or removes a trustline for a non-native asset. Setting `limit` to `"0"`
+ * removes the trustline. Validates the issuer against `trustedIssuers` when provided.
+ *
+ * @param horizonUrl      - Base URL of the Horizon server.
+ * @param networkConfig   - Resolved network configuration.
+ * @param sourcePublicKey - G-address of the account establishing the trustline.
+ * @param params          - Asset code, issuer, optional limit, and optional memo.
+ * @param trustedIssuers  - Optional whitelist of trusted issuer G-addresses.
+ * @returns `ok(xdr)` — unsigned transaction XDR, or `error(TX_BUILD_FAILED)`.
+ *
+ * @example
+ * const result = await buildTrustlineTransaction(horizonUrl, networkConfig, sourceKey, {
+ *   assetCode: "USDC",
+ *   assetIssuer: "GA5ZS...",
+ * });
  */
 export async function buildTrustlineTransaction(
   horizonUrl: string,

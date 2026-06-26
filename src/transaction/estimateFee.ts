@@ -88,25 +88,36 @@ function describeFeeEstimateFailure(cause: unknown): string {
 /**
  * Estimate the fee for a transaction using Soroban RPC simulation.
  *
- * Two modes:
- * 1. Pass a pre-built `transactionXdr` — simulates it directly.
- * 2. Pass `publicKey`, `destination`, `amount` — builds a sample payment
- *    transaction and simulates that.
+ * Supports two input modes:
+ * 1. `{ kind: "xdr", transactionXdr }` — simulates a pre-built transaction XDR.
+ * 2. `{ kind: "payment", publicKey, destination, amount }` — builds a sample
+ *    payment transaction and simulates it.
  *
- * Falls back to BASE_FEE if simulation is unavailable.
+ * Falls back to `BASE_FEE` (100 stroops) when RPC simulation is unavailable.
+ * When a `cache` is provided, the SHA-256 hash of the XDR is used as the cache
+ * key — cache hits skip the RPC round trip entirely.
  *
- * When a `cache` is provided, the SHA256 hash of the transaction XDR is used
- * as the cache key. Cache hits skip the RPC simulation entirely.
+ * @param rpcUrl        - Base URL of the Soroban RPC server.
+ * @param horizonUrl    - Base URL of the Horizon server (used in payment mode).
+ * @param networkConfig - Resolved network configuration.
+ * @param input         - Fee estimation input (see `FeeEstimateInput`).
+ * @param cache         - Optional cache for memoising simulation results.
+ * @param cacheTtlMs    - Cache TTL in milliseconds (default: 5 minutes).
+ * @returns `ok(FeeEstimate)` with fee details, or `error(TX_BUILD_FAILED)` on failure.
  *
  * @example
- * // From XDR
- * const result = await estimateFee(rpcUrl, horizonUrl, networkConfig, { transactionXdr: xdr });
- *
- * @example
- * // From payment params
+ * // From a pre-built XDR
  * const result = await estimateFee(rpcUrl, horizonUrl, networkConfig, {
- *   publicKey: "G...",
- *   destination: "G...",
+ *   kind: "xdr",
+ *   transactionXdr: xdr,
+ * });
+ *
+ * @example
+ * // From payment parameters
+ * const result = await estimateFee(rpcUrl, horizonUrl, networkConfig, {
+ *   kind: "payment",
+ *   publicKey: "GSOURCE...",
+ *   destination: "GDEST...",
  *   amount: "10",
  * });
  */

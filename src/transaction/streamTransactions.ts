@@ -174,20 +174,34 @@ export function applyTransactionFilters(
 /**
  * Stream transactions for an account by polling Horizon at a configurable interval.
  *
- * Yields SorokitResult<TransactionPage> on every poll. Errors are yielded
- * as error results — the stream does not stop on a single failure.
+ * Yields `SorokitResult<TransactionPage>` on every poll — each page contains
+ * the filtered list of transactions and a cursor for resuming the stream.
+ * Network errors are yielded as error results rather than stopping the generator.
+ *
+ * Client-side filters (ledger range, date range, status, limit, offset) are
+ * applied after each Horizon response via `applyTransactionFilters`. Adaptive
+ * polling increases the interval when consecutive polls return identical pages
+ * and resets to the base interval when new transactions arrive.
+ *
+ * @param horizonUrl - Base URL of the Horizon server.
+ * @param publicKey  - Stellar G-address of the account whose transactions to stream.
+ * @param config     - Optional streaming, filtering, and polling configuration.
+ * @param signal     - Optional `AbortSignal` to stop the stream externally.
+ * @param logger     - Optional logger for diagnostic output.
+ * @yields `SorokitResult<TransactionPage>` on each poll cycle when the page changes.
  *
  * @example
  * for await (const result of streamTransactions(horizonUrl, publicKey)) {
- *   if (result.status === 'ok') {
+ *   if (result.status === "ok") {
  *     result.data.transactions.forEach(tx => console.log(tx.hash));
  *   }
  * }
  *
- * // Stream only new transactions using cursor:
+ * @example
+ * // Stream only new transactions using cursor
  * let cursor: string | undefined;
  * for await (const result of streamTransactions(horizonUrl, publicKey, { cursor })) {
- *   if (result.status === 'ok') cursor = result.data.nextCursor ?? cursor;
+ *   if (result.status === "ok") cursor = result.data.nextCursor ?? cursor;
  * }
  */
 export async function* streamTransactions(

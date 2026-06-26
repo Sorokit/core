@@ -8,21 +8,40 @@ import { prepareContractCall } from "./prepareCall";
 import { executeContract } from "./executeContract";
 
 /**
- * Full Soroban invoke pipeline: prepare → sign → execute
+ * Full Soroban contract invoke pipeline: prepare → sign → execute.
  *
- * Steps:
- * 1. prepareContractCall  — build + simulate + assemble the transaction
- * 2. signFn               — caller signs the assembled XDR (wallet-agnostic)
- * 3. executeContract      — submit to RPC + poll until confirmed
+ * Runs three steps sequentially:
+ * 1. `prepareContractCall` — builds, simulates, and assembles the transaction XDR.
+ * 2. `signFn` — caller-supplied signing function (wallet-agnostic).
+ * 3. `executeContract` — submits to the RPC node and polls until confirmed.
  *
- * Each step is a named, independently callable function.
- * Use them directly when you need finer control over the flow.
+ * Use the individual pipeline steps directly when you need finer control over
+ * the flow (e.g., to inspect the prepared XDR before signing).
  *
- * @param signFn - Async function that receives an XDR string and returns the
- *                 signed XDR. Typically: (xdr) => client.wallet.signTransaction(adapter, { transactionXdr: xdr, networkPassphrase })
- * @param pollConfig - Override default polling behaviour for this call.
+ * @param rpcUrl        - Base URL of the Soroban RPC server.
+ * @param networkConfig - Resolved network configuration.
+ * @param horizonUrl    - Base URL of the Horizon server.
+ * @param params        - Contract invocation parameters: `contractId`, `publicKey`, `method`, `args`, `contractAbi`.
+ * @param signFn        - Async function that receives the assembled XDR string and
+ *                        returns the signed XDR. Example:
+ *                        `(xdr) => signTransaction(adapter, { transactionXdr: xdr, networkPassphrase })`
+ * @param pollConfig    - Optional overrides for RPC polling behaviour.
+ * @param logger        - Optional logger for diagnostic output.
+ * @returns `ok(txHash)` — confirmed transaction hash on success,
+ *          `error(WALLET_SIGN_FAILED)` if `signFn` throws,
+ *          or `error(CONTRACT_INVOKE_FAILED)` on prepare/execute failure.
  *
- * Returns the confirmed transaction hash on success.
+ * @example
+ * const result = await invokeContract(
+ *   rpcUrl, networkConfig, horizonUrl,
+ *   { contractId: "CABC...", publicKey: "GSRC...", method: "transfer", args: [...], contractAbi: myAbi },
+ *   async (xdr) => {
+ *     const signed = await signTransaction(adapter, { transactionXdr: xdr, networkPassphrase });
+ *     if (signed.status === "error") throw new Error(signed.error.message);
+ *     return signed.data;
+ *   },
+ * );
+ * if (result.status === "ok") console.log("tx hash:", result.data);
  */
 export async function invokeContract(
   rpcUrl: string,
