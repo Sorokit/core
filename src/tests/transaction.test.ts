@@ -8,15 +8,12 @@ import {
   buildPaymentTransaction,
   buildCreateAccountTransaction,
   buildTrustlineTransaction,
+  buildPaymentWithTrustline,
+  buildSwapTransaction,
+  clearSequenceCache,
 } from "../transaction/buildTransaction";
 import { SorokitErrorCode } from "../shared/response";
 import type { ResolvedNetworkConfig } from "../shared/types";
-import {
-  buildPaymentWithTrustline,
-  buildSwapTransaction,
-  buildPaymentTransaction,
-  clearSequenceCache,
-} from "../transaction/buildTransaction";
 import type {
   PaymentWithTrustlineParams,
   SwapTransactionParams,
@@ -29,6 +26,10 @@ import {
   streamTransactions,
 } from "../transaction/streamTransactions";
 import { TokenBucketRateLimiter } from "../shared/utils";
+import {
+  createTransactionContext,
+  TRANSACTION_CONTEXT_TTL_MS,
+} from "../transaction/transactionContext";
 
 const {
   mockSimulateTransaction,
@@ -101,13 +102,8 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
     }
   }
 
-  const mockAsset = vi.fn().mockImplementation((code: string, issuer?: string) => {
-    return { code, issuer: issuer || null };
-  });
-  (mockAsset as any).native = () => ({ code: "XLM", issuer: null });
   return {
     ...actual,
-    Asset: mockAsset,
     Horizon: {
       ...actual.Horizon,
       Server: vi.fn().mockImplementation(() => ({
@@ -148,12 +144,6 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
         isSimulationSuccess: mocks.isSimulationSuccess,
         isSimulationError: mocks.isSimulationError,
       },
-    },
-    Horizon: {
-      ...actual.Horizon,
-      Server: vi.fn().mockImplementation(() => ({
-        loadAccount: mocks.loadAccount,
-      })),
     },
     TransactionBuilder: MockTransactionBuilder,
 
@@ -709,7 +699,7 @@ describe("estimateFee — caching", () => {
     const issuerPublicKey = "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
 
     beforeEach(() => {
-      mocks.loadAccount.mockResolvedValue({
+      mockLoadAccount.mockResolvedValue({
         accountId: () => sourcePublicKey,
         sequenceNumber: () => "1",
         incrementSequenceNumber: () => {},
@@ -1226,22 +1216,22 @@ describe("sequence number auto-fetch cache", () => {
   });
 
   it("does not call Horizon when cache is populated within TTL", async () => {
+    const sourceKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
     const mockAccount = {
       sequence: "100",
       sequenceNumber: vi.fn().mockReturnValue("101"),
       incrementSequenceNumber: vi.fn(),
       subentry_count: 0,
       balances: [],
-      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      accountId: () => sourceKey,
     };
     mockLoadAccount.mockResolvedValue(mockAccount);
 
     const params = {
-      destination: "GBBD47IF6LWK5P7V6XZCHJSAXTSPG4FJHOUOHAUZTF5YQK4Q2GB7S7V2",
+      destination: "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R",
       amount: "10",
       autoFetchSequence: true as const,
     };
-    const sourceKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
 
     // First call populates the cache
     await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
@@ -1338,6 +1328,137 @@ describe("sequence number auto-fetch cache", () => {
     // Cache cleared — should fetch again
     await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
     expect(mockLoadAccount).toHaveBeenCalledOnce();
+  });
+});
+
+describe("createTransactionContext (#36)", () => {
+  const CTX_SOURCE = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const CTX_DEST   = "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+  const CTX_ISSUER = "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    mockLoadAccount.mockResolvedValue({
+      sequence: "100",
+      sequenceNumber: vi.fn().mockReturnValue("101"),
+      incrementSequenceNumber: vi.fn(),
+      subentry_count: 0,
+      balances: [],
+      accountId: () => CTX_SOURCE,
+    });
+  });
+
+  it("pre-fetches account on creation and returns an ok context", async () => {
+    const result = await createTransactionContext(
+      networkConfig.horizonUrl,
+      networkConfig,
+      CTX_SOURCE,
+    );
+    expect(result.status).toBe("ok");
+    expect(mockLoadAccount).toHaveBeenCalledOnce();
+  });
+
+  it("buildPayment reuses cached account — no extra loadAccount call", async () => {
+    const ctxResult = await createTransactionContext(
+      networkConfig.horizonUrl,
+      networkConfig,
+      CTX_SOURCE,
+    );
+    if (ctxResult.status !== "ok") throw new Error("expected ok");
+    mockLoadAccount.mockClear();
+
+    await ctxResult.data.buildPayment({ destination: CTX_DEST, amount: "10" });
+    await ctxResult.data.buildPayment({ destination: CTX_DEST, amount: "5" });
+
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildCreateAccount reuses cached account", async () => {
+    const ctxResult = await createTransactionContext(
+      networkConfig.horizonUrl,
+      networkConfig,
+      CTX_SOURCE,
+    );
+    if (ctxResult.status !== "ok") throw new Error("expected ok");
+    mockLoadAccount.mockClear();
+
+    const r = await ctxResult.data.buildCreateAccount({
+      destination: CTX_DEST,
+      startingBalance: "1",
+    });
+    expect(r.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("buildTrustline reuses cached account", async () => {
+    const ctxResult = await createTransactionContext(
+      networkConfig.horizonUrl,
+      networkConfig,
+      CTX_SOURCE,
+    );
+    if (ctxResult.status !== "ok") throw new Error("expected ok");
+    mockLoadAccount.mockClear();
+
+    const r = await ctxResult.data.buildTrustline({
+      assetCode: "USDC",
+      assetIssuer: CTX_ISSUER,
+    });
+    expect(r.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+
+  it("isExpired() returns false immediately after creation", async () => {
+    const ctxResult = await createTransactionContext(
+      networkConfig.horizonUrl,
+      networkConfig,
+      CTX_SOURCE,
+    );
+    if (ctxResult.status !== "ok") throw new Error("expected ok");
+    expect(ctxResult.data.isExpired()).toBe(false);
+  });
+
+  it("isExpired() returns true after invalidate()", async () => {
+    const ctxResult = await createTransactionContext(
+      networkConfig.horizonUrl,
+      networkConfig,
+      CTX_SOURCE,
+    );
+    if (ctxResult.status !== "ok") throw new Error("expected ok");
+    ctxResult.data.invalidate();
+    expect(ctxResult.data.isExpired()).toBe(true);
+  });
+
+  it("refreshes account after context expires (invalidated)", async () => {
+    const ctxResult = await createTransactionContext(
+      networkConfig.horizonUrl,
+      networkConfig,
+      CTX_SOURCE,
+    );
+    if (ctxResult.status !== "ok") throw new Error("expected ok");
+
+    ctxResult.data.invalidate();
+    mockLoadAccount.mockClear();
+
+    await ctxResult.data.buildPayment({ destination: CTX_DEST, amount: "1" });
+    expect(mockLoadAccount).toHaveBeenCalledOnce();
+  });
+
+  it("returns TX_BUILD_FAILED when account cannot be loaded", async () => {
+    mockLoadAccount.mockReset();
+    mockLoadAccount.mockRejectedValue(new Error("account not found"));
+
+    const result = await createTransactionContext(
+      networkConfig.horizonUrl,
+      networkConfig,
+      CTX_SOURCE,
+    );
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+  });
+
+  it("TRANSACTION_CONTEXT_TTL_MS is 5 minutes", () => {
+    expect(TRANSACTION_CONTEXT_TTL_MS).toBe(5 * 60 * 1000);
   });
 });
 
