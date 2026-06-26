@@ -71,6 +71,8 @@ export type {
   AtomicSwapParams,
 } from "./transaction/types";
 export type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "./transaction/estimateFee";
+export { createTransactionContext, TRANSACTION_CONTEXT_TTL_MS } from "./transaction/transactionContext";
+export type { TransactionBuilderContext } from "./transaction/transactionContext";
 export type {
   TransactionStreamConfig,
   TransactionPage,
