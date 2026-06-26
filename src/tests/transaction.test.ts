@@ -1361,3 +1361,153 @@ describe("TokenBucketRateLimiter — rate limiting on submit", () => {
     );
   });
 });
+
+import { ok as okResult, err as errResult, SorokitErrorCode as ErrCode } from "../shared/response";
+
+describe("custom memoValidator — memo validation callback (#41)", () => {
+  // validateMemoParams (and the custom memoValidator) now runs BEFORE the
+  // builder chain, so invalid memos return early without ever calling
+  // Operation.payment / changeTrust / createAccount.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    transactionBuilderInstances.length = 0;
+    mocks.loadAccount.mockResolvedValue({});
+  });
+
+  it("calls the validator with the memo value when it passes", async () => {
+    const memoValidator = vi.fn((memo: string) =>
+      memo.startsWith("PREFIX:")
+        ? okResult(undefined)
+        : errResult(ErrCode.TX_BUILD_FAILED, "Memo must start with PREFIX:"),
+    );
+
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        destination: "GBBD47UZQ5JAKVEWZNRPA7MKSTIRZU27I27ULMOWVNQZLBZZW7QTXN",
+        amount: "10",
+        memo: "PREFIX:order-123",
+        memoValidator,
+      },
+    );
+
+    expect(memoValidator).toHaveBeenCalledWith("PREFIX:order-123");
+    // Validator passed — any error here is from the mock build chain, not from memo validation
+    if (result.status === "error") {
+      expect(result.error.message).not.toContain("PREFIX:");
+    }
+  });
+
+  it("rejects a memo that fails the custom validator with TX_BUILD_FAILED", async () => {
+    const memoValidator = (memo: string) =>
+      memo.startsWith("PREFIX:")
+        ? okResult(undefined)
+        : errResult(ErrCode.TX_BUILD_FAILED, "Memo must start with PREFIX:");
+
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        destination: "GBBD47UZQ5JAKVEWZNRPA7MKSTIRZU27I27ULMOWVNQZLBZZW7QTXN",
+        amount: "10",
+        memo: "no-prefix",
+        memoValidator,
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toBe("Memo must start with PREFIX:");
+    }
+  });
+
+  it("does not invoke the validator when no memo is provided (backward compat)", async () => {
+    const memoValidator = vi.fn(() => okResult(undefined));
+
+    await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        destination: "GBBD47UZQ5JAKVEWZNRPA7MKSTIRZU27I27ULMOWVNQZLBZZW7QTXN",
+        amount: "10",
+        memoValidator,
+      },
+    );
+
+    // Validator must never be called when memo is absent
+    expect(memoValidator).not.toHaveBeenCalled();
+  });
+
+  it("omitting memoValidator does not change existing error codes (backward compat)", async () => {
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        destination: "GBBD47UZQ5JAKVEWZNRPA7MKSTIRZU27I27ULMOWVNQZLBZZW7QTXN",
+        amount: "10",
+        memo: "any memo",
+      },
+    );
+
+    // When no custom validator is present, errors should only come from the build chain
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+    }
+  });
+
+  it("memoValidator works on buildCreateAccountTransaction", async () => {
+    const memoValidator = (memo: string) =>
+      /^\d+$/.test(memo)
+        ? okResult(undefined)
+        : errResult(ErrCode.TX_BUILD_FAILED, "Memo must be numeric");
+
+    const result = await buildCreateAccountTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        destination: "GBBD47UZQ5JAKVEWZNRPA7MKSTIRZU27I27ULMOWVNQZLBZZW7QTXN",
+        startingBalance: "2",
+        memo: "abc",
+        memoValidator,
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toBe("Memo must be numeric");
+    }
+  });
+
+  it("memoValidator works on buildTrustlineTransaction", async () => {
+    const memoValidator = (memo: string) =>
+      memo.length <= 10
+        ? okResult(undefined)
+        : errResult(ErrCode.TX_BUILD_FAILED, "Memo too long");
+
+    const result = await buildTrustlineTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      {
+        assetCode: "USDC",
+        assetIssuer: "GBBD47UZQ5JAKVEWZNRPA7MKSTIRZU27I27ULMOWVNQZLBZZW7QTXN",
+        memo: "this memo is way too long for the rule",
+        memoValidator,
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toBe("Memo too long");
+    }
+  });
+});
