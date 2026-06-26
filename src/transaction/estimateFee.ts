@@ -23,6 +23,19 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorokitCache } from "../shared/cache";
 
 /**
+ * Fee tiers derived from the 10th, 50th, and 90th percentile of recent
+ * network transaction fees. All values are in stroops (as strings).
+ */
+export interface FeeTiers {
+  /** 10th percentile — suitable for non-urgent transactions */
+  economy: string;
+  /** 50th percentile — typical network fee */
+  standard: string;
+  /** 90th percentile — prioritized inclusion during congestion */
+  fast: string;
+}
+
+/**
  * The result of a fee estimation.
  */
 export interface FeeEstimate {
@@ -38,6 +51,8 @@ export interface FeeEstimate {
   simulated: boolean;
   /** True when the estimated fee exceeds 2x the recent network median fee */
   surge?: boolean;
+  /** Fee tiers based on recent network congestion. Present only when includeTiers is true. */
+  tiers?: FeeTiers;
 }
 
 /** Optional hooks and cache for fee estimation. */
@@ -46,6 +61,8 @@ export interface FeeEstimateOptions {
   cache?: SorokitCache;
   /** Invoked when a fee surge is detected — useful for logging or UI alerts */
   onFeeSurge?: (estimate: FeeEstimate) => void;
+  /** When true, fetches recent transaction fees from Horizon and adds tier recommendations */
+  includeTiers?: boolean;
 }
 
 /**
@@ -71,6 +88,40 @@ export type FeeEstimateInput =
       /** Asset issuer — required for non-native assets */
       assetIssuer?: string;
     };
+
+/**
+ * Fetch recent transaction fees from Horizon and compute percentile-based
+ * fee tiers. Falls back to BASE_FEE for all tiers if no data is available.
+ */
+export async function fetchFeeTiers(horizonUrl: string): Promise<FeeTiers> {
+  const base = parseInt(BASE_FEE, 10);
+  try {
+    const server = new Horizon.Server(horizonUrl);
+    const page = await server.transactions().order("desc").limit(200).call();
+
+    const fees = page.records
+      .map((tx) => parseInt((tx as { fee_charged?: string }).fee_charged ?? "", 10))
+      .filter((f) => Number.isFinite(f) && f > 0)
+      .sort((a, b) => a - b);
+
+    if (fees.length === 0) {
+      return { economy: String(base), standard: String(base), fast: String(base) };
+    }
+
+    const percentile = (pct: number): number => {
+      const idx = Math.min(Math.floor((pct / 100) * fees.length), fees.length - 1);
+      return fees[idx] ?? base;
+    };
+
+    return {
+      economy: String(percentile(10)),
+      standard: String(percentile(50)),
+      fast: String(percentile(90)),
+    };
+  } catch {
+    return { economy: String(base), standard: String(base), fast: String(base) };
+  }
+}
 
 function describeFeeEstimateFailure(cause: unknown): string {
   if (isXdrInvalidError(cause)) {
@@ -117,6 +168,7 @@ export async function estimateFee(
   input: FeeEstimateInput,
   cache?: SorokitCache,
   cacheTtlMs?: number,
+  options?: FeeEstimateOptions,
 ): Promise<SorokitResult<FeeEstimate>> {
   try {
     const ttl = cacheTtlMs ?? DEFAULT_FEE_CACHE_TTL_MS;
@@ -206,6 +258,10 @@ export async function estimateFee(
       baseFee: BASE_FEE,
       simulated,
     };
+
+    if (options?.includeTiers) {
+      feeEstimate.tiers = await fetchFeeTiers(horizonUrl);
+    }
 
     // Store in cache so subsequent calls with the same XDR are free
     if (cache) {

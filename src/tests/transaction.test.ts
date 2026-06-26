@@ -1361,3 +1361,177 @@ describe("TokenBucketRateLimiter — rate limiting on submit", () => {
     );
   });
 });
+
+import { fetchFeeTiers } from "../transaction/estimateFee";
+import { Horizon, BASE_FEE } from "@stellar/stellar-sdk";
+
+describe("fetchFeeTiers — fee tier recommendations (#43)", () => {
+  it("returns correct percentile tiers from Horizon transaction fees", async () => {
+    const records = Array.from({ length: 10 }, (_, i) => ({
+      fee_charged: String((i + 1) * 100),
+    }));
+    vi.mocked(Horizon.Server).mockImplementationOnce(
+      () =>
+        ({
+          loadAccount: vi.fn(),
+          transactions: () => ({
+            order: () => ({
+              limit: () => ({ call: async () => ({ records }) }),
+            }),
+          }),
+        }) as any,
+    );
+
+    const tiers = await fetchFeeTiers("https://horizon-testnet.stellar.org");
+
+    // fees sorted: [100,200,300,400,500,600,700,800,900,1000]
+    // p10 = fees[floor(0.1*10)] = fees[1] = 200
+    // p50 = fees[floor(0.5*10)] = fees[5] = 600
+    // p90 = fees[floor(0.9*10)] = fees[9] = 1000
+    expect(tiers.economy).toBe("200");
+    expect(tiers.standard).toBe("600");
+    expect(tiers.fast).toBe("1000");
+  });
+
+  it("falls back to BASE_FEE when Horizon returns no fee records", async () => {
+    vi.mocked(Horizon.Server).mockImplementationOnce(
+      () =>
+        ({
+          loadAccount: vi.fn(),
+          transactions: () => ({
+            order: () => ({
+              limit: () => ({ call: async () => ({ records: [] }) }),
+            }),
+          }),
+        }) as any,
+    );
+
+    const tiers = await fetchFeeTiers("https://horizon-testnet.stellar.org");
+
+    expect(tiers.economy).toBe(BASE_FEE);
+    expect(tiers.standard).toBe(BASE_FEE);
+    expect(tiers.fast).toBe(BASE_FEE);
+  });
+
+  it("falls back to BASE_FEE when Horizon call throws", async () => {
+    vi.mocked(Horizon.Server).mockImplementationOnce(
+      () =>
+        ({
+          loadAccount: vi.fn(),
+          transactions: () => ({
+            order: () => ({
+              limit: () => ({
+                call: async () => {
+                  throw new Error("Network error");
+                },
+              }),
+            }),
+          }),
+        }) as any,
+    );
+
+    const tiers = await fetchFeeTiers("https://horizon-testnet.stellar.org");
+
+    expect(tiers.economy).toBe(BASE_FEE);
+    expect(tiers.standard).toBe(BASE_FEE);
+    expect(tiers.fast).toBe(BASE_FEE);
+  });
+
+  it("filters out non-numeric fee values", async () => {
+    const records = [
+      { fee_charged: "100" },
+      { fee_charged: "invalid" },
+      { fee_charged: "300" },
+      { fee_charged: "" },
+      { fee_charged: "500" },
+    ];
+    vi.mocked(Horizon.Server).mockImplementationOnce(
+      () =>
+        ({
+          loadAccount: vi.fn(),
+          transactions: () => ({
+            order: () => ({
+              limit: () => ({ call: async () => ({ records }) }),
+            }),
+          }),
+        }) as any,
+    );
+
+    const tiers = await fetchFeeTiers("https://horizon-testnet.stellar.org");
+
+    // Valid fees sorted: [100, 300, 500]
+    // p10 = fees[0] = 100, p50 = fees[1] = 300, p90 = fees[2] = 500
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("300");
+    expect(tiers.fast).toBe("500");
+  });
+});
+
+describe("estimateFee — tier recommendations (#43)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not include tiers when options.includeTiers is not set (backward compat)", async () => {
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "500" });
+    mocks.fromXDR.mockReturnValue({});
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: "AAAAAQAAAAA=" },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.tiers).toBeUndefined();
+    }
+  });
+
+  it("includes tiers object when options.includeTiers is true", async () => {
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "500" });
+    mocks.fromXDR.mockReturnValue({});
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: "AAAAAQAAAAA=" },
+      undefined,
+      undefined,
+      { includeTiers: true },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.tiers).toBeDefined();
+      expect(typeof result.data.tiers!.economy).toBe("string");
+      expect(typeof result.data.tiers!.standard).toBe("string");
+      expect(typeof result.data.tiers!.fast).toBe("string");
+    }
+  });
+
+  it("does not include tiers when options.includeTiers is false", async () => {
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "500" });
+    mocks.fromXDR.mockReturnValue({});
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: "AAAAAQAAAAA=" },
+      undefined,
+      undefined,
+      { includeTiers: false },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.tiers).toBeUndefined();
+    }
+  });
+});

@@ -69,4 +69,4 @@ export interface SwapTransactionParams {
   paymentB: PaymentParams;
 }
 
-export type { FeeEstimate, FeeEstimateOptions } from "./estimateFee";
+export type { FeeEstimate, FeeEstimateOptions, FeeTiers } from "./estimateFee";
