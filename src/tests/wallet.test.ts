@@ -243,7 +243,11 @@ describe("collectMultiSignatures (#22)", () => {
   });
 });
 
-import { diagnoseWalletConnection } from "../wallet/index";
+import {
+  diagnoseWalletConnection,
+  detectInstalledWallets,
+  recommendWallets,
+} from "../wallet/index";
 import type { WalletAdapter } from "../wallet/types";
 
 function fakeAdapter(overrides?: Partial<WalletAdapter>): WalletAdapter {
@@ -344,5 +348,82 @@ describe("diagnoseWalletConnection (#34)", () => {
     if (result.status !== "ok") throw new Error("expected ok");
     expect(find(result.data, "extension_responsive")?.status).toBe("skipped");
     expect(connect).not.toHaveBeenCalled();
+  });
+});
+
+describe("detectInstalledWallets (#44)", () => {
+  it("returns available:true for adapters where isAvailable() is true", () => {
+    const adapter = fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER });
+    const results = detectInstalledWallets([adapter]);
+    expect(results).toHaveLength(1);
+    expect(results[0].available).toBe(true);
+    expect(results[0].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("returns available:false for adapters where isAvailable() is false", () => {
+    const adapter = fakeAdapter({ isAvailable: () => false, walletType: WalletType.XBULL });
+    const results = detectInstalledWallets([adapter]);
+    expect(results[0].available).toBe(false);
+  });
+
+  it("returns features for known wallet types", () => {
+    const adapter = fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL });
+    const results = detectInstalledWallets([adapter]);
+    expect(results[0].features).toContain("multisig");
+    expect(results[0].features).toContain("hardware");
+  });
+
+  it("handles empty adapter list", () => {
+    expect(detectInstalledWallets([])).toEqual([]);
+  });
+
+  it("handles multiple adapters mixed availability", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.LOBSTR }),
+    ];
+    const results = detectInstalledWallets(adapters);
+    expect(results).toHaveLength(2);
+    expect(results.find((r) => r.walletType === WalletType.FREIGHTER)?.available).toBe(true);
+    expect(results.find((r) => r.walletType === WalletType.LOBSTR)?.available).toBe(false);
+  });
+});
+
+describe("recommendWallets (#44)", () => {
+  it("returns only available wallets when no criteria provided", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.LOBSTR }),
+    ];
+    const results = recommendWallets(adapters);
+    expect(results).toHaveLength(1);
+    expect(results[0].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("filters by required features", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
+    ];
+    const results = recommendWallets(adapters, { features: ["hardware"] });
+    expect(results).toHaveLength(1);
+    expect(results[0].walletType).toBe(WalletType.XBULL);
+  });
+
+  it("returns empty when no available wallets match criteria", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+    ];
+    const results = recommendWallets(adapters, { features: ["hardware"] });
+    expect(results).toHaveLength(0);
+  });
+
+  it("returns all available wallets when criteria.features is empty", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
+    ];
+    const results = recommendWallets(adapters, { features: [] });
+    expect(results).toHaveLength(2);
   });
 });
