@@ -4,13 +4,20 @@ import {
   disconnectWallet,
   signTransaction,
   emptyWalletState,
+  collectMultiSignatures,
+  diagnoseWalletConnection,
 } from "../wallet/index";
+import {
+  InMemorySigningHistoryStore,
+  getSigningHistory,
+  exportSigningHistory,
+} from "../wallet/signingHistory";
 import { FreighterAdapter } from "../wallet/adapters/freighter";
 import { XBullAdapter } from "../wallet/adapters/xbull";
 import { LobstrAdapter } from "../wallet/adapters/lobstr";
 import { WalletType } from "../wallet/types";
-import { SorokitErrorCode } from "../shared/response";
-import type { SWKInstance } from "../wallet/types";
+import type { WalletAdapter, SWKInstance } from "../wallet/types";
+import { ok, err, SorokitErrorCode } from "../shared/response";
 
 function mockKit(overrides?: Partial<SWKInstance>): SWKInstance {
   return {
@@ -165,9 +172,6 @@ describe("wallet module functions", () => {
     }
   });
 });
-
-import { collectMultiSignatures } from "../wallet/index";
-import { ok, err, SorokitErrorCode } from "../shared/response";
 
 describe("collectMultiSignatures (#22)", () => {
   it("returns WALLET_SIGN_FAILED when signers list is empty", async () => {
