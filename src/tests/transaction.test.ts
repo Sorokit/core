@@ -1482,3 +1482,302 @@ describe("TokenBucketRateLimiter — rate limiting on submit", () => {
     );
   });
 });
+import { Operation } from "@stellar/stellar-sdk";
+import {
+  buildReverseTransaction,
+  buildPathPayment,
+  buildAtomicSwap,
+} from "../transaction/buildTransaction";
+import type { PathPaymentParams, AtomicSwapParams } from "../transaction/types";
+
+const SRC = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+const DST = "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+
+function fakeAccount() {
+  return {
+    accountId: () => SRC,
+    sequenceNumber: () => "1",
+    incrementSequenceNumber: () => {},
+  };
+}
+
+describe("buildReverseTransaction (#45)", () => {
+  let paymentSpy: ReturnType<typeof vi.spyOn>;
+  let changeTrustSpy: ReturnType<typeof vi.spyOn>;
+  let accountMergeSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    mocks.loadAccount.mockResolvedValue(fakeAccount());
+    transactionBuilderInstances.length = 0;
+    paymentSpy = vi.spyOn(Operation, "payment").mockReturnValue({} as any);
+    changeTrustSpy = vi.spyOn(Operation, "changeTrust").mockReturnValue({} as any);
+    accountMergeSpy = vi.spyOn(Operation, "accountMerge").mockReturnValue({} as any);
+  });
+
+  afterEach(() => {
+    paymentSpy.mockRestore();
+    changeTrustSpy.mockRestore();
+    accountMergeSpy.mockRestore();
+  });
+
+  it("reverses a payment operation — returns ok with XDR", async () => {
+    mocks.fromXDR.mockReturnValue({
+      operations: [
+        { type: "payment", destination: DST, asset: {}, amount: "100", source: undefined },
+      ],
+    });
+
+    const result = await buildReverseTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      "original-xdr",
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.data).toBe(MOCK_XDR);
+    expect(paymentSpy).toHaveBeenCalledOnce();
+  });
+
+  it("reverses a changeTrust operation — sets limit to 0", async () => {
+    mocks.fromXDR.mockReturnValue({
+      operations: [
+        { type: "changeTrust", line: {}, limit: "1000" },
+      ],
+    });
+
+    const result = await buildReverseTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      "original-xdr",
+    );
+
+    expect(result.status).toBe("ok");
+    expect(changeTrustSpy).toHaveBeenCalledWith(expect.objectContaining({ limit: "0" }));
+  });
+
+  it("reverses a createAccount operation — returns ok with XDR", async () => {
+    mocks.fromXDR.mockReturnValue({
+      operations: [
+        { type: "createAccount", destination: DST, startingBalance: "1", source: undefined },
+      ],
+    });
+
+    const result = await buildReverseTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      "original-xdr",
+    );
+
+    expect(result.status).toBe("ok");
+    expect(accountMergeSpy).toHaveBeenCalledOnce();
+  });
+
+  it("returns TX_BUILD_FAILED for unsupported operation types", async () => {
+    mocks.fromXDR.mockReturnValue({
+      operations: [{ type: "manageOffer" }],
+    });
+
+    const result = await buildReverseTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      "original-xdr",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("Cannot reverse operation type");
+    }
+  });
+
+  it("returns TX_BUILD_FAILED when the original transaction has no operations", async () => {
+    mocks.fromXDR.mockReturnValue({ operations: [] });
+
+    const result = await buildReverseTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      "original-xdr",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+    }
+  });
+
+  it("returns TX_BUILD_FAILED when fromXDR throws", async () => {
+    mocks.fromXDR.mockImplementation(() => { throw new Error("invalid xdr"); });
+
+    const result = await buildReverseTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      "bad-xdr",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+    }
+  });
+});
+
+describe("buildPathPayment (#47)", () => {
+  let strictSendSpy: ReturnType<typeof vi.spyOn>;
+  let strictReceiveSpy: ReturnType<typeof vi.spyOn>;
+
+  const baseParams: PathPaymentParams = {
+    destination: DST,
+    mode: "strict-send",
+    amount: "100",
+    slippageAmount: "95",
+    sendAssetCode: "XLM",
+    destAssetCode: "USDC",
+    destAssetIssuer: "GABC",
+  };
+
+  beforeEach(() => {
+    mocks.loadAccount.mockResolvedValue(fakeAccount());
+    transactionBuilderInstances.length = 0;
+    strictSendSpy = vi.spyOn(Operation, "pathPaymentStrictSend").mockReturnValue({} as any);
+    strictReceiveSpy = vi.spyOn(Operation, "pathPaymentStrictReceive").mockReturnValue({} as any);
+  });
+
+  afterEach(() => {
+    strictSendSpy.mockRestore();
+    strictReceiveSpy.mockRestore();
+  });
+
+  it("builds a strict-send path payment — returns ok with XDR", async () => {
+    const result = await buildPathPayment(networkConfig.horizonUrl, networkConfig, SRC, baseParams);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.data).toBe(MOCK_XDR);
+    expect(strictSendSpy).toHaveBeenCalledOnce();
+  });
+
+  it("builds a strict-receive path payment — returns ok with XDR", async () => {
+    const result = await buildPathPayment(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      { ...baseParams, mode: "strict-receive" },
+    );
+    expect(result.status).toBe("ok");
+    expect(strictReceiveSpy).toHaveBeenCalledOnce();
+  });
+
+  it("builds a path payment with intermediate path assets", async () => {
+    const result = await buildPathPayment(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      { ...baseParams, path: [{ assetCode: "BTC", assetIssuer: "GBTC" }] },
+    );
+    expect(result.status).toBe("ok");
+    expect(strictSendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ path: expect.arrayContaining([expect.anything()]) }),
+    );
+  });
+
+  it("returns TX_BUILD_FAILED when dest asset issuer is missing for non-native asset", async () => {
+    const result = await buildPathPayment(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      { ...baseParams, destAssetCode: "USDC", destAssetIssuer: undefined },
+    );
+    expect(result.status).toBe("error");
+    if (result.status === "error") expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+  });
+
+  it("returns TX_BUILD_FAILED when Horizon loadAccount fails", async () => {
+    mocks.loadAccount.mockRejectedValue(new Error("network error"));
+    const result = await buildPathPayment(networkConfig.horizonUrl, networkConfig, SRC, baseParams);
+    expect(result.status).toBe("error");
+    if (result.status === "error") expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+  });
+});
+
+describe("buildAtomicSwap (#47)", () => {
+  let strictSendSpy: ReturnType<typeof vi.spyOn>;
+  let strictReceiveSpy: ReturnType<typeof vi.spyOn>;
+
+  const legA: PathPaymentParams = {
+    destination: DST,
+    mode: "strict-send",
+    amount: "100",
+    slippageAmount: "95",
+    sendAssetCode: "XLM",
+    destAssetCode: "USDC",
+    destAssetIssuer: "GABC",
+  };
+
+  const legB: PathPaymentParams = {
+    destination: SRC,
+    mode: "strict-send",
+    amount: "50",
+    slippageAmount: "45",
+    sendAssetCode: "USDC",
+    sendAssetIssuer: "GABC",
+    destAssetCode: "XLM",
+  };
+
+  beforeEach(() => {
+    mocks.loadAccount.mockResolvedValue(fakeAccount());
+    transactionBuilderInstances.length = 0;
+    strictSendSpy = vi.spyOn(Operation, "pathPaymentStrictSend").mockReturnValue({} as any);
+    strictReceiveSpy = vi.spyOn(Operation, "pathPaymentStrictReceive").mockReturnValue({} as any);
+  });
+
+  afterEach(() => {
+    strictSendSpy.mockRestore();
+    strictReceiveSpy.mockRestore();
+  });
+
+  it("builds an atomic swap with two legs — returns ok with XDR", async () => {
+    const result = await buildAtomicSwap(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      { legA, legB },
+    );
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.data).toBe(MOCK_XDR);
+    expect(strictSendSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("builds an atomic swap with mixed strict-send and strict-receive legs", async () => {
+    const result = await buildAtomicSwap(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      { legA, legB: { ...legB, mode: "strict-receive" } },
+    );
+    expect(result.status).toBe("ok");
+    expect(strictSendSpy).toHaveBeenCalledTimes(1);
+    expect(strictReceiveSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns TX_BUILD_FAILED when legA dest asset issuer is missing", async () => {
+    const result = await buildAtomicSwap(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SRC,
+      { legA: { ...legA, destAssetCode: "USDC", destAssetIssuer: undefined }, legB },
+    );
+    expect(result.status).toBe("error");
+    if (result.status === "error") expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+  });
+
+  it("returns TX_BUILD_FAILED when Horizon loadAccount fails", async () => {
+    mocks.loadAccount.mockRejectedValue(new Error("timeout"));
+    const result = await buildAtomicSwap(networkConfig.horizonUrl, networkConfig, SRC, { legA, legB });
+    expect(result.status).toBe("error");
+  });
+});
+

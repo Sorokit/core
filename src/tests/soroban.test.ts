@@ -786,3 +786,146 @@ describe("buildContractDeploy", () => {
     }
   });
 });
+
+import { invokeBatchContracts } from "../soroban/invokeBatchContracts";
+import { ok as sorokitOk, err as sorokitErr, SorokitErrorCode as SC } from "../shared/response";
+import type { BatchContractInvocation } from "../soroban/types";
+
+vi.mock("../soroban/invokeContract", () => ({
+  invokeContract: vi.fn(),
+}));
+
+import { invokeContract } from "../soroban/invokeContract";
+
+const mockInvokeContract = invokeContract as ReturnType<typeof vi.fn>;
+
+const RPC = "https://soroban-testnet.stellar.org";
+const HORIZON = "https://horizon-testnet.stellar.org";
+const NETWORK = networkConfig;
+const SIGN_FN = vi.fn(async (xdr: string) => xdr);
+
+const CONTRACT_A = StrKey.encodeContract(Keypair.random().rawPublicKey());
+const CONTRACT_B = StrKey.encodeContract(Keypair.random().rawPublicKey());
+
+function makeInvocation(contractId: string, method = "call"): BatchContractInvocation {
+  return { contractId, method, publicKey: Keypair.random().publicKey() };
+}
+
+describe("invokeBatchContracts (#46)", () => {
+  beforeEach(() => {
+    mockInvokeContract.mockReset();
+  });
+
+  it("returns ok for all invocations when all succeed", async () => {
+    mockInvokeContract
+      .mockResolvedValueOnce(sorokitOk("hash-a"))
+      .mockResolvedValueOnce(sorokitOk("hash-b"));
+
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [makeInvocation(CONTRACT_A), makeInvocation(CONTRACT_B)],
+      SIGN_FN,
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe("ok");
+    if (results[0].status === "ok") expect(results[0].data).toBe("hash-a");
+    expect(results[1].status).toBe("ok");
+    if (results[1].status === "ok") expect(results[1].data).toBe("hash-b");
+  });
+
+  it("returns error for all invocations when all fail", async () => {
+    mockInvokeContract
+      .mockResolvedValueOnce(sorokitErr(SC.RPC_ERROR, "contract A failed"))
+      .mockResolvedValueOnce(sorokitErr(SC.RPC_ERROR, "contract B failed"));
+
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [makeInvocation(CONTRACT_A), makeInvocation(CONTRACT_B)],
+      SIGN_FN,
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe("error");
+    expect(results[1].status).toBe("error");
+  });
+
+  it("handles mixed success and failure results", async () => {
+    mockInvokeContract
+      .mockResolvedValueOnce(sorokitOk("hash-a"))
+      .mockResolvedValueOnce(sorokitErr(SC.RPC_ERROR, "contract B failed"));
+
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [makeInvocation(CONTRACT_A, "mint"), makeInvocation(CONTRACT_B, "burn")],
+      SIGN_FN,
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe("ok");
+    expect(results[0].contractId).toBe(CONTRACT_A);
+    expect(results[0].method).toBe("mint");
+    expect(results[1].status).toBe("error");
+    expect(results[1].contractId).toBe(CONTRACT_B);
+    expect(results[1].method).toBe("burn");
+  });
+
+  it("captures unexpected thrown errors as error results", async () => {
+    mockInvokeContract
+      .mockResolvedValueOnce(sorokitOk("hash-a"))
+      .mockRejectedValueOnce(new Error("network crash"));
+
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [makeInvocation(CONTRACT_A), makeInvocation(CONTRACT_B)],
+      SIGN_FN,
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe("ok");
+    expect(results[1].status).toBe("error");
+    if (results[1].status === "error") {
+      expect(results[1].error.message).toContain("network crash");
+    }
+  });
+
+  it("returns empty array for empty invocations list", async () => {
+    const results = await invokeBatchContracts(RPC, NETWORK, HORIZON, [], SIGN_FN);
+    expect(results).toEqual([]);
+    expect(mockInvokeContract).not.toHaveBeenCalled();
+  });
+
+  it("passes pollConfig and logger options to each invokeContract call", async () => {
+    mockInvokeContract.mockResolvedValue(sorokitOk("hash"));
+
+    const pollConfig = { maxAttempts: 5, intervalMs: 500 };
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [makeInvocation(CONTRACT_A)],
+      SIGN_FN,
+      { pollConfig, logger },
+    );
+
+    expect(mockInvokeContract).toHaveBeenCalledWith(
+      RPC,
+      NETWORK,
+      HORIZON,
+      expect.objectContaining({ contractId: CONTRACT_A }),
+      SIGN_FN,
+      pollConfig,
+      logger,
+    );
+  });
+});

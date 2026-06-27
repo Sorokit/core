@@ -16,7 +16,12 @@ export type {
 export { FreighterAdapter } from "./wallet/adapters/freighter";
 export { XBullAdapter } from "./wallet/adapters/xbull";
 export { LobstrAdapter } from "./wallet/adapters/lobstr";
-export { collectMultiSignatures, diagnoseWalletConnection } from "./wallet";
+export {
+  collectMultiSignatures,
+  diagnoseWalletConnection,
+  detectInstalledWallets,
+  recommendWallets,
+} from "./wallet";
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
 export type {
@@ -28,6 +33,9 @@ export type {
   DiagnosticCheck,
   WalletDiagnosticReport,
   WalletDiagnosticOptions,
+  DetectedWallet,
+  RecommendationCriteria,
+  WalletFeature,
 } from "./wallet/types";
 export { WalletType } from "./wallet/types";
 
@@ -57,6 +65,10 @@ export type {
   PaymentParams,
   TrustlineParams,
   AccountCreateParams,
+  ReverseTransactionParams,
+  PathPaymentParams,
+  PathPaymentMode,
+  AtomicSwapParams,
 } from "./transaction/types";
 export type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "./transaction/estimateFee";
 export { createTransactionContext, TRANSACTION_CONTEXT_TTL_MS } from "./transaction/transactionContext";
@@ -78,9 +90,12 @@ export type {
   PreparedContractCall,
   SorobanPollConfig,
   SimulateTransactionResult,
+  BatchContractInvocation,
+  BatchContractResult,
 } from "./soroban/types";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
 export { buildContractDeploy } from "./soroban/deployContract";
+export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export type {
   ContractEvent,
