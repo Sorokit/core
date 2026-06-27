@@ -10,6 +10,7 @@ import type { SorokitResult } from "../shared/response";
 import {
   isNetworkConnectivityError,
   isTimeoutError,
+  isXdrInvalidError,
   retryWithBackoff,
   toMessage,
 } from "../shared";
@@ -96,9 +97,17 @@ export async function prepareContractCall(
     }
 
     const assembled = SorobanRpc.assembleTransaction(tx, simResult).build();
+    const assembledXdr = assembled.toXDR();
+
+    if (isXdrInvalidError(assembledXdr)) {
+      return err(
+        SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+        "Assembled contract call produced malformed XDR.",
+      );
+    }
 
     return ok({
-      transactionXdr: assembled.toXDR(),
+      transactionXdr: assembledXdr,
       fee: assembled.fee,
     });
   } catch (cause) {

@@ -1110,3 +1110,164 @@ describe("invokeBatchContracts (#46)", () => {
     );
   });
 });
+
+import { decodeContractValue, encodeContractArgs } from "../soroban/contractEncoding";
+import type { ContractMethod } from "../soroban/types";
+
+// ─── #93 decodeContractValue ──────────────────────────────────────────────────
+
+describe("decodeContractValue (#93)", () => {
+  it("decodes bool true", () => {
+    expect(decodeContractValue(xdr.ScVal.scvBool(true))).toBe(true);
+  });
+
+  it("decodes bool false", () => {
+    expect(decodeContractValue(xdr.ScVal.scvBool(false))).toBe(false);
+  });
+
+  it("decodes u32", () => {
+    expect(decodeContractValue(xdr.ScVal.scvU32(42))).toBe(42);
+  });
+
+  it("decodes i32 (negative)", () => {
+    expect(decodeContractValue(xdr.ScVal.scvI32(-7))).toBe(-7);
+  });
+
+  it("decodes string", () => {
+    expect(decodeContractValue(xdr.ScVal.scvString(Buffer.from("hello", "utf8")))).toBe("hello");
+  });
+
+  it("decodes symbol", () => {
+    expect(decodeContractValue(xdr.ScVal.scvSymbol("tick"))).toBe("tick");
+  });
+
+  it("decodes void as undefined", () => {
+    expect(decodeContractValue(xdr.ScVal.scvVoid())).toBeUndefined();
+  });
+
+  it("decodes vec recursively", () => {
+    const vec = xdr.ScVal.scvVec([
+      xdr.ScVal.scvU32(1),
+      xdr.ScVal.scvU32(2),
+    ]);
+    expect(decodeContractValue(vec)).toEqual([1, 2]);
+  });
+
+  it("decodes map to plain object", () => {
+    const map = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvString(Buffer.from("a", "utf8")),
+        val: xdr.ScVal.scvU32(10),
+      }),
+    ]);
+    expect(decodeContractValue(map)).toEqual({ a: 10 });
+  });
+});
+
+// ─── #94 encodeContractArgs ───────────────────────────────────────────────────
+
+describe("encodeContractArgs (#94)", () => {
+  const method = (inputs: ContractMethod["inputs"]): ContractMethod => ({
+    name: "test",
+    inputs,
+    returnType: null,
+  });
+
+  it("encodes u32", () => {
+    const [val] = encodeContractArgs(method([{ name: "n", type: "u32" }]), [99]);
+    expect(val.switch()).toEqual(xdr.ScValType.scvU32());
+    expect(val.u32()).toBe(99);
+  });
+
+  it("encodes i32 negative", () => {
+    const [val] = encodeContractArgs(method([{ name: "n", type: "i32" }]), [-5]);
+    expect(val.switch()).toEqual(xdr.ScValType.scvI32());
+    expect(val.i32()).toBe(-5);
+  });
+
+  it("encodes bool", () => {
+    const [val] = encodeContractArgs(method([{ name: "b", type: "bool" }]), [true]);
+    expect(val.switch()).toEqual(xdr.ScValType.scvBool());
+    expect(val.b()).toBe(true);
+  });
+
+  it("encodes string", () => {
+    const [val] = encodeContractArgs(method([{ name: "s", type: "string" }]), ["world"]);
+    expect(val.switch()).toEqual(xdr.ScValType.scvString());
+    expect(Buffer.from(val.str()).toString("utf8")).toBe("world");
+  });
+
+  it("encodes symbol", () => {
+    const [val] = encodeContractArgs(method([{ name: "s", type: "symbol" }]), ["tick"]);
+    expect(val.switch()).toEqual(xdr.ScValType.scvSymbol());
+  });
+
+  it("encodes vec from array", () => {
+    const [val] = encodeContractArgs(method([{ name: "v", type: "vec" }]), [[1, 2, 3]]);
+    expect(val.switch()).toEqual(xdr.ScValType.scvVec());
+  });
+
+  it("encodes map from object", () => {
+    const [val] = encodeContractArgs(method([{ name: "m", type: "map" }]), [{ x: 1 }]);
+    expect(val.switch()).toEqual(xdr.ScValType.scvMap());
+  });
+
+  it("throws when argument count mismatches", () => {
+    expect(() =>
+      encodeContractArgs(method([{ name: "a", type: "u32" }, { name: "b", type: "u32" }]), [1]),
+    ).toThrow(/expects 2/);
+  });
+
+  it("throws when value type is wrong for bool", () => {
+    expect(() =>
+      encodeContractArgs(method([{ name: "b", type: "bool" }]), ["not-a-bool"]),
+    ).toThrow(/expected boolean/);
+  });
+
+  it("throws when u32 value is negative", () => {
+    expect(() =>
+      encodeContractArgs(method([{ name: "n", type: "u32" }]), [-1]),
+    ).toThrow(/out of range/);
+  });
+
+  it("encodes zero args when method has no inputs", () => {
+    const result = encodeContractArgs(method([]), []);
+    expect(result).toEqual([]);
+  });
+});
+
+// ─── #90 XDR validation in prepareContractCall ───────────────────────────────
+
+describe("prepareContractCall XDR validation (#90)", () => {
+  beforeEach(() => {
+    resetRpcSimulationMocks();
+    // Return malformed XDR from assembleTransaction
+    mockAssembleTransaction.mockReturnValue({
+      build: () => ({
+        fee: "100",
+        toXDR: () => "!!!invalid-xdr!!!",
+      }),
+    });
+  });
+
+  it("returns CONTRACT_PREPARE_FAILED when assembled XDR is malformed", async () => {
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "balance",
+        args: [arg],
+        contractAbi,
+        publicKey: Keypair.random().publicKey(),
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
+      expect(result.error.message).toContain("malformed XDR");
+    }
+  });
+});
