@@ -75,6 +75,7 @@ export type {
 export type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "./transaction/estimateFee";
 export { createTransactionContext, TRANSACTION_CONTEXT_TTL_MS } from "./transaction/transactionContext";
 export type { TransactionBuilderContext } from "./transaction/transactionContext";
+export { streamTransactions } from "./transaction/streamTransactions";
 export type {
   TransactionStreamConfig,
   TransactionPage,
@@ -98,6 +99,7 @@ export type {
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
 export { buildContractDeploy } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
+export { decodeContractValue, encodeContractArgs } from "./soroban/contractEncoding";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export type {
   ContractEvent,

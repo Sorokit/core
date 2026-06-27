@@ -1,4 +1,5 @@
 export { readContract } from "./readContract";
+export { decodeContractValue, encodeContractArgs } from "./contractEncoding";
 export { prepareContractCall } from "./prepareCall";
 export { simulateTransaction } from "./simulateTransaction";
 export { executeContract } from "./executeContract";

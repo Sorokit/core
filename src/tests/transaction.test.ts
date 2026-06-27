@@ -1633,6 +1633,24 @@ describe("buildReverseTransaction (#45)", () => {
       expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
     }
   });
+
+  it("returns TX_BUILD_FAILED early when originalXdr is detectably malformed (#90)", async () => {
+    // isXdrInvalidError catches these before fromXDR is even called
+    const cases = ["", "!!!bad!!!", "AAAA"];
+    for (const xdrInput of cases) {
+      const result = await buildReverseTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        SRC,
+        xdrInput,
+      );
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+        expect(result.error.message).toContain("malformed");
+      }
+    }
+  });
 });
 
 describe("buildPathPayment (#47)", () => {

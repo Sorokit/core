@@ -11,7 +11,7 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 
 import { validateIssuer } from "../shared/validateIssuer";
-import { isNetworkConnectivityError, isTimeoutError, toMessage } from "../shared";
+import { isNetworkConnectivityError, isTimeoutError, isXdrInvalidError, toMessage } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type {
@@ -547,6 +547,14 @@ export async function buildReverseTransaction(
   originalXdr: string,
   params?: ReverseTransactionParams,
 ): Promise<SorokitResult<string>> {
+  if (isXdrInvalidError(originalXdr)) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Cannot build reverse transaction: the provided XDR is malformed.",
+      originalXdr,
+    );
+  }
+
   try {
     const originalTx = TransactionBuilder.fromXDR(
       originalXdr,

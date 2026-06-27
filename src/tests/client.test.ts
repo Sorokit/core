@@ -25,6 +25,7 @@ describe("createSorokitClient", () => {
       expect(typeof client.transaction.buildTrustline).toBe("function");
       expect(typeof client.transaction.submit).toBe("function");
       expect(typeof client.transaction.getStatus).toBe("function");
+      expect(typeof client.transaction.stream).toBe("function"); // #86
       // soroban namespace
       expect(typeof client.soroban.getContractMethods).toBe("function");
       expect(typeof client.soroban.simulate).toBe("function");
