@@ -21,6 +21,9 @@ import type {
   AccountCreateParams,
   PaymentWithTrustlineParams,
   SwapTransactionParams,
+  ReverseTransactionParams,
+  PathPaymentParams,
+  AtomicSwapParams,
 } from "./types";
 
 // ─── Sequence cache (shared across builders for autoFetchSequence) ────────────
@@ -121,8 +124,30 @@ function validateMemoParams(params: MemoParams): SorokitResult<Memo | undefined>
 }
 
 /**
- * Build a payment transaction XDR.
- * Returns the unsigned XDR string ready for signing.
+ * Build an unsigned payment transaction XDR.
+ *
+ * Fetches the current sequence number from Horizon unless `autoFetchSequence`
+ * is `true` and a cached sequence is available (TTL: 5 s). Validates the asset
+ * issuer against `trustedIssuers` when provided.
+ *
+ * @param horizonUrl     - Base URL of the Horizon server.
+ * @param networkConfig  - Resolved network configuration (passphrase, URLs).
+ * @param sourcePublicKey - G-address of the transaction source account.
+ * @param params          - Payment parameters: destination, amount, asset, memo.
+ * @param trustedIssuers  - Optional whitelist of trusted issuer G-addresses.
+ * @returns `ok(xdr)` — unsigned transaction XDR ready for signing,
+ *          or `error(TX_BUILD_FAILED)` on any build error.
+ *
+ * @example
+ * const result = await buildPaymentTransaction(horizonUrl, networkConfig, sourceKey, {
+ *   destination: "GDEST...",
+ *   amount: "10",
+ *   assetCode: "USDC",
+ *   assetIssuer: "GA5ZS...",
+ * });
+ * if (result.status === "ok") {
+ *   const signed = await signTransaction(adapter, { transactionXdr: result.data, networkPassphrase });
+ * }
  */
 export async function buildPaymentTransaction(
   horizonUrl: string,
@@ -206,7 +231,23 @@ export async function buildPaymentTransaction(
 }
 
 /**
- * Build a create account transaction XDR.
+ * Build an unsigned create-account transaction XDR.
+ *
+ * Creates the target account on the Stellar network and funds it with
+ * `startingBalance` XLM. The source account must hold sufficient XLM to
+ * cover both the starting balance and transaction fee.
+ *
+ * @param horizonUrl      - Base URL of the Horizon server.
+ * @param networkConfig   - Resolved network configuration.
+ * @param sourcePublicKey - G-address of the funding account.
+ * @param params          - Destination address, starting balance in XLM, and optional memo.
+ * @returns `ok(xdr)` — unsigned transaction XDR, or `error(TX_BUILD_FAILED)`.
+ *
+ * @example
+ * const result = await buildCreateAccountTransaction(horizonUrl, networkConfig, sourceKey, {
+ *   destination: "GDEST...",
+ *   startingBalance: "1",
+ * });
  */
 export async function buildCreateAccountTransaction(
   horizonUrl: string,
@@ -265,7 +306,23 @@ export async function buildCreateAccountTransaction(
 }
 
 /**
- * Build a change trust (trustline) transaction XDR.
+ * Build an unsigned change-trust (trustline) transaction XDR.
+ *
+ * Adds or removes a trustline for a non-native asset. Setting `limit` to `"0"`
+ * removes the trustline. Validates the issuer against `trustedIssuers` when provided.
+ *
+ * @param horizonUrl      - Base URL of the Horizon server.
+ * @param networkConfig   - Resolved network configuration.
+ * @param sourcePublicKey - G-address of the account establishing the trustline.
+ * @param params          - Asset code, issuer, optional limit, and optional memo.
+ * @param trustedIssuers  - Optional whitelist of trusted issuer G-addresses.
+ * @returns `ok(xdr)` — unsigned transaction XDR, or `error(TX_BUILD_FAILED)`.
+ *
+ * @example
+ * const result = await buildTrustlineTransaction(horizonUrl, networkConfig, sourceKey, {
+ *   assetCode: "USDC",
+ *   assetIssuer: "GA5ZS...",
+ * });
  */
 export async function buildTrustlineTransaction(
   horizonUrl: string,
@@ -459,6 +516,298 @@ export async function buildSwapTransaction(
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
       describeTransactionBuildFailure("swap", cause),
+      cause,
+    );
+  }
+}
+
+/**
+ * Build a reverse transaction XDR for the given original transaction XDR.
+ * Supports reversing: payments, trustlines (removes the trust), and account creations (merges the account).
+ * Returns the unsigned reverse XDR ready for signing.
+ */
+export async function buildReverseTransaction(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  originalXdr: string,
+  params?: ReverseTransactionParams,
+): Promise<SorokitResult<string>> {
+  try {
+    const originalTx = TransactionBuilder.fromXDR(
+      originalXdr,
+      networkConfig.networkPassphrase,
+    );
+
+    const operations = originalTx.operations;
+    if (operations.length === 0) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        "Original transaction has no operations to reverse",
+      );
+    }
+
+    const server = new Horizon.Server(horizonUrl);
+    const sourceAccount = await server.loadAccount(sourcePublicKey);
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: params?.fee ?? BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    });
+
+    for (const op of operations) {
+      switch (op.type) {
+        case "payment": {
+          const payOp = op as Operation.Payment;
+          builder.addOperation(
+            Operation.payment({
+              destination: payOp.source ?? sourcePublicKey,
+              asset: payOp.asset,
+              amount: payOp.amount,
+              source: payOp.destination,
+            }),
+          );
+          break;
+        }
+        case "changeTrust": {
+          const trustOp = op as Operation.ChangeTrust;
+          builder.addOperation(
+            Operation.changeTrust({
+              asset: trustOp.line as Asset,
+              limit: "0",
+            }),
+          );
+          break;
+        }
+        case "createAccount": {
+          const createOp = op as Operation.CreateAccount;
+          builder.addOperation(
+            Operation.accountMerge({
+              destination: createOp.source ?? sourcePublicKey,
+              source: createOp.destination,
+            }),
+          );
+          break;
+        }
+        default:
+          return err(
+            SorokitErrorCode.TX_BUILD_FAILED,
+            `Cannot reverse operation type: ${op.type}`,
+          );
+      }
+    }
+
+    const tx = builder.setTimeout(DEFAULT_TX_TIMEOUT_SECONDS).build();
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("reverse", cause),
+      cause,
+    );
+  }
+}
+
+function resolvePathAssets(
+  path?: PathPaymentParams["path"],
+): SorokitResult<Asset[]> {
+  const assets: Asset[] = [];
+  for (const hop of path ?? []) {
+    const result = resolveAsset(hop.assetCode, hop.assetIssuer);
+    if (result.status === "error") return result;
+    assets.push(result.data);
+  }
+  return ok(assets);
+}
+
+/**
+ * Build a path payment transaction XDR.
+ * Use mode "strict-send" to send an exact amount, or "strict-receive" to receive an exact amount.
+ * Returns the unsigned XDR ready for signing.
+ */
+export async function buildPathPayment(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  params: PathPaymentParams,
+): Promise<SorokitResult<string>> {
+  const sendAssetResult = resolveAsset(params.sendAssetCode, params.sendAssetIssuer);
+  if (sendAssetResult.status === "error") return sendAssetResult;
+
+  const destAssetResult = resolveAsset(params.destAssetCode, params.destAssetIssuer);
+  if (destAssetResult.status === "error") return destAssetResult;
+
+  const pathResult = resolvePathAssets(params.path);
+  if (pathResult.status === "error") return pathResult;
+
+  try {
+    const useCache = params.autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    });
+
+    if (params.mode === "strict-send") {
+      builder.addOperation(
+        Operation.pathPaymentStrictSend({
+          sendAsset: sendAssetResult.data,
+          sendAmount: params.amount,
+          destination: params.destination,
+          destAsset: destAssetResult.data,
+          destMin: params.slippageAmount,
+          path: pathResult.data,
+        }),
+      );
+    } else {
+      builder.addOperation(
+        Operation.pathPaymentStrictReceive({
+          sendAsset: sendAssetResult.data,
+          sendMax: params.slippageAmount,
+          destination: params.destination,
+          destAsset: destAssetResult.data,
+          destAmount: params.amount,
+          path: pathResult.data,
+        }),
+      );
+    }
+
+    builder.setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
+
+    const memoResult = validateMemoParams(params);
+    if (memoResult.status === "error") return memoResult;
+    if (memoResult.status === "ok" && memoResult.data) {
+      builder.addMemo(memoResult.data);
+    }
+
+    const tx = builder.build();
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
+
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("path payment", cause),
+      cause,
+    );
+  }
+}
+
+/**
+ * Build an atomic swap transaction XDR containing two path payment legs.
+ * Both legs execute atomically — if either fails, neither applies.
+ * Returns the unsigned XDR ready for signing.
+ */
+export async function buildAtomicSwap(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  params: AtomicSwapParams,
+): Promise<SorokitResult<string>> {
+  const sendAssetAResult = resolveAsset(params.legA.sendAssetCode, params.legA.sendAssetIssuer);
+  if (sendAssetAResult.status === "error") return sendAssetAResult;
+
+  const destAssetAResult = resolveAsset(params.legA.destAssetCode, params.legA.destAssetIssuer);
+  if (destAssetAResult.status === "error") return destAssetAResult;
+
+  const pathAResult = resolvePathAssets(params.legA.path);
+  if (pathAResult.status === "error") return pathAResult;
+
+  const sendAssetBResult = resolveAsset(params.legB.sendAssetCode, params.legB.sendAssetIssuer);
+  if (sendAssetBResult.status === "error") return sendAssetBResult;
+
+  const destAssetBResult = resolveAsset(params.legB.destAssetCode, params.legB.destAssetIssuer);
+  if (destAssetBResult.status === "error") return destAssetBResult;
+
+  const pathBResult = resolvePathAssets(params.legB.path);
+  if (pathBResult.status === "error") return pathBResult;
+
+  try {
+    const server = new Horizon.Server(horizonUrl);
+    const sourceAccount = await server.loadAccount(sourcePublicKey);
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    });
+
+    if (params.legA.mode === "strict-send") {
+      builder.addOperation(
+        Operation.pathPaymentStrictSend({
+          sendAsset: sendAssetAResult.data,
+          sendAmount: params.legA.amount,
+          destination: params.legA.destination,
+          destAsset: destAssetAResult.data,
+          destMin: params.legA.slippageAmount,
+          path: pathAResult.data,
+        }),
+      );
+    } else {
+      builder.addOperation(
+        Operation.pathPaymentStrictReceive({
+          sendAsset: sendAssetAResult.data,
+          sendMax: params.legA.slippageAmount,
+          destination: params.legA.destination,
+          destAsset: destAssetAResult.data,
+          destAmount: params.legA.amount,
+          path: pathAResult.data,
+        }),
+      );
+    }
+
+    if (params.legB.mode === "strict-send") {
+      builder.addOperation(
+        Operation.pathPaymentStrictSend({
+          sendAsset: sendAssetBResult.data,
+          sendAmount: params.legB.amount,
+          destination: params.legB.destination,
+          destAsset: destAssetBResult.data,
+          destMin: params.legB.slippageAmount,
+          path: pathBResult.data,
+        }),
+      );
+    } else {
+      builder.addOperation(
+        Operation.pathPaymentStrictReceive({
+          sendAsset: sendAssetBResult.data,
+          sendMax: params.legB.slippageAmount,
+          destination: params.legB.destination,
+          destAsset: destAssetBResult.data,
+          destAmount: params.legB.amount,
+          path: pathBResult.data,
+        }),
+      );
+    }
+
+    builder.setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
+
+    const memoResult = validateMemoParams(params);
+    if (memoResult.status === "error") return memoResult;
+    if (memoResult.status === "ok" && memoResult.data) {
+      builder.addMemo(memoResult.data);
+    }
+
+    return ok(builder.build().toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("atomic swap", cause),
       cause,
     );
   }

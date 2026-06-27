@@ -99,3 +99,23 @@ export interface SimulateTransactionResult {
   /** Error message if simulation failed */
   error?: string;
 }
+
+/** A single contract invocation in a batch. */
+export interface BatchContractInvocation {
+  contractId: string;
+  method: string;
+  args?: xdr.ScVal[];
+  publicKey: string;
+  cachedMetadata?: ContractMethod[];
+  contractAbi?: ContractAbi;
+}
+
+/** Result for one invocation within a batch — preserves contractId and method for correlation. */
+export type BatchContractResult =
+  | { status: "ok"; data: string; contractId: string; method: string }
+  | {
+      status: "error";
+      error: { code: string; message: string };
+      contractId: string;
+      method: string;
+    };

@@ -3,6 +3,7 @@ export { prepareContractCall } from "./prepareCall";
 export { simulateTransaction } from "./simulateTransaction";
 export { executeContract } from "./executeContract";
 export { invokeContract } from "./invokeContract";
+export { invokeBatchContracts } from "./invokeBatchContracts";
 export { subscribeContractEvents } from "./subscribeContractEvents";
 export { getContractMethods } from "./contractMetadata";
 export { validateContractAbi } from "./validateContractAbi";
@@ -24,4 +25,6 @@ export type {
   PreparedContractCall,
   SorobanPollConfig,
   SimulateTransactionResult,
+  BatchContractInvocation,
+  BatchContractResult,
 } from "./types";

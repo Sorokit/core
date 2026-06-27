@@ -6,6 +6,22 @@ import type { AccountInfo, AssetBalance } from "./types";
 
 /**
  * Fetch full account details including all balances from Horizon.
+ *
+ * Retries transiently with exponential back-off before surfacing an error.
+ * Returns `ACCOUNT_NOT_FOUND` when the account has never been funded,
+ * and `ACCOUNT_FETCH_FAILED` for all other network or server errors.
+ *
+ * @param horizonUrl - Base URL of the Horizon server (e.g. `"https://horizon-testnet.stellar.org"`).
+ * @param publicKey  - Stellar G-address of the account to look up.
+ * @returns `ok(AccountInfo)` on success, or an `error` SorokitResult on failure.
+ *
+ * @example
+ * const result = await getAccount(horizonUrl, publicKey);
+ * if (result.status === "error") {
+ *   console.error(result.error.message);
+ * } else {
+ *   console.log(result.data.balances);
+ * }
  */
 export async function getAccount(
   horizonUrl: string,

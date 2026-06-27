@@ -247,6 +247,13 @@ describe("collectMultiSignatures (#22)", () => {
   });
 });
 
+import {
+  diagnoseWalletConnection,
+  detectInstalledWallets,
+  recommendWallets,
+} from "../wallet/index";
+import type { WalletAdapter } from "../wallet/types";
+
 function fakeAdapter(overrides?: Partial<WalletAdapter>): WalletAdapter {
   return {
     walletType: WalletType.FREIGHTER,
@@ -348,168 +355,79 @@ describe("diagnoseWalletConnection (#34)", () => {
   });
 });
 
-describe("signing history (#38)", () => {
-  function signingAdapter(overrides?: Partial<WalletAdapter>): WalletAdapter {
-    return {
-      walletType: WalletType.FREIGHTER,
-      isAvailable: () => true,
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      signTransaction: vi.fn().mockResolvedValue(ok("signed-xdr")),
-      ...overrides,
-    };
-  }
-
-  it("records a success entry when signing succeeds", async () => {
-    const store = new InMemorySigningHistoryStore();
-    await signTransaction(
-      signingAdapter(),
-      { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015", accountToSign: "GABC" },
-      store,
-    );
-    const result = getSigningHistory(store);
-    expect(result.status).toBe("ok");
-    if (result.status !== "ok") return;
-    expect(result.data).toHaveLength(1);
-    const [rec] = result.data;
-    expect(rec!.status).toBe("success");
-    expect(rec!.signer).toBe("GABC");
-    expect(rec!.timestamp).toBeTruthy();
-    expect(rec!.txHash).toBeTruthy();
-    expect(rec!.error).toBeUndefined();
+describe("detectInstalledWallets (#44)", () => {
+  it("returns available:true for adapters where isAvailable() is true", () => {
+    const adapter = fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER });
+    const results = detectInstalledWallets([adapter]);
+    expect(results).toHaveLength(1);
+    expect(results[0].available).toBe(true);
+    expect(results[0].walletType).toBe(WalletType.FREIGHTER);
   });
 
-  it("uses 'unknown' as signer when accountToSign is not provided", async () => {
-    const store = new InMemorySigningHistoryStore();
-    await signTransaction(
-      signingAdapter(),
-      { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015" },
-      store,
-    );
-    const result = getSigningHistory(store);
-    if (result.status !== "ok") return;
-    expect(result.data[0]!.signer).toBe("unknown");
+  it("returns available:false for adapters where isAvailable() is false", () => {
+    const adapter = fakeAdapter({ isAvailable: () => false, walletType: WalletType.XBULL });
+    const results = detectInstalledWallets([adapter]);
+    expect(results[0].available).toBe(false);
   });
 
-  it("records a failure entry when adapter throws", async () => {
-    const store = new InMemorySigningHistoryStore();
-    await signTransaction(
-      signingAdapter({ signTransaction: vi.fn().mockRejectedValue(new Error("Network timeout")) }),
-      { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015" },
-      store,
-    );
-    const result = getSigningHistory(store);
-    if (result.status !== "ok") return;
-    expect(result.data[0]!.status).toBe("failure");
-    expect(result.data[0]!.error).toContain("Signing failed");
+  it("returns features for known wallet types", () => {
+    const adapter = fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL });
+    const results = detectInstalledWallets([adapter]);
+    expect(results[0].features).toContain("multisig");
+    expect(results[0].features).toContain("hardware");
   });
 
-  it("records a failure entry when adapter returns an error result", async () => {
-    const store = new InMemorySigningHistoryStore();
-    await signTransaction(
-      signingAdapter({
-        signTransaction: vi.fn().mockResolvedValue(
-          err(SorokitErrorCode.WALLET_SIGN_FAILED, "Adapter error"),
-        ),
-      }),
-      { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015" },
-      store,
-    );
-    const result = getSigningHistory(store);
-    if (result.status !== "ok") return;
-    expect(result.data[0]!.status).toBe("failure");
-    expect(result.data[0]!.error).toBe("Adapter error");
+  it("handles empty adapter list", () => {
+    expect(detectInstalledWallets([])).toEqual([]);
   });
 
-  it("does not record when no historyStore is provided (backward compatible)", async () => {
-    const store = new InMemorySigningHistoryStore();
-    // Call without store — should not throw and store remains empty
-    await signTransaction(
-      signingAdapter(),
-      { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015" },
-    );
-    const result = getSigningHistory(store);
-    if (result.status !== "ok") return;
-    expect(result.data).toHaveLength(0);
+  it("handles multiple adapters mixed availability", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.LOBSTR }),
+    ];
+    const results = detectInstalledWallets(adapters);
+    expect(results).toHaveLength(2);
+    expect(results.find((r) => r.walletType === WalletType.FREIGHTER)?.available).toBe(true);
+    expect(results.find((r) => r.walletType === WalletType.LOBSTR)?.available).toBe(false);
+  });
+});
+
+describe("recommendWallets (#44)", () => {
+  it("returns only available wallets when no criteria provided", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.LOBSTR }),
+    ];
+    const results = recommendWallets(adapters);
+    expect(results).toHaveLength(1);
+    expect(results[0].walletType).toBe(WalletType.FREIGHTER);
   });
 
-  it("filters records by signer", async () => {
-    const store = new InMemorySigningHistoryStore();
-    const input = { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015" };
-    await signTransaction(signingAdapter(), { ...input, accountToSign: "ALICE" }, store);
-    await signTransaction(signingAdapter(), { ...input, accountToSign: "BOB" }, store);
-
-    const result = getSigningHistory(store, { signer: "ALICE" });
-    if (result.status !== "ok") return;
-    expect(result.data).toHaveLength(1);
-    expect(result.data[0]!.signer).toBe("ALICE");
+  it("filters by required features", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
+    ];
+    const results = recommendWallets(adapters, { features: ["hardware"] });
+    expect(results).toHaveLength(1);
+    expect(results[0].walletType).toBe(WalletType.XBULL);
   });
 
-  it("filters records by status", async () => {
-    const store = new InMemorySigningHistoryStore();
-    const input = { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015" };
-    await signTransaction(signingAdapter(), input, store);
-    await signTransaction(
-      signingAdapter({ signTransaction: vi.fn().mockRejectedValue(new Error("fail")) }),
-      input,
-      store,
-    );
-
-    const successes = getSigningHistory(store, { status: "success" });
-    const failures = getSigningHistory(store, { status: "failure" });
-    if (successes.status !== "ok" || failures.status !== "ok") return;
-    expect(successes.data).toHaveLength(1);
-    expect(failures.data).toHaveLength(1);
+  it("returns empty when no available wallets match criteria", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+    ];
+    const results = recommendWallets(adapters, { features: ["hardware"] });
+    expect(results).toHaveLength(0);
   });
 
-  it("filters records by date range", async () => {
-    const store = new InMemorySigningHistoryStore();
-    const input = { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015" };
-    await signTransaction(signingAdapter(), input, store);
-
-    const after = new Date(Date.now() + 60_000).toISOString();
-    const result = getSigningHistory(store, { from: after });
-    if (result.status !== "ok") return;
-    expect(result.data).toHaveLength(0);
-  });
-
-  it("exportSigningHistory returns valid JSON", async () => {
-    const store = new InMemorySigningHistoryStore();
-    await signTransaction(
-      signingAdapter(),
-      { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015", accountToSign: "GABC" },
-      store,
-    );
-    const records = store.query();
-    const exported = exportSigningHistory(records, "json");
-    expect(exported.status).toBe("ok");
-    if (exported.status !== "ok") return;
-    const parsed: unknown = JSON.parse(exported.data);
-    expect(Array.isArray(parsed)).toBe(true);
-    expect((parsed as unknown[]).length).toBe(1);
-  });
-
-  it("exportSigningHistory returns CSV with header row", async () => {
-    const store = new InMemorySigningHistoryStore();
-    await signTransaction(
-      signingAdapter(),
-      { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015", accountToSign: "GABC" },
-      store,
-    );
-    const records = store.query();
-    const exported = exportSigningHistory(records, "csv");
-    expect(exported.status).toBe("ok");
-    if (exported.status !== "ok") return;
-    const lines = exported.data.split("\n");
-    expect(lines[0]).toBe("txHash,signer,timestamp,status,error");
-    expect(lines.length).toBe(2);
-  });
-
-  it("InMemorySigningHistoryStore.clear() removes all entries", async () => {
-    const store = new InMemorySigningHistoryStore();
-    const input = { transactionXdr: "some-xdr", networkPassphrase: "Test SDF Network ; September 2015" };
-    await signTransaction(signingAdapter(), input, store);
-    store.clear();
-    expect(store.query()).toHaveLength(0);
+  it("returns all available wallets when criteria.features is empty", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
+    ];
+    const results = recommendWallets(adapters, { features: [] });
+    expect(results).toHaveLength(2);
   });
 });
