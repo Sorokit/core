@@ -4,15 +4,22 @@ import {
   disconnectWallet,
   signTransaction,
   emptyWalletState,
+  collectMultiSignatures,
+  diagnoseWalletConnection,
 } from "../wallet/index";
+import {
+  InMemorySigningHistoryStore,
+  getSigningHistory,
+  exportSigningHistory,
+} from "../wallet/signingHistory";
 import { FreighterAdapter } from "../wallet/adapters/freighter";
 import { XBullAdapter } from "../wallet/adapters/xbull";
 import { LobstrAdapter } from "../wallet/adapters/lobstr";
 import { WalletType } from "../wallet/types";
-import { SorokitErrorCode } from "../shared/response";
+import { ok, err, SorokitErrorCode } from "../shared/response";
 import { createSorokitClient } from "../client/createSorokitClient";
 import type { SorokitCache } from "../shared/cache";
-import type { SWKInstance } from "../wallet/types";
+import type { WalletAdapter, SWKInstance } from "../wallet/types";
 
 function mockKit(overrides?: Partial<SWKInstance>): SWKInstance {
   return {
@@ -132,7 +139,7 @@ describe("wallet module functions", () => {
   });
 
   it("signTransaction() returns WALLET_SIGN_REJECTED when adapter throws a rejection error", async () => {
-    const rejectingAdapter: import("../wallet/types").WalletAdapter = {
+    const rejectingAdapter: WalletAdapter = {
       walletType: WalletType.FREIGHTER,
       isAvailable: () => true,
       connect: vi.fn(),
@@ -150,7 +157,7 @@ describe("wallet module functions", () => {
   });
 
   it("signTransaction() returns WALLET_SIGN_FAILED when adapter throws a non-rejection error", async () => {
-    const failingAdapter: import("../wallet/types").WalletAdapter = {
+    const failingAdapter: WalletAdapter = {
       walletType: WalletType.FREIGHTER,
       isAvailable: () => true,
       connect: vi.fn(),
@@ -167,9 +174,6 @@ describe("wallet module functions", () => {
     }
   });
 });
-
-import { collectMultiSignatures } from "../wallet/index";
-import { ok, err } from "../shared/response";
 
 describe("collectMultiSignatures (#22)", () => {
   it("returns WALLET_SIGN_FAILED when signers list is empty", async () => {
@@ -206,7 +210,6 @@ describe("collectMultiSignatures (#22)", () => {
     if (result.status === "ok") {
       expect(result.data).toBe("xdr-after-bob");
     }
-    // Each call receives the output of the previous
     expect(signFn).toHaveBeenNthCalledWith(1, "xdr-0", "alice");
     expect(signFn).toHaveBeenNthCalledWith(2, "xdr-after-alice", "bob");
   });
@@ -226,7 +229,6 @@ describe("collectMultiSignatures (#22)", () => {
     if (result.status === "error") {
       expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
     }
-    // carol should never have been called
     expect(signFn).toHaveBeenCalledTimes(2);
   });
 
@@ -245,8 +247,11 @@ describe("collectMultiSignatures (#22)", () => {
   });
 });
 
-import { diagnoseWalletConnection } from "../wallet/index";
-import type { WalletAdapter } from "../wallet/types";
+import {
+  diagnoseWalletConnection,
+  detectInstalledWallets,
+  recommendWallets,
+} from "../wallet/index";
 
 function fakeAdapter(overrides?: Partial<WalletAdapter>): WalletAdapter {
   return {
@@ -493,5 +498,82 @@ describe("wallet connection persistence and recovery", () => {
     const result = await disconnectWallet(adapter, cache);
     expect(result.status).toBe("ok");
     expect(cache.get("wallet:state")).toBeUndefined();
+  });
+});
+
+describe("detectInstalledWallets (#44)", () => {
+  it("returns available:true for adapters where isAvailable() is true", () => {
+    const adapter = fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER });
+    const results = detectInstalledWallets([adapter]);
+    expect(results).toHaveLength(1);
+    expect(results[0].available).toBe(true);
+    expect(results[0].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("returns available:false for adapters where isAvailable() is false", () => {
+    const adapter = fakeAdapter({ isAvailable: () => false, walletType: WalletType.XBULL });
+    const results = detectInstalledWallets([adapter]);
+    expect(results[0].available).toBe(false);
+  });
+
+  it("returns features for known wallet types", () => {
+    const adapter = fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL });
+    const results = detectInstalledWallets([adapter]);
+    expect(results[0].features).toContain("multisig");
+    expect(results[0].features).toContain("hardware");
+  });
+
+  it("handles empty adapter list", () => {
+    expect(detectInstalledWallets([])).toEqual([]);
+  });
+
+  it("handles multiple adapters mixed availability", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.LOBSTR }),
+    ];
+    const results = detectInstalledWallets(adapters);
+    expect(results).toHaveLength(2);
+    expect(results.find((r) => r.walletType === WalletType.FREIGHTER)?.available).toBe(true);
+    expect(results.find((r) => r.walletType === WalletType.LOBSTR)?.available).toBe(false);
+  });
+});
+
+describe("recommendWallets (#44)", () => {
+  it("returns only available wallets when no criteria provided", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.LOBSTR }),
+    ];
+    const results = recommendWallets(adapters);
+    expect(results).toHaveLength(1);
+    expect(results[0].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("filters by required features", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
+    ];
+    const results = recommendWallets(adapters, { features: ["hardware"] });
+    expect(results).toHaveLength(1);
+    expect(results[0].walletType).toBe(WalletType.XBULL);
+  });
+
+  it("returns empty when no available wallets match criteria", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+    ];
+    const results = recommendWallets(adapters, { features: ["hardware"] });
+    expect(results).toHaveLength(0);
+  });
+
+  it("returns all available wallets when criteria.features is empty", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
+    ];
+    const results = recommendWallets(adapters, { features: [] });
+    expect(results).toHaveLength(2);
   });
 });

@@ -34,15 +34,26 @@ export interface AssetBalanceFilter {
  * Fetch balances for an account, with optional filtering by asset code,
  * issuer, type, or zero-balance exclusion.
  *
- * Returns the full AssetBalance shape — same as getBalances() but filterable.
+ * Returns the full `AssetBalance` shape — same as `getBalances()` but filterable.
+ * When `trustedIssuers` is provided every non-native balance issuer is validated
+ * against the list and `TX_BUILD_FAILED` is returned if any issuer is untrusted.
+ *
+ * @param horizonUrl     - Base URL of the Horizon server.
+ * @param publicKey      - Stellar G-address of the account.
+ * @param filter         - Optional filter criteria. Omit to return all balances.
+ * @param trustedIssuers - Optional whitelist of trusted issuer G-addresses.
+ * @returns `ok(AssetBalance[])` on success, or an `error` SorokitResult on failure.
  *
  * @example
  * // All non-zero balances
- * getAssetBalances(horizonUrl, publicKey, { excludeZero: true })
+ * const result = await getAssetBalances(horizonUrl, publicKey, { excludeZero: true });
  *
  * @example
  * // A specific issued asset
- * getAssetBalances(horizonUrl, publicKey, { assetCode: "USDC", assetIssuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN" })
+ * const result = await getAssetBalances(horizonUrl, publicKey, {
+ *   assetCode: "USDC",
+ *   assetIssuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+ * });
  */
 export async function getAssetBalances(
   horizonUrl: string,

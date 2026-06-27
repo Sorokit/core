@@ -23,6 +23,19 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorokitCache } from "../shared/cache";
 
 /**
+ * Fee tiers derived from the 10th, 50th, and 90th percentile of recent
+ * network transaction fees. All values are in stroops (as strings).
+ */
+export interface FeeTiers {
+  /** 10th percentile — suitable for non-urgent transactions */
+  economy: string;
+  /** 50th percentile — typical network fee */
+  standard: string;
+  /** 90th percentile — prioritized inclusion during congestion */
+  fast: string;
+}
+
+/**
  * The result of a fee estimation.
  */
 export interface FeeEstimate {
@@ -38,6 +51,8 @@ export interface FeeEstimate {
   simulated: boolean;
   /** True when the estimated fee exceeds 2x the recent network median fee */
   surge?: boolean;
+  /** Fee tiers based on recent network congestion. Present only when includeTiers is true. */
+  tiers?: FeeTiers;
 }
 
 /** Optional hooks and cache for fee estimation. */
@@ -46,6 +61,8 @@ export interface FeeEstimateOptions {
   cache?: SorokitCache;
   /** Invoked when a fee surge is detected — useful for logging or UI alerts */
   onFeeSurge?: (estimate: FeeEstimate) => void;
+  /** When true, fetches recent transaction fees from Horizon and adds tier recommendations */
+  includeTiers?: boolean;
 }
 
 /**
@@ -72,6 +89,40 @@ export type FeeEstimateInput =
       assetIssuer?: string;
     };
 
+/**
+ * Fetch recent transaction fees from Horizon and compute percentile-based
+ * fee tiers. Falls back to BASE_FEE for all tiers if no data is available.
+ */
+export async function fetchFeeTiers(horizonUrl: string): Promise<FeeTiers> {
+  const base = parseInt(BASE_FEE, 10);
+  try {
+    const server = new Horizon.Server(horizonUrl);
+    const page = await server.transactions().order("desc").limit(200).call();
+
+    const fees = page.records
+      .map((tx) => parseInt((tx as { fee_charged?: string }).fee_charged ?? "", 10))
+      .filter((f) => Number.isFinite(f) && f > 0)
+      .sort((a, b) => a - b);
+
+    if (fees.length === 0) {
+      return { economy: String(base), standard: String(base), fast: String(base) };
+    }
+
+    const percentile = (pct: number): number => {
+      const idx = Math.min(Math.floor((pct / 100) * fees.length), fees.length - 1);
+      return fees[idx] ?? base;
+    };
+
+    return {
+      economy: String(percentile(10)),
+      standard: String(percentile(50)),
+      fast: String(percentile(90)),
+    };
+  } catch {
+    return { economy: String(base), standard: String(base), fast: String(base) };
+  }
+}
+
 function describeFeeEstimateFailure(cause: unknown): string {
   if (isXdrInvalidError(cause)) {
     return `Fee estimation failed because the transaction XDR is malformed: ${toMessage(cause)}`;
@@ -88,25 +139,36 @@ function describeFeeEstimateFailure(cause: unknown): string {
 /**
  * Estimate the fee for a transaction using Soroban RPC simulation.
  *
- * Two modes:
- * 1. Pass a pre-built `transactionXdr` — simulates it directly.
- * 2. Pass `publicKey`, `destination`, `amount` — builds a sample payment
- *    transaction and simulates that.
+ * Supports two input modes:
+ * 1. `{ kind: "xdr", transactionXdr }` — simulates a pre-built transaction XDR.
+ * 2. `{ kind: "payment", publicKey, destination, amount }` — builds a sample
+ *    payment transaction and simulates it.
  *
- * Falls back to BASE_FEE if simulation is unavailable.
+ * Falls back to `BASE_FEE` (100 stroops) when RPC simulation is unavailable.
+ * When a `cache` is provided, the SHA-256 hash of the XDR is used as the cache
+ * key — cache hits skip the RPC round trip entirely.
  *
- * When a `cache` is provided, the SHA256 hash of the transaction XDR is used
- * as the cache key. Cache hits skip the RPC simulation entirely.
+ * @param rpcUrl        - Base URL of the Soroban RPC server.
+ * @param horizonUrl    - Base URL of the Horizon server (used in payment mode).
+ * @param networkConfig - Resolved network configuration.
+ * @param input         - Fee estimation input (see `FeeEstimateInput`).
+ * @param cache         - Optional cache for memoising simulation results.
+ * @param cacheTtlMs    - Cache TTL in milliseconds (default: 5 minutes).
+ * @returns `ok(FeeEstimate)` with fee details, or `error(TX_BUILD_FAILED)` on failure.
  *
  * @example
- * // From XDR
- * const result = await estimateFee(rpcUrl, horizonUrl, networkConfig, { transactionXdr: xdr });
- *
- * @example
- * // From payment params
+ * // From a pre-built XDR
  * const result = await estimateFee(rpcUrl, horizonUrl, networkConfig, {
- *   publicKey: "G...",
- *   destination: "G...",
+ *   kind: "xdr",
+ *   transactionXdr: xdr,
+ * });
+ *
+ * @example
+ * // From payment parameters
+ * const result = await estimateFee(rpcUrl, horizonUrl, networkConfig, {
+ *   kind: "payment",
+ *   publicKey: "GSOURCE...",
+ *   destination: "GDEST...",
  *   amount: "10",
  * });
  */
@@ -117,6 +179,7 @@ export async function estimateFee(
   input: FeeEstimateInput,
   cache?: SorokitCache,
   cacheTtlMs?: number,
+  options?: FeeEstimateOptions,
 ): Promise<SorokitResult<FeeEstimate>> {
   try {
     const ttl = cacheTtlMs ?? DEFAULT_FEE_CACHE_TTL_MS;
@@ -206,6 +269,10 @@ export async function estimateFee(
       baseFee: BASE_FEE,
       simulated,
     };
+
+    if (options?.includeTiers) {
+      feeEstimate.tiers = await fetchFeeTiers(horizonUrl);
+    }
 
     // Store in cache so subsequent calls with the same XDR are free
     if (cache) {

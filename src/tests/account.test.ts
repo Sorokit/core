@@ -674,3 +674,192 @@ describe("streamAccount — onBalanceChange callback (#11)", () => {
     });
   });
 });
+
+describe("getMultipleAssetBalances — bulk account queries (#42)", () => {
+  const HORIZON_URL = "https://horizon-testnet.stellar.org";
+  const KEY_A = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+  const KEY_B = "GBBD47UZQ5JAKVEWZNRPA7MKSTIRZU27I27ULMOWVNQZLBZZW7QTXN00";
+
+  function makeAccount(publicKey: string, xlmBalance: string): AccountInfo {
+    return {
+      publicKey,
+      displayAddress: `${publicKey.slice(0, 4)}...`,
+      sequence: "1",
+      subentryCount: 0,
+      balances: [
+        {
+          assetType: "native",
+          assetCode: "XLM",
+          assetIssuer: null,
+          balance: xlmBalance,
+          balanceFloat: parseFloat(xlmBalance),
+        },
+      ],
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    accountMockState.index = 0;
+    accountMockState.results = [];
+  });
+
+  it("returns results indexed by public key for all queried keys", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getMultipleAssetBalances } = await import(
+      "../account/getMultipleAssetBalances"
+    );
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(makeAccount(KEY_A, "100")))
+      .mockResolvedValueOnce(ok(makeAccount(KEY_B, "200")));
+
+    const results = await getMultipleAssetBalances(HORIZON_URL, [KEY_A, KEY_B]);
+
+    expect(Object.keys(results)).toHaveLength(2);
+    expect(results[KEY_A]?.status).toBe("ok");
+    expect(results[KEY_B]?.status).toBe("ok");
+  });
+
+  it("each result contains the correct balances for its account", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getMultipleAssetBalances } = await import(
+      "../account/getMultipleAssetBalances"
+    );
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(makeAccount(KEY_A, "50")))
+      .mockResolvedValueOnce(ok(makeAccount(KEY_B, "75")));
+
+    const results = await getMultipleAssetBalances(HORIZON_URL, [KEY_A, KEY_B]);
+
+    const a = results[KEY_A];
+    const b = results[KEY_B];
+    if (a?.status === "ok") {
+      expect(a.data[0]?.balance).toBe("50");
+    }
+    if (b?.status === "ok") {
+      expect(b.data[0]?.balance).toBe("75");
+    }
+  });
+
+  it("applies the filter to every account in the batch", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getMultipleAssetBalances } = await import(
+      "../account/getMultipleAssetBalances"
+    );
+
+    const accountWithMixedBalances = (key: string): AccountInfo => ({
+      publicKey: key,
+      displayAddress: "...",
+      sequence: "1",
+      subentryCount: 0,
+      balances: [
+        {
+          assetType: "native",
+          assetCode: "XLM",
+          assetIssuer: null,
+          balance: "0",
+          balanceFloat: 0,
+        },
+        {
+          assetType: "credit_alphanum4",
+          assetCode: "USDC",
+          assetIssuer: "GISSUER",
+          balance: "100",
+          balanceFloat: 100,
+        },
+      ],
+    });
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(accountWithMixedBalances(KEY_A)))
+      .mockResolvedValueOnce(ok(accountWithMixedBalances(KEY_B)));
+
+    const results = await getMultipleAssetBalances(HORIZON_URL, [KEY_A, KEY_B], {
+      excludeZero: true,
+    });
+
+    // Zero XLM balance excluded; only USDC should remain
+    const a = results[KEY_A];
+    if (a?.status === "ok") {
+      expect(a.data).toHaveLength(1);
+      expect(a.data[0]?.assetCode).toBe("USDC");
+    }
+  });
+
+  it("isolates failures — one bad key does not affect other results", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok, err, SorokitErrorCode } = await import("../shared/response");
+    const { getMultipleAssetBalances } = await import(
+      "../account/getMultipleAssetBalances"
+    );
+
+    vi.mocked(getAccount)
+      .mockResolvedValueOnce(ok(makeAccount(KEY_A, "100")))
+      .mockResolvedValueOnce(
+        err(SorokitErrorCode.ACCOUNT_NOT_FOUND, `Account not found: ${KEY_B}`),
+      );
+
+    const results = await getMultipleAssetBalances(HORIZON_URL, [KEY_A, KEY_B]);
+
+    expect(results[KEY_A]?.status).toBe("ok");
+    expect(results[KEY_B]?.status).toBe("error");
+  });
+
+  it("deduplicates public keys — queries each unique key only once", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getMultipleAssetBalances } = await import(
+      "../account/getMultipleAssetBalances"
+    );
+
+    vi.mocked(getAccount).mockResolvedValue(ok(makeAccount(KEY_A, "10")));
+
+    const results = await getMultipleAssetBalances(HORIZON_URL, [
+      KEY_A,
+      KEY_A,
+      KEY_A,
+    ]);
+
+    expect(Object.keys(results)).toHaveLength(1);
+    expect(vi.mocked(getAccount)).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns an empty object for an empty key list", async () => {
+    const { getMultipleAssetBalances } = await import(
+      "../account/getMultipleAssetBalances"
+    );
+
+    const results = await getMultipleAssetBalances(HORIZON_URL, []);
+
+    expect(Object.keys(results)).toHaveLength(0);
+  });
+
+  it("all fetches run in parallel — total time near max single fetch, not sum", async () => {
+    const { getAccount } = await import("../account/getAccount");
+    const { ok } = await import("../shared/response");
+    const { getMultipleAssetBalances } = await import(
+      "../account/getMultipleAssetBalances"
+    );
+
+    const DELAY = 30;
+    vi.mocked(getAccount).mockImplementation(
+      (_, publicKey) =>
+        new Promise((resolve) =>
+          setTimeout(() => resolve(ok(makeAccount(publicKey, "1"))), DELAY),
+        ),
+    );
+
+    const keys = [KEY_A, KEY_B];
+    const start = Date.now();
+    await getMultipleAssetBalances(HORIZON_URL, keys);
+    const elapsed = Date.now() - start;
+
+    // Parallel: should be ~DELAY ms, not DELAY*N ms
+    expect(elapsed).toBeLessThan(DELAY * keys.length * 0.9);
+  }, 10_000);
+});
