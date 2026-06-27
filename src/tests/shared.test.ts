@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   formatAddress,
   isBrowser,
@@ -693,5 +693,128 @@ describe("trace IDs (#32)", () => {
       ok({ value: 1 }),
     );
     expect(result).toEqual(ok({ value: 1 }));
+  });
+});
+
+import {
+  recordMetric,
+  getMetrics,
+  clearMetrics,
+  withMetrics,
+  metricsCollector,
+} from "../shared/metrics";
+
+describe("metrics — network latency collection (#40)", () => {
+  beforeEach(() => {
+    clearMetrics();
+  });
+
+  it("recordMetric stores an entry retrievable via getMetrics", () => {
+    recordMetric("account.get", 42, true);
+    const summaries = getMetrics();
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.operation).toBe("account.get");
+    expect(summaries[0]?.count).toBe(1);
+    expect(summaries[0]?.successCount).toBe(1);
+    expect(summaries[0]?.failureCount).toBe(0);
+  });
+
+  it("tracks successful and failed calls separately", () => {
+    recordMetric("transaction.submit", 100, true);
+    recordMetric("transaction.submit", 200, false);
+    recordMetric("transaction.submit", 150, true);
+
+    const [summary] = getMetrics({ operation: "transaction.submit" });
+    expect(summary?.count).toBe(3);
+    expect(summary?.successCount).toBe(2);
+    expect(summary?.failureCount).toBe(1);
+  });
+
+  it("computes min, max, and avg correctly", () => {
+    recordMetric("account.get", 100, true);
+    recordMetric("account.get", 200, true);
+    recordMetric("account.get", 300, true);
+
+    const [summary] = getMetrics({ operation: "account.get" });
+    expect(summary?.min).toBe(100);
+    expect(summary?.max).toBe(300);
+    expect(summary?.avg).toBeCloseTo(200);
+  });
+
+  it("computes p99 latency", () => {
+    for (let i = 1; i <= 100; i++) {
+      recordMetric("wallet.sign", i, true);
+    }
+
+    const [summary] = getMetrics({ operation: "wallet.sign" });
+    // sorted [1..100], p99Idx = min(floor(0.99*100), 99) = 99, durations[99] = 100
+    expect(summary?.p99).toBe(100);
+  });
+
+  it("getMetrics with operation filter returns only that operation", () => {
+    recordMetric("account.get", 50, true);
+    recordMetric("transaction.submit", 100, true);
+
+    const filtered = getMetrics({ operation: "account.get" });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.operation).toBe("account.get");
+  });
+
+  it("getMetrics with since filter excludes older entries", async () => {
+    recordMetric("account.get", 10, true);
+    await new Promise((r) => setTimeout(r, 5));
+    const cutoff = Date.now();
+    await new Promise((r) => setTimeout(r, 5));
+    recordMetric("account.get", 20, true);
+
+    const filtered = getMetrics({ since: cutoff });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.count).toBe(1);
+  });
+
+  it("getMetrics without filter returns all operations grouped", () => {
+    recordMetric("account.get", 50, true);
+    recordMetric("transaction.submit", 100, false);
+
+    const summaries = getMetrics();
+    const ops = summaries.map((s) => s.operation).sort();
+    expect(ops).toEqual(["account.get", "transaction.submit"]);
+  });
+
+  it("clearMetrics removes all entries", () => {
+    recordMetric("account.get", 50, true);
+    clearMetrics();
+    expect(getMetrics()).toHaveLength(0);
+  });
+
+  it("withMetrics records duration and success for a resolved promise", async () => {
+    await withMetrics("test.op", async () => "result");
+
+    const [summary] = getMetrics({ operation: "test.op" });
+    expect(summary?.count).toBe(1);
+    expect(summary?.successCount).toBe(1);
+    expect(summary?.min).toBeGreaterThanOrEqual(0);
+  });
+
+  it("withMetrics records failure when the wrapped function throws", async () => {
+    await expect(
+      withMetrics("test.fail", async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+
+    const [summary] = getMetrics({ operation: "test.fail" });
+    expect(summary?.successCount).toBe(0);
+    expect(summary?.failureCount).toBe(1);
+  });
+
+  it("metricsCollector singleton is the same instance used by recordMetric", () => {
+    recordMetric("singleton.check", 10, true);
+    const direct = metricsCollector.getMetrics({ operation: "singleton.check" });
+    expect(direct).toHaveLength(1);
+  });
+
+  it("returns empty array when no metrics recorded", () => {
+    expect(getMetrics()).toHaveLength(0);
   });
 });
