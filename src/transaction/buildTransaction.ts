@@ -96,6 +96,17 @@ function validateMemoParams(params: MemoParams): SorokitResult<Memo | undefined>
     return ok(undefined);
   }
 
+  if (params.memoValidator) {
+    const validationResult = params.memoValidator(params.memo);
+    if (validationResult.status === "error") {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        validationResult.error.message,
+        validationResult.error.cause,
+      );
+    }
+  }
+
   const memoType = params.memoType ?? "text";
 
   try {
@@ -179,6 +190,9 @@ export async function buildPaymentTransaction(
     }
   }
 
+  const memoResult = validateMemoParams(params);
+  if (memoResult.status === "error") return memoResult;
+
   try {
     const useCache = params.autoFetchSequence === true;
     let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
@@ -209,9 +223,7 @@ export async function buildPaymentTransaction(
       )
       .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
 
-    const memoResult = validateMemoParams(params);
-    if (memoResult.status === "error") return memoResult;
-    if (memoResult.status === "ok" && memoResult.data) {
+    if (memoResult.data) {
       builder.addMemo(memoResult.data);
     }
 
@@ -255,6 +267,9 @@ export async function buildCreateAccountTransaction(
   sourcePublicKey: string,
   params: AccountCreateParams,
 ): Promise<SorokitResult<string>> {
+  const memoResult = validateMemoParams(params);
+  if (memoResult.status === "error") return memoResult;
+
   try {
     const useCache = params.autoFetchSequence === true;
     let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
@@ -284,9 +299,7 @@ export async function buildCreateAccountTransaction(
       )
       .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
 
-    const memoResult = validateMemoParams(params);
-    if (memoResult.status === "error") return memoResult;
-    if (memoResult.status === "ok" && memoResult.data) {
+    if (memoResult.data) {
       builder.addMemo(memoResult.data);
     }
 
@@ -348,6 +361,9 @@ export async function buildTrustlineTransaction(
     }
   }
 
+  const memoResult = validateMemoParams(params);
+  if (memoResult.status === "error") return memoResult;
+
   try {
     const useCache = params.autoFetchSequence === true;
     let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
@@ -379,9 +395,7 @@ export async function buildTrustlineTransaction(
       )
       .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
 
-    const memoResult = validateMemoParams(params);
-    if (memoResult.status === "error") return memoResult;
-    if (memoResult.status === "ok" && memoResult.data) {
+    if (memoResult.data) {
       builder.addMemo(memoResult.data);
     }
 

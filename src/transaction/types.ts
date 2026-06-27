@@ -25,6 +25,12 @@ export interface MemoParams {
   memoType?: MemoType;
   /** Require a memo to be present. If true and no memo is provided, transaction build fails. */
   requireMemo?: boolean;
+  /**
+   * Optional custom validation callback applied before the memo is attached.
+   * Receives the raw memo string and must return SorokitResult<void>.
+   * A returned error result surfaces as TX_BUILD_FAILED and aborts the build.
+   */
+  memoValidator?: (memo: string) => import("../shared/response").SorokitResult<void>;
 }
 
 export interface PaymentParams extends MemoParams {
