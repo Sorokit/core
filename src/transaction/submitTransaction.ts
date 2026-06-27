@@ -64,7 +64,24 @@ function detectNetworkPassphraseMismatch(
 
 /**
  * Submit a signed transaction XDR to the Stellar network via Horizon.
- * Validates the network passphrase before submission to catch testnet/mainnet mismatches early.
+ *
+ * Validates the network passphrase before submission so that testnet/mainnet
+ * mismatches are caught client-side rather than with an unhelpful Horizon error.
+ * Retries on transient network failures with exponential back-off.
+ * When a `cache` is provided, a successful result is stored keyed by the
+ * transaction hash to allow fast idempotent re-checks via `getTransactionStatus`.
+ *
+ * @param horizonUrl        - Base URL of the Horizon server.
+ * @param networkPassphrase - Network passphrase used to sign the transaction.
+ * @param signedXdr         - Signed transaction XDR produced by `signTransaction`.
+ * @param cache             - Optional cache for deduplication and status look-ups.
+ * @returns `ok(TransactionResult)` on success, or `error(TX_SUBMIT_FAILED)` on failure.
+ *
+ * @example
+ * const result = await submitTransaction(horizonUrl, networkPassphrase, signedXdr);
+ * if (result.status === "ok") {
+ *   console.log("Confirmed in ledger", result.data.ledger);
+ * }
  */
 export async function submitTransaction(
   horizonUrl: string,

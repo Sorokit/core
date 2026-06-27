@@ -25,6 +25,12 @@ export interface MemoParams {
   memoType?: MemoType;
   /** Require a memo to be present. If true and no memo is provided, transaction build fails. */
   requireMemo?: boolean;
+  /**
+   * Optional custom validation callback applied before the memo is attached.
+   * Receives the raw memo string and must return SorokitResult<void>.
+   * A returned error result surfaces as TX_BUILD_FAILED and aborts the build.
+   */
+  memoValidator?: (memo: string) => import("../shared/response").SorokitResult<void>;
 }
 
 export interface PaymentParams extends MemoParams {
@@ -67,6 +73,37 @@ export interface SwapTransactionParams {
   paymentA: PaymentParams;
   /** Second payment (receive asset B) */
   paymentB: PaymentParams;
+}
+
+export interface ReverseTransactionParams {
+  /** Override fee in stroops. Defaults to BASE_FEE. */
+  fee?: string;
+}
+
+export type PathPaymentMode = "strict-send" | "strict-receive";
+
+export interface PathPaymentParams extends MemoParams {
+  destination: string;
+  sendAssetCode?: string;
+  sendAssetIssuer?: string;
+  destAssetCode?: string;
+  destAssetIssuer?: string;
+  /** "strict-send": exact send amount; "strict-receive": exact dest amount */
+  mode: PathPaymentMode;
+  /** Amount to send (strict-send) or receive (strict-receive) */
+  amount: string;
+  /** Slippage bound: min dest (strict-send) or max send (strict-receive) */
+  slippageAmount: string;
+  /** Intermediate assets in the payment path */
+  path?: Array<{ assetCode?: string; assetIssuer?: string }>;
+  autoFetchSequence?: boolean;
+}
+
+export interface AtomicSwapParams extends MemoParams {
+  /** First leg of the swap */
+  legA: PathPaymentParams;
+  /** Second leg of the swap */
+  legB: PathPaymentParams;
 }
 
 export type { FeeEstimate, FeeEstimateOptions } from "./estimateFee";

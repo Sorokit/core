@@ -16,10 +16,31 @@ import { validateContractMethodMetadata } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
 
 /**
- * Read contract data — view/read-only call, no signing required.
+ * Read (simulate) a Soroban contract view function — no signing required.
  *
- * Simulates the contract call and returns the decoded result.
- * Requires a funded `publicKey` in params as the simulation source account.
+ * Validates the method signature against the provided ABI before simulating,
+ * decodes the XDR result back to a native JS value, and wraps it in a
+ * `ContractCallResult`. All network errors are returned as `SorokitResult`
+ * errors rather than thrown.
+ *
+ * @param rpcUrl        - Base URL of the Soroban RPC server.
+ * @param horizonUrl    - Base URL of the Horizon server.
+ * @param networkConfig - Resolved network configuration.
+ * @param params        - Contract read parameters: `contractId`, `publicKey`, `method`, `args`, `contractAbi`.
+ * @returns `ok(ContractCallResult)` with the decoded return value,
+ *          or `error(CONTRACT_READ_FAILED)` on failure.
+ *
+ * @example
+ * const result = await readContract(rpcUrl, horizonUrl, networkConfig, {
+ *   contractId: "CABC...",
+ *   publicKey: "GSOURCE...",
+ *   method: "balance",
+ *   args: [],
+ *   contractAbi: myAbi,
+ * });
+ * if (result.status === "ok") {
+ *   console.log("Return value:", result.data.result);
+ * }
  */
 export async function readContract(
   rpcUrl: string,

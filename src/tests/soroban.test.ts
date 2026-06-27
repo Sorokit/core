@@ -10,6 +10,12 @@ import { subscribeContractEvents } from "../soroban/subscribeContractEvents";
 import { buildContractDeploy } from "../soroban/deployContract";
 import { SorokitErrorCode } from "../shared/response";
 import { simulateTransaction } from "../soroban/simulateTransaction";
+import {
+  snapshotContractState,
+  compareSnapshots,
+  listSnapshots,
+  clearSnapshots,
+} from "../soroban/contractSnapshot";
 
 const {
   mockGetLedgerEntries,
@@ -737,6 +743,181 @@ describe("soroban contract ABI validation", () => {
   });
 });
 
+describe("snapshotContractState and compareSnapshots (#39)", () => {
+  beforeEach(() => {
+    mockGetLedgerEntries.mockReset();
+    clearSnapshots();
+  });
+
+  it("creates a snapshot with label and timestamp", async () => {
+    mockGetLedgerEntries.mockResolvedValueOnce({
+      entries: [
+        {
+          val: {
+            contractData: () => ({
+              val: () => ({
+                instance: () => ({
+                  executable: () =>
+                    xdr.ContractExecutable.contractExecutableWasm(Buffer.alloc(32, 1)),
+                }),
+              }),
+            }),
+          },
+        },
+      ],
+    });
+
+    const result = await snapshotContractState(
+      networkConfig.rpcUrl,
+      contractId(),
+      "my-snapshot",
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.label).toBe("my-snapshot");
+    expect(result.data.timestamp).toBeTruthy();
+    expect(result.data.state).toBeDefined();
+  });
+
+  it("generates a label automatically when none is provided", async () => {
+    mockGetLedgerEntries.mockResolvedValueOnce({ entries: [] });
+
+    const result = await snapshotContractState(networkConfig.rpcUrl, contractId());
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.label).toMatch(/^snapshot-\d+$/);
+  });
+
+  it("extracts wasm executable info from contract instance", async () => {
+    mockGetLedgerEntries.mockResolvedValueOnce({
+      entries: [
+        {
+          val: {
+            contractData: () => ({
+              val: () => ({
+                instance: () => ({
+                  executable: () =>
+                    xdr.ContractExecutable.contractExecutableWasm(Buffer.alloc(32, 0xab)),
+                }),
+              }),
+            }),
+          },
+        },
+      ],
+    });
+
+    const result = await snapshotContractState(networkConfig.rpcUrl, contractId(), "wasm-snap");
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.state.executable).toBe("wasm");
+    expect(typeof result.data.state.wasmHash).toBe("string");
+  });
+
+  it("stores an empty state when no ledger entries are returned", async () => {
+    mockGetLedgerEntries.mockResolvedValueOnce({ entries: [] });
+
+    const result = await snapshotContractState(networkConfig.rpcUrl, contractId(), "empty-snap");
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.state).toEqual({});
+  });
+
+  it("stores multiple snapshots and listSnapshots returns all", async () => {
+    mockGetLedgerEntries.mockResolvedValue({ entries: [] });
+
+    const id = contractId();
+    await snapshotContractState(networkConfig.rpcUrl, id, "snap-a");
+    await snapshotContractState(networkConfig.rpcUrl, id, "snap-b");
+
+    const all = listSnapshots(id);
+    expect(all).toHaveLength(2);
+    expect(all.map((s) => s.label)).toEqual(expect.arrayContaining(["snap-a", "snap-b"]));
+  });
+
+  it("compareSnapshots detects added keys", async () => {
+    mockGetLedgerEntries.mockResolvedValue({ entries: [] });
+
+    const id = contractId();
+    await snapshotContractState(networkConfig.rpcUrl, id, "before");
+
+    // Overwrite the stored snapshot state to simulate a change
+    const beforeSnap = listSnapshots(id).find((s) => s.label === "before")!;
+    (beforeSnap.state as Record<string, unknown>).foo = "bar";
+
+    await snapshotContractState(networkConfig.rpcUrl, id, "after");
+    // Manually add a new key to the "after" snapshot
+    const afterSnap = listSnapshots(id).find((s) => s.label === "after")!;
+    (afterSnap.state as Record<string, unknown>).foo = "bar";
+    (afterSnap.state as Record<string, unknown>).newKey = "newValue";
+
+    const diff = compareSnapshots("before", "after");
+    expect(diff.status).toBe("ok");
+    if (diff.status !== "ok") return;
+    expect(diff.data.added).toEqual({ newKey: "newValue" });
+  });
+
+  it("compareSnapshots detects removed keys", async () => {
+    mockGetLedgerEntries.mockResolvedValue({ entries: [] });
+
+    const id = contractId();
+    await snapshotContractState(networkConfig.rpcUrl, id, "snap1");
+    await snapshotContractState(networkConfig.rpcUrl, id, "snap2");
+
+    const snap1 = listSnapshots(id).find((s) => s.label === "snap1")!;
+    (snap1.state as Record<string, unknown>).oldKey = "oldValue";
+
+    const diff = compareSnapshots("snap1", "snap2");
+    expect(diff.status).toBe("ok");
+    if (diff.status !== "ok") return;
+    expect(diff.data.removed).toEqual({ oldKey: "oldValue" });
+  });
+
+  it("compareSnapshots detects changed values", async () => {
+    mockGetLedgerEntries.mockResolvedValue({ entries: [] });
+
+    const id = contractId();
+    await snapshotContractState(networkConfig.rpcUrl, id, "v1");
+    await snapshotContractState(networkConfig.rpcUrl, id, "v2");
+
+    const v1 = listSnapshots(id).find((s) => s.label === "v1")!;
+    const v2 = listSnapshots(id).find((s) => s.label === "v2")!;
+    (v1.state as Record<string, unknown>).count = 1;
+    (v2.state as Record<string, unknown>).count = 2;
+
+    const diff = compareSnapshots("v1", "v2");
+    expect(diff.status).toBe("ok");
+    if (diff.status !== "ok") return;
+    expect(diff.data.changed).toEqual({ count: { from: 1, to: 2 } });
+  });
+
+  it("compareSnapshots returns error when a label is not found", () => {
+    const diff = compareSnapshots("nonexistent-a", "nonexistent-b");
+    expect(diff.status).toBe("error");
+    if (diff.status !== "error") return;
+    expect(diff.error.message).toContain("nonexistent-a");
+  });
+
+  it("clearSnapshots removes all stored snapshots", async () => {
+    mockGetLedgerEntries.mockResolvedValue({ entries: [] });
+    await snapshotContractState(networkConfig.rpcUrl, contractId(), "to-clear");
+    clearSnapshots();
+    expect(listSnapshots()).toHaveLength(0);
+  });
+
+  it("returns CONTRACT_READ_FAILED when RPC throws", async () => {
+    mockGetLedgerEntries.mockRejectedValueOnce(new Error("RPC down"));
+
+    const result = await snapshotContractState(networkConfig.rpcUrl, contractId(), "fail-snap");
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_READ_FAILED);
+  });
+});
+
 describe("buildContractDeploy", () => {
   beforeEach(() => {
     mockGetLedgerEntries.mockReset();
@@ -784,5 +965,148 @@ describe("buildContractDeploy", () => {
     if (result.status === "ok") {
       expect(result.data.transactionXdr).toBeDefined();
     }
+  });
+});
+
+import { invokeBatchContracts } from "../soroban/invokeBatchContracts";
+import { ok as sorokitOk, err as sorokitErr, SorokitErrorCode as SC } from "../shared/response";
+import type { BatchContractInvocation } from "../soroban/types";
+
+vi.mock("../soroban/invokeContract", () => ({
+  invokeContract: vi.fn(),
+}));
+
+import { invokeContract } from "../soroban/invokeContract";
+
+const mockInvokeContract = invokeContract as ReturnType<typeof vi.fn>;
+
+const RPC = "https://soroban-testnet.stellar.org";
+const HORIZON = "https://horizon-testnet.stellar.org";
+const NETWORK = networkConfig;
+const SIGN_FN = vi.fn(async (xdr: string) => xdr);
+
+const CONTRACT_A = StrKey.encodeContract(Keypair.random().rawPublicKey());
+const CONTRACT_B = StrKey.encodeContract(Keypair.random().rawPublicKey());
+
+function makeInvocation(contractId: string, method = "call"): BatchContractInvocation {
+  return { contractId, method, publicKey: Keypair.random().publicKey() };
+}
+
+describe("invokeBatchContracts (#46)", () => {
+  beforeEach(() => {
+    mockInvokeContract.mockReset();
+  });
+
+  it("returns ok for all invocations when all succeed", async () => {
+    mockInvokeContract
+      .mockResolvedValueOnce(sorokitOk("hash-a"))
+      .mockResolvedValueOnce(sorokitOk("hash-b"));
+
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [makeInvocation(CONTRACT_A), makeInvocation(CONTRACT_B)],
+      SIGN_FN,
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe("ok");
+    if (results[0].status === "ok") expect(results[0].data).toBe("hash-a");
+    expect(results[1].status).toBe("ok");
+    if (results[1].status === "ok") expect(results[1].data).toBe("hash-b");
+  });
+
+  it("returns error for all invocations when all fail", async () => {
+    mockInvokeContract
+      .mockResolvedValueOnce(sorokitErr(SC.RPC_ERROR, "contract A failed"))
+      .mockResolvedValueOnce(sorokitErr(SC.RPC_ERROR, "contract B failed"));
+
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [makeInvocation(CONTRACT_A), makeInvocation(CONTRACT_B)],
+      SIGN_FN,
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe("error");
+    expect(results[1].status).toBe("error");
+  });
+
+  it("handles mixed success and failure results", async () => {
+    mockInvokeContract
+      .mockResolvedValueOnce(sorokitOk("hash-a"))
+      .mockResolvedValueOnce(sorokitErr(SC.RPC_ERROR, "contract B failed"));
+
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [makeInvocation(CONTRACT_A, "mint"), makeInvocation(CONTRACT_B, "burn")],
+      SIGN_FN,
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe("ok");
+    expect(results[0].contractId).toBe(CONTRACT_A);
+    expect(results[0].method).toBe("mint");
+    expect(results[1].status).toBe("error");
+    expect(results[1].contractId).toBe(CONTRACT_B);
+    expect(results[1].method).toBe("burn");
+  });
+
+  it("captures unexpected thrown errors as error results", async () => {
+    mockInvokeContract
+      .mockResolvedValueOnce(sorokitOk("hash-a"))
+      .mockRejectedValueOnce(new Error("network crash"));
+
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [makeInvocation(CONTRACT_A), makeInvocation(CONTRACT_B)],
+      SIGN_FN,
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe("ok");
+    expect(results[1].status).toBe("error");
+    if (results[1].status === "error") {
+      expect(results[1].error.message).toContain("network crash");
+    }
+  });
+
+  it("returns empty array for empty invocations list", async () => {
+    const results = await invokeBatchContracts(RPC, NETWORK, HORIZON, [], SIGN_FN);
+    expect(results).toEqual([]);
+    expect(mockInvokeContract).not.toHaveBeenCalled();
+  });
+
+  it("passes pollConfig and logger options to each invokeContract call", async () => {
+    mockInvokeContract.mockResolvedValue(sorokitOk("hash"));
+
+    const pollConfig = { maxAttempts: 5, intervalMs: 500 };
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [makeInvocation(CONTRACT_A)],
+      SIGN_FN,
+      { pollConfig, logger },
+    );
+
+    expect(mockInvokeContract).toHaveBeenCalledWith(
+      RPC,
+      NETWORK,
+      HORIZON,
+      expect.objectContaining({ contractId: CONTRACT_A }),
+      SIGN_FN,
+      pollConfig,
+      logger,
+    );
   });
 });
