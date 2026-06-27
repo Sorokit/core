@@ -55,7 +55,9 @@ export type {
   BalanceAlertCondition,
 } from "./account/types";
 export { evaluateBalanceAlerts } from "./account/balanceAlerts";
+export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
+export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBalances";
 export type { AccountStreamConfig } from "./account/streamAccount";
 
 // ─── Transaction types ────────────────────────────────────────────────────────
