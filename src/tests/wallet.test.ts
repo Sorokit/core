@@ -16,8 +16,10 @@ import { FreighterAdapter } from "../wallet/adapters/freighter";
 import { XBullAdapter } from "../wallet/adapters/xbull";
 import { LobstrAdapter } from "../wallet/adapters/lobstr";
 import { WalletType } from "../wallet/types";
-import type { WalletAdapter, SWKInstance } from "../wallet/types";
 import { ok, err, SorokitErrorCode } from "../shared/response";
+import { createSorokitClient } from "../client/createSorokitClient";
+import type { SorokitCache } from "../shared/cache";
+import type { WalletAdapter, SWKInstance } from "../wallet/types";
 
 function mockKit(overrides?: Partial<SWKInstance>): SWKInstance {
   return {
@@ -137,7 +139,7 @@ describe("wallet module functions", () => {
   });
 
   it("signTransaction() returns WALLET_SIGN_REJECTED when adapter throws a rejection error", async () => {
-    const rejectingAdapter: import("../wallet/types").WalletAdapter = {
+    const rejectingAdapter: WalletAdapter = {
       walletType: WalletType.FREIGHTER,
       isAvailable: () => true,
       connect: vi.fn(),
@@ -155,7 +157,7 @@ describe("wallet module functions", () => {
   });
 
   it("signTransaction() returns WALLET_SIGN_FAILED when adapter throws a non-rejection error", async () => {
-    const failingAdapter: import("../wallet/types").WalletAdapter = {
+    const failingAdapter: WalletAdapter = {
       walletType: WalletType.FREIGHTER,
       isAvailable: () => true,
       connect: vi.fn(),
@@ -208,7 +210,6 @@ describe("collectMultiSignatures (#22)", () => {
     if (result.status === "ok") {
       expect(result.data).toBe("xdr-after-bob");
     }
-    // Each call receives the output of the previous
     expect(signFn).toHaveBeenNthCalledWith(1, "xdr-0", "alice");
     expect(signFn).toHaveBeenNthCalledWith(2, "xdr-after-alice", "bob");
   });
@@ -228,7 +229,6 @@ describe("collectMultiSignatures (#22)", () => {
     if (result.status === "error") {
       expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
     }
-    // carol should never have been called
     expect(signFn).toHaveBeenCalledTimes(2);
   });
 
@@ -252,7 +252,6 @@ import {
   detectInstalledWallets,
   recommendWallets,
 } from "../wallet/index";
-import type { WalletAdapter } from "../wallet/types";
 
 function fakeAdapter(overrides?: Partial<WalletAdapter>): WalletAdapter {
   return {
@@ -344,7 +343,7 @@ describe("diagnoseWalletConnection (#34)", () => {
   });
 
   it("skips the connection probe when probeConnection is false", async () => {
-    const connect = vi.fn(async () => ok("G..."));
+    const connect = vi.fn().mockResolvedValue(ok("G..."));
     const result = await diagnoseWalletConnection(
       fakeAdapter({ connect }),
       { probeConnection: false },
@@ -352,6 +351,153 @@ describe("diagnoseWalletConnection (#34)", () => {
     if (result.status !== "ok") throw new Error("expected ok");
     expect(find(result.data, "extension_responsive")?.status).toBe("skipped");
     expect(connect).not.toHaveBeenCalled();
+  });
+});
+
+class SimpleCache implements SorokitCache {
+  private store = new Map<string, unknown>();
+
+  get(key: string): unknown {
+    return this.store.get(key);
+  }
+
+  set(key: string, value: unknown, ttlMs?: number): void {
+    this.store.set(key, value);
+  }
+
+  invalidate(key: string): void {
+    this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+}
+
+describe("wallet connection persistence and recovery", () => {
+  it("connectWallet() persists state to cache after success", async () => {
+    const cache = new SimpleCache();
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: async () => ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
+    });
+
+    const result = await connectWallet(adapter, cache);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.connected).toBe(true);
+      expect(result.data.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      expect(result.data.walletType).toBe(WalletType.FREIGHTER);
+    }
+
+    const cachedState = cache.get("wallet:state") as any;
+    expect(cachedState).toBeDefined();
+    expect(cachedState.connected).toBe(true);
+    expect(cachedState.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+    expect(cachedState.walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("client creation checks cache and recovers connection state when valid", async () => {
+    const cache = new SimpleCache();
+    const initialWalletState = {
+      connected: true,
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      walletType: WalletType.FREIGHTER,
+    };
+    cache.set("wallet:state", initialWalletState);
+
+    const clientResult = createSorokitClient({ network: "testnet", cache });
+    expect(clientResult.status).toBe("ok");
+    if (clientResult.status !== "ok") return;
+    const client = clientResult.data;
+
+    const connectSpy = vi.fn().mockResolvedValue(ok("G..."));
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: connectSpy,
+    });
+
+    const connResult = await client.wallet.connect(adapter);
+    expect(connResult.status).toBe("ok");
+    if (connResult.status === "ok") {
+      expect(connResult.data.connected).toBe(true);
+      expect(connResult.data.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      expect(connResult.data.walletType).toBe(WalletType.FREIGHTER);
+    }
+
+    expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it("client validation fails when adapter is not available, returns disconnected state gracefully and clears cache", async () => {
+    const cache = new SimpleCache();
+    const initialWalletState = {
+      connected: true,
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      walletType: WalletType.FREIGHTER,
+    };
+    cache.set("wallet:state", initialWalletState);
+
+    const clientResult = createSorokitClient({ network: "testnet", cache });
+    expect(clientResult.status).toBe("ok");
+    if (clientResult.status !== "ok") return;
+    const client = clientResult.data;
+
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => false,
+    });
+
+    const connResult = await client.wallet.connect(adapter);
+    expect(connResult.status).toBe("ok");
+    if (connResult.status === "ok") {
+      expect(connResult.data.connected).toBe(false);
+      expect(connResult.data.publicKey).toBeNull();
+      expect(connResult.data.walletType).toBeNull();
+    }
+
+    expect(cache.get("wallet:state")).toBeUndefined();
+  });
+
+  it("behaves as before when no cache is provided (backward compatibility)", async () => {
+    const clientResult = createSorokitClient({ network: "testnet" });
+    expect(clientResult.status).toBe("ok");
+    if (clientResult.status !== "ok") return;
+    const client = clientResult.data;
+
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: async () => ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
+    });
+
+    const connResult = await client.wallet.connect(adapter);
+    expect(connResult.status).toBe("ok");
+    if (connResult.status === "ok") {
+      expect(connResult.data.connected).toBe(true);
+      expect(connResult.data.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      expect(connResult.data.walletType).toBe(WalletType.FREIGHTER);
+    }
+  });
+
+  it("disconnectWallet() invalidates state in cache", async () => {
+    const cache = new SimpleCache();
+    const initialWalletState = {
+      connected: true,
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      walletType: WalletType.FREIGHTER,
+    };
+    cache.set("wallet:state", initialWalletState);
+
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      disconnect: async () => ok(undefined),
+    });
+
+    const result = await disconnectWallet(adapter, cache);
+    expect(result.status).toBe("ok");
+    expect(cache.get("wallet:state")).toBeUndefined();
   });
 });
 

@@ -74,7 +74,7 @@ export async function buildContractDeploy(
     const salt = options.salt || crypto.randomBytes(32);
     const createOp = Operation.createCustomContract({
       address: new Address(deployer),
-      wasmId,
+      wasmHash: wasmId,
       salt,
     });
 

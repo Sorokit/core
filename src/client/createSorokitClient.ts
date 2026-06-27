@@ -14,6 +14,7 @@ import { disconnectWallet } from "../wallet/disconnect";
 import { signTransaction } from "../wallet/signTransaction";
 import { emptyWalletState } from "../wallet/index";
 import { getAccount } from "../account/getAccount";
+import { getAccountsBatch } from "../account/getAccountsBatch";
 import { getBalances } from "../account/getBalances";
 import { getAssetBalances } from "../account/getAssetBalances";
 import { streamAccount } from "../account/streamAccount";
@@ -145,6 +146,10 @@ export interface SorokitClient {
   readonly account: {
     /** Fetch full account info including all balances */
     get(publicKey: string): Promise<SorokitResult<AccountInfo>>;
+    /** Fetch full account info for multiple accounts in parallel */
+    getAccountsBatch(
+      publicKeys: string[],
+    ): Promise<SorokitResult<SorokitResult<AccountInfo>[]>>;
     /** Fetch balances only */
     getBalances(publicKey: string): Promise<SorokitResult<AssetBalance[]>>;
     /**
@@ -322,19 +327,59 @@ export function createSorokitClient(
     rpcUrl,
   });
 
+  // Client creation checks cache for recovered state
+  if (config.cache) {
+    const cachedVal = config.cache.get("wallet:state");
+    logger.debug("client.create: checked cache for recovered wallet state", {
+      hasCachedState: !!cachedVal,
+    });
+  }
+
   const client: SorokitClient = {
     networkConfig,
     trustedIssuers: config.trustedIssuers ?? null,
     traceId,
 
     wallet: {
-      connect: (adapter) =>
-        withLogging(logger, "wallet.connect", { walletType: adapter.walletType }, () =>
-          connectWallet(adapter),
-        ).then(applyTx),
+      connect: (adapter) => {
+        if (config.cache) {
+          const cachedVal = config.cache.get("wallet:state");
+          let cached: WalletState | null = null;
+          if (cachedVal) {
+            if (typeof cachedVal === "string") {
+              try {
+                cached = JSON.parse(cachedVal);
+              } catch {
+                // ignore
+              }
+            } else if (typeof cachedVal === "object") {
+              cached = cachedVal as WalletState;
+            }
+          }
+
+          if (cached && cached.connected && cached.walletType === adapter.walletType) {
+            if (adapter.isAvailable()) {
+              logger.info("wallet.connect.recover", { walletType: adapter.walletType, status: "ok" });
+              return Promise.resolve(applyTx(ok(cached)));
+            } else {
+              logger.warn("wallet.connect.recover.validation_failed", { walletType: adapter.walletType });
+              config.cache.invalidate("wallet:state");
+              return Promise.resolve(applyTx(ok({
+                connected: false,
+                publicKey: null,
+                walletType: null,
+              })));
+            }
+          }
+        }
+
+        return withLogging(logger, "wallet.connect", { walletType: adapter.walletType }, () =>
+          connectWallet(adapter, config.cache),
+        ).then(applyTx);
+      },
       disconnect: (adapter) =>
         withLogging(logger, "wallet.disconnect", { walletType: adapter.walletType }, () =>
-          disconnectWallet(adapter),
+          disconnectWallet(adapter, config.cache),
         ).then(applyTx),
       signTransaction: (adapter, input) =>
         withLogging(
@@ -346,6 +391,7 @@ export function createSorokitClient(
       emptyState: () => emptyWalletState(),
     },
 
+
     account: {
       get: (publicKey) =>
         withErrorHandling(
@@ -354,6 +400,15 @@ export function createSorokitClient(
           () =>
             withLogging(logger, "account.get", { publicKey }, () =>
               getAccount(horizonUrl, publicKey),
+            ),
+        ).then(applyTx),
+      getAccountsBatch: (publicKeys) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "account.getAccountsBatch", params: { publicKeys } },
+          () =>
+            withLogging(logger, "account.getAccountsBatch", { publicKeys }, () =>
+              getAccountsBatch(horizonUrl, publicKeys),
             ),
         ).then(applyTx),
       getBalances: (publicKey) =>

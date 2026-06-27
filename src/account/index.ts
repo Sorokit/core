@@ -1,4 +1,5 @@
 export { getAccount } from "./getAccount";
+export { getAccountsBatch } from "./getAccountsBatch";
 export { getBalances } from "./getBalances";
 export { getAssetBalances } from "./getAssetBalances";
 export { getMultipleAssetBalances } from "./getMultipleAssetBalances";

@@ -102,6 +102,12 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
     }
   }
 
+  const mockAsset = vi.fn().mockImplementation((code: string, issuer?: string) => {
+    if (code === "XLM") return actual.Asset.native();
+    return new actual.Asset(code, issuer || "");
+  });
+  (mockAsset as any).native = () => actual.Asset.native();
+
   return {
     ...actual,
     Horizon: {
@@ -1180,6 +1186,9 @@ describe("transaction caching", () => {
 });
 
 describe("sequence number auto-fetch cache", () => {
+  const sourceKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const destination = "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+
   beforeEach(() => {
     mockLoadAccount.mockReset();
     clearSequenceCache();
@@ -1196,15 +1205,15 @@ describe("sequence number auto-fetch cache", () => {
       incrementSequenceNumber: vi.fn(),
       subentry_count: 0,
       balances: [],
-      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      accountId: () => sourceKey,
     });
 
     const result = await buildPaymentTransaction(
       networkConfig.horizonUrl,
       networkConfig,
-      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      sourceKey,
       {
-        destination: "GBBD47IF6LWK5P7V6XZCHJSAXTSPG4FJHOUOHAUZTF5YQK4Q2GB7S7V2",
+        destination,
         amount: "10",
         autoFetchSequence: true,
       },
@@ -1228,17 +1237,19 @@ describe("sequence number auto-fetch cache", () => {
     mockLoadAccount.mockResolvedValue(mockAccount);
 
     const params = {
-      destination: "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R",
+      destination,
       amount: "10",
       autoFetchSequence: true as const,
     };
 
     // First call populates the cache
-    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    const res1 = await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    expect(res1.status).toBe("ok");
     mockLoadAccount.mockReset();
 
     // Second call within TTL should use cache
-    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    const res2 = await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    expect(res2.status).toBe("ok");
 
     expect(mockLoadAccount).not.toHaveBeenCalled();
   });
@@ -1250,16 +1261,15 @@ describe("sequence number auto-fetch cache", () => {
       incrementSequenceNumber: vi.fn(),
       subentry_count: 0,
       balances: [],
-      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      accountId: () => sourceKey,
     };
     mockLoadAccount.mockResolvedValue(mockAccount);
 
     const params = {
-      destination: "GBBD47IF6LWK5P7V6XZCHJSAXTSPG4FJHOUOHAUZTF5YQK4Q2GB7S7V2",
+      destination,
       amount: "10",
       autoFetchSequence: true as const,
     };
-    const sourceKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
 
     // Populate cache using a past timestamp
     const realDateNow = Date.now;
@@ -1284,13 +1294,12 @@ describe("sequence number auto-fetch cache", () => {
       incrementSequenceNumber: vi.fn(),
       subentry_count: 0,
       balances: [],
-      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      accountId: () => sourceKey,
     };
     mockLoadAccount.mockResolvedValue(mockAccount);
 
-    const sourceKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
     const params = {
-      destination: "GBBD47IF6LWK5P7V6XZCHJSAXTSPG4FJHOUOHAUZTF5YQK4Q2GB7S7V2",
+      destination,
       amount: "10",
     };
 
@@ -1307,13 +1316,12 @@ describe("sequence number auto-fetch cache", () => {
       incrementSequenceNumber: vi.fn(),
       subentry_count: 0,
       balances: [],
-      accountId: () => "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      accountId: () => sourceKey,
     };
     mockLoadAccount.mockResolvedValue(mockAccount);
 
-    const sourceKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
     const params = {
-      destination: "GBBD47IF6LWK5P7V6XZCHJSAXTSPG4FJHOUOHAUZTF5YQK4Q2GB7S7V2",
+      destination,
       amount: "10",
       autoFetchSequence: true as const,
     };
@@ -1780,4 +1788,3 @@ describe("buildAtomicSwap (#47)", () => {
     expect(result.status).toBe("error");
   });
 });
-

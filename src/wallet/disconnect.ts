@@ -1,5 +1,6 @@
 import { ok } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import type { SorokitCache } from "../shared/cache";
 import type { WalletAdapter, WalletState } from "./types";
 
 /**
@@ -21,9 +22,14 @@ import type { WalletAdapter, WalletState } from "./types";
  */
 export async function disconnectWallet(
   adapter: WalletAdapter,
+  cache?: SorokitCache,
 ): Promise<SorokitResult<WalletState>> {
   const result = await adapter.disconnect();
   if (result.status === "error") return result;
+
+  if (cache) {
+    cache.invalidate("wallet:state");
+  }
 
   return ok({
     connected: false,
@@ -31,3 +37,4 @@ export async function disconnectWallet(
     walletType: null,
   });
 }
+

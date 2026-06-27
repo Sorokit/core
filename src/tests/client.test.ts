@@ -16,6 +16,7 @@ describe("createSorokitClient", () => {
       expect(typeof client.wallet.emptyState).toBe("function");
       // account namespace
       expect(typeof client.account.get).toBe("function");
+      expect(typeof client.account.getAccountsBatch).toBe("function");
       expect(typeof client.account.getBalances).toBe("function");
       expect(typeof client.account.formatAddress).toBe("function");
       // transaction namespace
