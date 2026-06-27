@@ -14,6 +14,9 @@ export type {
   DiagnosticCheck,
   WalletDiagnosticReport,
   WalletDiagnosticOptions,
+  DetectedWallet,
+  RecommendationCriteria,
+  WalletFeature,
 } from "./types";
 export { WalletType as WalletTypeEnum } from "./types";
 
@@ -26,7 +29,48 @@ import type {
   DiagnosticCheck,
   WalletDiagnosticReport,
   WalletDiagnosticOptions,
+  DetectedWallet,
+  RecommendationCriteria,
+  WalletFeature,
 } from "./types";
+import { WalletType } from "./types";
+
+const WALLET_FEATURE_MAP: Record<WalletType, WalletFeature[]> = {
+  [WalletType.FREIGHTER]: ["multisig"],
+  [WalletType.XBULL]: ["multisig", "hardware"],
+  [WalletType.LOBSTR]: ["multisig"],
+  [WalletType.HANA]: [],
+  [WalletType.RABET]: [],
+};
+
+/**
+ * Detect which wallet adapters are currently installed and available.
+ * Only works in a browser environment — returns available: false for all in Node.
+ */
+export function detectInstalledWallets(adapters: WalletAdapter[]): DetectedWallet[] {
+  return adapters.map((adapter) => ({
+    walletType: adapter.walletType,
+    available: adapter.isAvailable(),
+    features: WALLET_FEATURE_MAP[adapter.walletType] ?? [],
+  }));
+}
+
+/**
+ * Recommend wallets from a list of adapters based on optional feature criteria.
+ * Returns all available wallets when no criteria are provided.
+ * Requires a browser environment — adapters report unavailable in Node.
+ */
+export function recommendWallets(
+  adapters: WalletAdapter[],
+  criteria?: RecommendationCriteria,
+): DetectedWallet[] {
+  const detected = detectInstalledWallets(adapters);
+  const available = detected.filter((w) => w.available);
+  if (!criteria?.features?.length) return available;
+  return available.filter((w) =>
+    criteria.features!.every((f) => w.features.includes(f)),
+  );
+}
 
 /**
  * Return a canonical disconnected WalletState wrapped in SorokitResult.
