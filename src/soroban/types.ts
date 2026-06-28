@@ -61,6 +61,10 @@ export interface ContractReadParams {
    * Required — the Soroban RPC needs a real account to simulate against.
    */
   publicKey: string;
+  /** Optional cache for contract read results */
+  cache?: import("../shared/cache").SorokitCache;
+  /** Optional TTL for cache entries in milliseconds (default: 5 minutes) */
+  ttlMs?: number;
 }
 
 export interface ContractCallResult {
