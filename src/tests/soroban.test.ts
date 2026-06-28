@@ -1,22 +1,21 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { Keypair, StrKey, xdr } from "@stellar/stellar-sdk";
-import type { ContractAbi } from "../soroban/types";
-import type { ResolvedNetworkConfig } from "../shared/types";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SorokitCache } from "../shared/cache";
-import { getContractMethods } from "../soroban/contractMetadata";
-import { prepareContractCall } from "../soroban/prepareCall";
-import { readContract } from "../soroban/readContract";
-import { subscribeContractEvents } from "../soroban/subscribeContractEvents";
-import { buildContractDeploy } from "../soroban/deployContract";
 import { SorokitErrorCode } from "../shared/response";
-import { simulateTransaction } from "../soroban/simulateTransaction";
-import { simulateContractSafe } from "../soroban/simulateContractSafe";
+import type { ResolvedNetworkConfig } from "../shared/types";
+import { getContractMethods } from "../soroban/contractMetadata";
 import {
-  snapshotContractState,
+  clearSnapshots,
   compareSnapshots,
   listSnapshots,
-  clearSnapshots,
+  snapshotContractState,
 } from "../soroban/contractSnapshot";
+import { buildContractDeploy } from "../soroban/deployContract";
+import { prepareContractCall } from "../soroban/prepareCall";
+import { readContract } from "../soroban/readContract";
+import { simulateTransaction } from "../soroban/simulateTransaction";
+import { subscribeContractEvents } from "../soroban/subscribeContractEvents";
+import type { ContractAbi } from "../soroban/types";
 
 const {
   mockGetLedgerEntries,
@@ -138,7 +137,11 @@ const networkConfig: ResolvedNetworkConfig = {
 
 const contractAbi: ContractAbi = {
   methods: [
-    { name: "balance", args: [{ name: "id", type: "address" }], returns: "i128" },
+    {
+      name: "balance",
+      args: [{ name: "id", type: "address" }],
+      returns: "i128",
+    },
     { name: "increment", args: [], returns: "u32" },
   ],
 };
@@ -166,7 +169,8 @@ function encodeLeb128(value: number): number[] {
 function contractSpecWasm(entries: xdr.ScSpecEntry[]): Buffer {
   const name = Buffer.from("contractspecv0");
   const spec = Buffer.concat(entries.map((entry) => entry.toXDR()));
-  const sectionSize = name.length + encodeLeb128(name.length).length + spec.length;
+  const sectionSize =
+    name.length + encodeLeb128(name.length).length + spec.length;
 
   return Buffer.from([
     0x00,
@@ -202,7 +206,10 @@ function methodSpec(): xdr.ScSpecEntry {
   );
 }
 
-function createXdrFunction(name: string, inputCount: number): xdr.ScSpecFunctionV0 {
+function createXdrFunction(
+  name: string,
+  inputCount: number,
+): xdr.ScSpecFunctionV0 {
   return {
     name: () => name,
     inputs: () => Array.from({ length: inputCount }),
@@ -219,7 +226,9 @@ function mockContractLedgerEntries(wasm: Buffer): void {
               val: () => ({
                 instance: () => ({
                   executable: () =>
-                    xdr.ContractExecutable.contractExecutableWasm(Buffer.alloc(32, 1)),
+                    xdr.ContractExecutable.contractExecutableWasm(
+                      Buffer.alloc(32, 1),
+                    ),
                 }),
               }),
             }),
@@ -248,7 +257,8 @@ function mockStellarAssetContractEntry(): void {
           contractData: () => ({
             val: () => ({
               instance: () => ({
-                executable: () => xdr.ContractExecutable.contractExecutableStellarAsset(),
+                executable: () =>
+                  xdr.ContractExecutable.contractExecutableStellarAsset(),
               }),
             }),
           }),
@@ -289,7 +299,10 @@ describe("soroban contract metadata", () => {
   it("discovers contract methods from Soroban contract spec metadata", async () => {
     mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
 
-    const result = await getContractMethods("https://rpc.example.com", contractId());
+    const result = await getContractMethods(
+      "https://rpc.example.com",
+      contractId(),
+    );
 
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
@@ -308,14 +321,22 @@ describe("soroban contract metadata", () => {
     const id = contractId();
     mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
 
-    const first = await getContractMethods("https://rpc-cache.example.com", id, {
-      cache,
-      now: () => 1_000,
-    });
-    const second = await getContractMethods("https://rpc-cache.example.com", id, {
-      cache,
-      now: () => 2_000,
-    });
+    const first = await getContractMethods(
+      "https://rpc-cache.example.com",
+      id,
+      {
+        cache,
+        now: () => 1_000,
+      },
+    );
+    const second = await getContractMethods(
+      "https://rpc-cache.example.com",
+      id,
+      {
+        cache,
+        now: () => 2_000,
+      },
+    );
 
     expect(first.status).toBe("ok");
     expect(second.status).toBe("ok");
@@ -328,14 +349,22 @@ describe("soroban contract metadata", () => {
     mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
     mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
 
-    const first = await getContractMethods("https://rpc-expiry.example.com", id, {
-      ttlMs: 10,
-      now: () => 1_000,
-    });
-    const second = await getContractMethods("https://rpc-expiry.example.com", id, {
-      ttlMs: 10,
-      now: () => 1_011,
-    });
+    const first = await getContractMethods(
+      "https://rpc-expiry.example.com",
+      id,
+      {
+        ttlMs: 10,
+        now: () => 1_000,
+      },
+    );
+    const second = await getContractMethods(
+      "https://rpc-expiry.example.com",
+      id,
+      {
+        ttlMs: 10,
+        now: () => 1_011,
+      },
+    );
 
     expect(first.status).toBe("ok");
     expect(second.status).toBe("ok");
@@ -345,7 +374,10 @@ describe("soroban contract metadata", () => {
   it("returns a typed error when the contract is not Wasm-backed", async () => {
     mockStellarAssetContractEntry();
 
-    const result = await getContractMethods("https://rpc-sac.example.com", contractId());
+    const result = await getContractMethods(
+      "https://rpc-sac.example.com",
+      contractId(),
+    );
 
     expect(result.status).toBe("error");
     if (result.status === "error") {
@@ -478,12 +510,11 @@ describe("soroban contract event subscriptions", () => {
       }),
     });
 
-    const unsubscribe = subscribeContractEvents(
-      "C123",
-      undefined,
-      callback,
-      { horizonUrl: "https://horizon.test", intervalMs: 1, fetch: fetchMock },
-    );
+    const unsubscribe = subscribeContractEvents("C123", undefined, callback, {
+      horizonUrl: "https://horizon.test",
+      intervalMs: 1,
+      fetch: fetchMock,
+    });
 
     unsubscribe();
     await vi.advanceTimersByTimeAsync(5);
@@ -647,34 +678,35 @@ describe("soroban contract ABI validation", () => {
     expect(mockSimulateTransaction).not.toHaveBeenCalled();
   });
 
-  describe("simulateTransaction caching", () => {
-    let transactionXdr: string;
-    let networkPassphrase: string;
-
-    beforeAll(async () => {
-      const actualSdk = await vi.importActual<typeof import("@stellar/stellar-sdk")>("@stellar/stellar-sdk");
-      const contractId = actualSdk.StrKey.encodeContract(Buffer.alloc(32));
-      const contract = new actualSdk.Contract(contractId);
-      const op = contract.call("hello", actualSdk.xdr.ScVal.scvSymbol("world"));
-      const sourceAccount = new actualSdk.Account(actualSdk.Keypair.random().publicKey(), "1");
-      const tx = new actualSdk.TransactionBuilder(sourceAccount, {
-        fee: actualSdk.BASE_FEE,
-        networkPassphrase: actualSdk.Networks.TESTNET,
-      })
-        .addOperation(op)
-        .setTimeout(100)
-        .build();
-      transactionXdr = tx.toXDR();
-      networkPassphrase = actualSdk.Networks.TESTNET;
-    });
-
+  describe("readContract caching (#88)", () => {
     beforeEach(() => {
       resetRpcSimulationMocks();
     });
 
     it("behaves as before if no cache option is provided (backward compatible)", async () => {
-      const result1 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr);
-      const result2 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr);
+      const id = contractId();
+      const result1 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+        },
+      );
+      const result2 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+        },
+      );
 
       expect(result1.status).toBe("ok");
       expect(result2.status).toBe("ok");
@@ -683,9 +715,32 @@ describe("soroban contract ABI validation", () => {
 
     it("caches the result on cache miss and returns it on cache hit", async () => {
       const cache = new MemoryCache();
+      const id = contractId();
 
-      const result1 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr, { cache });
-      const result2 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr, { cache });
+      const result1 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+        },
+      );
+      const result2 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+        },
+      );
 
       expect(result1.status).toBe("ok");
       expect(result2.status).toBe("ok");
@@ -712,33 +767,317 @@ describe("soroban contract ABI validation", () => {
           const ttl = ttlMs ?? 5 * 60 * 1000;
           this.store.set(key, { value, expiresAt: nowFn() + ttl });
         }
-        invalidate(key: string): void { this.store.delete(key); }
-        clear(): void { this.store.clear(); }
+        invalidate(key: string): void {
+          this.store.delete(key);
+        }
+        clear(): void {
+          this.store.clear();
+        }
+      }
+
+      const cache = new ExpirableCache();
+      const id = contractId();
+
+      // First call (miss, TTL 10ms)
+      const result1 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+          ttlMs: 10,
+        },
+      );
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+
+      // Second call before expiry (hit)
+      currentTime = 1005;
+      const result2 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+          ttlMs: 10,
+        },
+      );
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce(); // still once
+
+      // Third call after expiry (miss)
+      currentTime = 1011;
+      const result3 = await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+          ttlMs: 10,
+        },
+      );
+      expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
+
+      expect(result1.status).toBe("ok");
+      expect(result2.status).toBe("ok");
+      expect(result3.status).toBe("ok");
+    });
+
+    it("deduplicates concurrent identical reads using shared Promise", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+      let simulateCallCount = 0;
+
+      mockSimulateTransaction.mockImplementation(async () => {
+        simulateCallCount++;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return { result: { retval: arg } };
+      });
+
+      // Launch 3 concurrent identical reads
+      const [result1, result2, result3] = await Promise.all([
+        readContract(
+          networkConfig.rpcUrl,
+          networkConfig.horizonUrl,
+          networkConfig,
+          {
+            contractId: id,
+            method: "balance",
+            args: [arg],
+            publicKey: Keypair.random().publicKey(),
+            cache,
+          },
+        ),
+        readContract(
+          networkConfig.rpcUrl,
+          networkConfig.horizonUrl,
+          networkConfig,
+          {
+            contractId: id,
+            method: "balance",
+            args: [arg],
+            publicKey: Keypair.random().publicKey(),
+            cache,
+          },
+        ),
+        readContract(
+          networkConfig.rpcUrl,
+          networkConfig.horizonUrl,
+          networkConfig,
+          {
+            contractId: id,
+            method: "balance",
+            args: [arg],
+            publicKey: Keypair.random().publicKey(),
+            cache,
+          },
+        ),
+      ]);
+
+      expect(result1.status).toBe("ok");
+      expect(result2.status).toBe("ok");
+      expect(result3.status).toBe("ok");
+      expect(simulateCallCount).toBe(1); // Only one RPC call for all three concurrent reads
+    });
+
+    it("uses default 5-minute TTL when not specified", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+
+      await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+        },
+      );
+
+      expect(cache.ttlMs).toBe(5 * 60 * 1000);
+    });
+
+    it("generates different cache keys for different arguments", async () => {
+      const cache = new MemoryCache();
+      const id = contractId();
+
+      await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg],
+          publicKey: Keypair.random().publicKey(),
+          cache,
+        },
+      );
+
+      await readContract(
+        networkConfig.rpcUrl,
+        networkConfig.horizonUrl,
+        networkConfig,
+        {
+          contractId: id,
+          method: "balance",
+          args: [arg], // Same args, should hit cache
+          publicKey: Keypair.random().publicKey(),
+          cache,
+        },
+      );
+
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe("simulateTransaction caching", () => {
+    let transactionXdr: string;
+    let networkPassphrase: string;
+
+    beforeAll(async () => {
+      const actualSdk = await vi.importActual<
+        typeof import("@stellar/stellar-sdk")
+      >("@stellar/stellar-sdk");
+      const contractId = actualSdk.StrKey.encodeContract(Buffer.alloc(32));
+      const contract = new actualSdk.Contract(contractId);
+      const op = contract.call("hello", actualSdk.xdr.ScVal.scvSymbol("world"));
+      const sourceAccount = new actualSdk.Account(
+        actualSdk.Keypair.random().publicKey(),
+        "1",
+      );
+      const tx = new actualSdk.TransactionBuilder(sourceAccount, {
+        fee: actualSdk.BASE_FEE,
+        networkPassphrase: actualSdk.Networks.TESTNET,
+      })
+        .addOperation(op)
+        .setTimeout(100)
+        .build();
+      transactionXdr = tx.toXDR();
+      networkPassphrase = actualSdk.Networks.TESTNET;
+    });
+
+    beforeEach(() => {
+      resetRpcSimulationMocks();
+    });
+
+    it("behaves as before if no cache option is provided (backward compatible)", async () => {
+      const result1 = await simulateTransaction(
+        networkConfig.rpcUrl,
+        networkPassphrase,
+        transactionXdr,
+      );
+      const result2 = await simulateTransaction(
+        networkConfig.rpcUrl,
+        networkPassphrase,
+        transactionXdr,
+      );
+
+      expect(result1.status).toBe("ok");
+      expect(result2.status).toBe("ok");
+      expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
+    });
+
+    it("caches the result on cache miss and returns it on cache hit", async () => {
+      const cache = new MemoryCache();
+
+      const result1 = await simulateTransaction(
+        networkConfig.rpcUrl,
+        networkPassphrase,
+        transactionXdr,
+        { cache },
+      );
+      const result2 = await simulateTransaction(
+        networkConfig.rpcUrl,
+        networkPassphrase,
+        transactionXdr,
+        { cache },
+      );
+
+      expect(result1.status).toBe("ok");
+      expect(result2.status).toBe("ok");
+      expect(result1.data).toEqual(result2.data);
+      expect(mockSimulateTransaction).toHaveBeenCalledOnce();
+    });
+
+    it("respects the TTL and expires the cache entry", async () => {
+      let currentTime = 1000;
+      const nowFn = () => currentTime;
+
+      class ExpirableCache implements SorokitCache {
+        private store = new Map<string, { value: any; expiresAt: number }>();
+        get(key: string): unknown {
+          const entry = this.store.get(key);
+          if (!entry) return undefined;
+          if (nowFn() >= entry.expiresAt) {
+            this.store.delete(key);
+            return undefined;
+          }
+          return entry.value;
+        }
+        set(key: string, value: unknown, ttlMs?: number): void {
+          const ttl = ttlMs ?? 5 * 60 * 1000;
+          this.store.set(key, { value, expiresAt: nowFn() + ttl });
+        }
+        invalidate(key: string): void {
+          this.store.delete(key);
+        }
+        clear(): void {
+          this.store.clear();
+        }
       }
 
       const cache = new ExpirableCache();
 
       // First call (miss, TTL 10ms)
-      const result1 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr, {
-        cache,
-        ttlMs: 10,
-      });
+      const result1 = await simulateTransaction(
+        networkConfig.rpcUrl,
+        networkPassphrase,
+        transactionXdr,
+        {
+          cache,
+          ttlMs: 10,
+        },
+      );
       expect(mockSimulateTransaction).toHaveBeenCalledOnce();
 
       // Second call before expiry (hit)
       currentTime = 1005;
-      const result2 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr, {
-        cache,
-        ttlMs: 10,
-      });
+      const result2 = await simulateTransaction(
+        networkConfig.rpcUrl,
+        networkPassphrase,
+        transactionXdr,
+        {
+          cache,
+          ttlMs: 10,
+        },
+      );
       expect(mockSimulateTransaction).toHaveBeenCalledOnce(); // still once
 
       // Third call after expiry (miss)
       currentTime = 1011;
-      const result3 = await simulateTransaction(networkConfig.rpcUrl, networkPassphrase, transactionXdr, {
-        cache,
-        ttlMs: 10,
-      });
+      const result3 = await simulateTransaction(
+        networkConfig.rpcUrl,
+        networkPassphrase,
+        transactionXdr,
+        {
+          cache,
+          ttlMs: 10,
+        },
+      );
       expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
     });
   });
@@ -759,7 +1098,9 @@ describe("snapshotContractState and compareSnapshots (#39)", () => {
               val: () => ({
                 instance: () => ({
                   executable: () =>
-                    xdr.ContractExecutable.contractExecutableWasm(Buffer.alloc(32, 1)),
+                    xdr.ContractExecutable.contractExecutableWasm(
+                      Buffer.alloc(32, 1),
+                    ),
                 }),
               }),
             }),
@@ -784,7 +1125,10 @@ describe("snapshotContractState and compareSnapshots (#39)", () => {
   it("generates a label automatically when none is provided", async () => {
     mockGetLedgerEntries.mockResolvedValueOnce({ entries: [] });
 
-    const result = await snapshotContractState(networkConfig.rpcUrl, contractId());
+    const result = await snapshotContractState(
+      networkConfig.rpcUrl,
+      contractId(),
+    );
 
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
@@ -800,7 +1144,9 @@ describe("snapshotContractState and compareSnapshots (#39)", () => {
               val: () => ({
                 instance: () => ({
                   executable: () =>
-                    xdr.ContractExecutable.contractExecutableWasm(Buffer.alloc(32, 0xab)),
+                    xdr.ContractExecutable.contractExecutableWasm(
+                      Buffer.alloc(32, 0xab),
+                    ),
                 }),
               }),
             }),
@@ -809,7 +1155,11 @@ describe("snapshotContractState and compareSnapshots (#39)", () => {
       ],
     });
 
-    const result = await snapshotContractState(networkConfig.rpcUrl, contractId(), "wasm-snap");
+    const result = await snapshotContractState(
+      networkConfig.rpcUrl,
+      contractId(),
+      "wasm-snap",
+    );
 
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
@@ -820,7 +1170,11 @@ describe("snapshotContractState and compareSnapshots (#39)", () => {
   it("stores an empty state when no ledger entries are returned", async () => {
     mockGetLedgerEntries.mockResolvedValueOnce({ entries: [] });
 
-    const result = await snapshotContractState(networkConfig.rpcUrl, contractId(), "empty-snap");
+    const result = await snapshotContractState(
+      networkConfig.rpcUrl,
+      contractId(),
+      "empty-snap",
+    );
 
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
@@ -836,7 +1190,9 @@ describe("snapshotContractState and compareSnapshots (#39)", () => {
 
     const all = listSnapshots(id);
     expect(all).toHaveLength(2);
-    expect(all.map((s) => s.label)).toEqual(expect.arrayContaining(["snap-a", "snap-b"]));
+    expect(all.map((s) => s.label)).toEqual(
+      expect.arrayContaining(["snap-a", "snap-b"]),
+    );
   });
 
   it("compareSnapshots detects added keys", async () => {
@@ -912,7 +1268,11 @@ describe("snapshotContractState and compareSnapshots (#39)", () => {
   it("returns CONTRACT_READ_FAILED when RPC throws", async () => {
     mockGetLedgerEntries.mockRejectedValueOnce(new Error("RPC down"));
 
-    const result = await snapshotContractState(networkConfig.rpcUrl, contractId(), "fail-snap");
+    const result = await snapshotContractState(
+      networkConfig.rpcUrl,
+      contractId(),
+      "fail-snap",
+    );
     expect(result.status).toBe("error");
     if (result.status !== "error") return;
     expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_READ_FAILED);
@@ -925,15 +1285,21 @@ describe("buildContractDeploy", () => {
     resetRpcSimulationMocks();
   });
 
-  const validWasm = Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]);
+  const validWasm = Buffer.from([
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  ]);
 
   it("returns TX_BUILD_FAILED if WASM size exceeds maximum", async () => {
     const hugeWasm = Buffer.alloc(256 * 1024 + 1, 0x00);
-    const result = await buildContractDeploy(hugeWasm, Keypair.random().publicKey(), {
-      rpcUrl: networkConfig.rpcUrl,
-      horizonUrl: networkConfig.horizonUrl,
-      networkConfig,
-    });
+    const result = await buildContractDeploy(
+      hugeWasm,
+      Keypair.random().publicKey(),
+      {
+        rpcUrl: networkConfig.rpcUrl,
+        horizonUrl: networkConfig.horizonUrl,
+        networkConfig,
+      },
+    );
     expect(result.status).toBe("error");
     if (result.status === "error") {
       expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
@@ -943,11 +1309,15 @@ describe("buildContractDeploy", () => {
 
   it("returns TX_BUILD_FAILED if WASM magic bytes are missing", async () => {
     const invalidWasm = Buffer.from([0x01, 0x02, 0x03, 0x04]);
-    const result = await buildContractDeploy(invalidWasm, Keypair.random().publicKey(), {
-      rpcUrl: networkConfig.rpcUrl,
-      horizonUrl: networkConfig.horizonUrl,
-      networkConfig,
-    });
+    const result = await buildContractDeploy(
+      invalidWasm,
+      Keypair.random().publicKey(),
+      {
+        rpcUrl: networkConfig.rpcUrl,
+        horizonUrl: networkConfig.horizonUrl,
+        networkConfig,
+      },
+    );
     expect(result.status).toBe("error");
     if (result.status === "error") {
       expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
@@ -956,11 +1326,15 @@ describe("buildContractDeploy", () => {
   });
 
   it("successfully builds contract deployment XDR", async () => {
-    const result = await buildContractDeploy(validWasm, Keypair.random().publicKey(), {
-      rpcUrl: networkConfig.rpcUrl,
-      horizonUrl: networkConfig.horizonUrl,
-      networkConfig,
-    });
+    const result = await buildContractDeploy(
+      validWasm,
+      Keypair.random().publicKey(),
+      {
+        rpcUrl: networkConfig.rpcUrl,
+        horizonUrl: networkConfig.horizonUrl,
+        networkConfig,
+      },
+    );
     expect(result.status).toBe("ok");
     expect(mockSimulateTransaction).toHaveBeenCalledOnce();
     if (result.status === "ok") {
@@ -969,8 +1343,12 @@ describe("buildContractDeploy", () => {
   });
 });
 
+import {
+  SorokitErrorCode as SC,
+  err as sorokitErr,
+  ok as sorokitOk,
+} from "../shared/response";
 import { invokeBatchContracts } from "../soroban/invokeBatchContracts";
-import { ok as sorokitOk, err as sorokitErr, SorokitErrorCode as SC } from "../shared/response";
 import type { BatchContractInvocation } from "../soroban/types";
 
 vi.mock("../soroban/invokeContract", () => ({
@@ -989,7 +1367,10 @@ const SIGN_FN = vi.fn(async (xdr: string) => xdr);
 const CONTRACT_A = StrKey.encodeContract(Keypair.random().rawPublicKey());
 const CONTRACT_B = StrKey.encodeContract(Keypair.random().rawPublicKey());
 
-function makeInvocation(contractId: string, method = "call"): BatchContractInvocation {
+function makeInvocation(
+  contractId: string,
+  method = "call",
+): BatchContractInvocation {
   return { contractId, method, publicKey: Keypair.random().publicKey() };
 }
 
@@ -1080,7 +1461,13 @@ describe("invokeBatchContracts (#46)", () => {
   });
 
   it("returns empty array for empty invocations list", async () => {
-    const results = await invokeBatchContracts(RPC, NETWORK, HORIZON, [], SIGN_FN);
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [],
+      SIGN_FN,
+    );
     expect(results).toEqual([]);
     expect(mockInvokeContract).not.toHaveBeenCalled();
   });
@@ -1089,7 +1476,12 @@ describe("invokeBatchContracts (#46)", () => {
     mockInvokeContract.mockResolvedValue(sorokitOk("hash"));
 
     const pollConfig = { maxAttempts: 5, intervalMs: 500 };
-    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
 
     await invokeBatchContracts(
       RPC,
@@ -1112,7 +1504,10 @@ describe("invokeBatchContracts (#46)", () => {
   });
 });
 
-import { decodeContractValue, encodeContractArgs } from "../soroban/contractEncoding";
+import {
+  decodeContractValue,
+  encodeContractArgs,
+} from "../soroban/contractEncoding";
 import type { ContractMethod } from "../soroban/types";
 
 // ─── #93 decodeContractValue ──────────────────────────────────────────────────
@@ -1135,7 +1530,9 @@ describe("decodeContractValue (#93)", () => {
   });
 
   it("decodes string", () => {
-    expect(decodeContractValue(xdr.ScVal.scvString(Buffer.from("hello", "utf8")))).toBe("hello");
+    expect(
+      decodeContractValue(xdr.ScVal.scvString(Buffer.from("hello", "utf8"))),
+    ).toBe("hello");
   });
 
   it("decodes symbol", () => {
@@ -1147,10 +1544,7 @@ describe("decodeContractValue (#93)", () => {
   });
 
   it("decodes vec recursively", () => {
-    const vec = xdr.ScVal.scvVec([
-      xdr.ScVal.scvU32(1),
-      xdr.ScVal.scvU32(2),
-    ]);
+    const vec = xdr.ScVal.scvVec([xdr.ScVal.scvU32(1), xdr.ScVal.scvU32(2)]);
     expect(decodeContractValue(vec)).toEqual([1, 2]);
   });
 
@@ -1175,47 +1569,69 @@ describe("encodeContractArgs (#94)", () => {
   });
 
   it("encodes u32", () => {
-    const [val] = encodeContractArgs(method([{ name: "n", type: "u32" }]), [99]);
+    const [val] = encodeContractArgs(
+      method([{ name: "n", type: "u32" }]),
+      [99],
+    );
     expect(val.switch()).toEqual(xdr.ScValType.scvU32());
     expect(val.u32()).toBe(99);
   });
 
   it("encodes i32 negative", () => {
-    const [val] = encodeContractArgs(method([{ name: "n", type: "i32" }]), [-5]);
+    const [val] = encodeContractArgs(
+      method([{ name: "n", type: "i32" }]),
+      [-5],
+    );
     expect(val.switch()).toEqual(xdr.ScValType.scvI32());
     expect(val.i32()).toBe(-5);
   });
 
   it("encodes bool", () => {
-    const [val] = encodeContractArgs(method([{ name: "b", type: "bool" }]), [true]);
+    const [val] = encodeContractArgs(method([{ name: "b", type: "bool" }]), [
+      true,
+    ]);
     expect(val.switch()).toEqual(xdr.ScValType.scvBool());
     expect(val.b()).toBe(true);
   });
 
   it("encodes string", () => {
-    const [val] = encodeContractArgs(method([{ name: "s", type: "string" }]), ["world"]);
+    const [val] = encodeContractArgs(method([{ name: "s", type: "string" }]), [
+      "world",
+    ]);
     expect(val.switch()).toEqual(xdr.ScValType.scvString());
     expect(Buffer.from(val.str()).toString("utf8")).toBe("world");
   });
 
   it("encodes symbol", () => {
-    const [val] = encodeContractArgs(method([{ name: "s", type: "symbol" }]), ["tick"]);
+    const [val] = encodeContractArgs(method([{ name: "s", type: "symbol" }]), [
+      "tick",
+    ]);
     expect(val.switch()).toEqual(xdr.ScValType.scvSymbol());
   });
 
   it("encodes vec from array", () => {
-    const [val] = encodeContractArgs(method([{ name: "v", type: "vec" }]), [[1, 2, 3]]);
+    const [val] = encodeContractArgs(method([{ name: "v", type: "vec" }]), [
+      [1, 2, 3],
+    ]);
     expect(val.switch()).toEqual(xdr.ScValType.scvVec());
   });
 
   it("encodes map from object", () => {
-    const [val] = encodeContractArgs(method([{ name: "m", type: "map" }]), [{ x: 1 }]);
+    const [val] = encodeContractArgs(method([{ name: "m", type: "map" }]), [
+      { x: 1 },
+    ]);
     expect(val.switch()).toEqual(xdr.ScValType.scvMap());
   });
 
   it("throws when argument count mismatches", () => {
     expect(() =>
-      encodeContractArgs(method([{ name: "a", type: "u32" }, { name: "b", type: "u32" }]), [1]),
+      encodeContractArgs(
+        method([
+          { name: "a", type: "u32" },
+          { name: "b", type: "u32" },
+        ]),
+        [1],
+      ),
     ).toThrow(/expects 2/);
   });
 
