@@ -13,6 +13,7 @@ import {
   clearSequenceCache,
 } from "../transaction/buildTransaction";
 import { SorokitErrorCode } from "../shared/response";
+import type { SorokitResult } from "../shared/response";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type {
   PaymentWithTrustlineParams,
@@ -1804,5 +1805,246 @@ describe("buildAtomicSwap (#47)", () => {
     mocks.loadAccount.mockRejectedValue(new Error("timeout"));
     const result = await buildAtomicSwap(networkConfig.horizonUrl, networkConfig, SRC, { legA, legB });
     expect(result.status).toBe("error");
+  });
+});
+
+// ─── Issue #91 — custom memoValidator callback ────────────────────────────────
+
+describe("custom memoValidator callback (#91)", () => {
+  const sourcePublicKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const destination = "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+  const issuerPublicKey = "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+
+  const validatorOk = (): SorokitResult<void> => ({
+    status: "ok",
+    data: undefined,
+    error: null,
+  });
+  const validatorErr = (message: string): SorokitResult<void> => ({
+    status: "error",
+    data: null,
+    error: { code: SorokitErrorCode.TX_BUILD_FAILED, message },
+  });
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    mockLoadAccount.mockResolvedValue({
+      accountId: () => sourcePublicKey,
+      sequenceNumber: () => "1",
+      incrementSequenceNumber: () => {},
+      subentry_count: 0,
+      balances: [],
+    });
+    transactionBuilderInstances.length = 0;
+  });
+
+  // ── Payment ────────────────────────────────────────────────────────────────
+
+  it("builds payment when custom memoValidator returns ok and memo is attached (#91)", async () => {
+    const validator = vi.fn().mockReturnValue(validatorOk());
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        memo: "INV-42",
+        memoValidator: validator,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(validator).toHaveBeenCalledTimes(1);
+    expect(validator).toHaveBeenCalledWith("INV-42");
+    expect(transactionBuilderInstances).toHaveLength(1);
+    expect(transactionBuilderInstances[0]?.memo).toBeDefined();
+  });
+
+  it("returns TX_BUILD_FAILED when payment custom memoValidator returns error (#91)", async () => {
+    const validator = vi.fn().mockReturnValue(validatorErr("Memo must start with INV-"));
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        memo: "BAD-42",
+        memoValidator: validator,
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toBe("Memo must start with INV-");
+    }
+    // Transaction must not be built when validator rejects
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  // ── Trustline ──────────────────────────────────────────────────────────────
+
+  it("builds trustline when custom memoValidator returns ok (#91)", async () => {
+    const validator = vi.fn().mockReturnValue(validatorOk());
+    const result = await buildTrustlineTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        assetCode: "USD",
+        assetIssuer: issuerPublicKey,
+        memo: "TL-ALLOWED",
+        memoValidator: validator,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(validator).toHaveBeenCalledTimes(1);
+    expect(validator).toHaveBeenCalledWith("TL-ALLOWED");
+    expect(transactionBuilderInstances).toHaveLength(1);
+  });
+
+  it("returns TX_BUILD_FAILED when trustline custom memoValidator returns error (#91)", async () => {
+    const validator = vi.fn().mockReturnValue(validatorErr("Trustline memo not on whitelist"));
+    const result = await buildTrustlineTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        assetCode: "USD",
+        assetIssuer: issuerPublicKey,
+        memo: "TL-BAD",
+        memoValidator: validator,
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toBe("Trustline memo not on whitelist");
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  // ── Account create ─────────────────────────────────────────────────────────
+
+  it("builds create account when custom memoValidator returns ok (#91)", async () => {
+    const validator = vi.fn().mockReturnValue(validatorOk());
+    const result = await buildCreateAccountTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        startingBalance: "1",
+        memo: "WELCOME-1",
+        memoValidator: validator,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(validator).toHaveBeenCalledTimes(1);
+    expect(validator).toHaveBeenCalledWith("WELCOME-1");
+    expect(transactionBuilderInstances).toHaveLength(1);
+  });
+
+  it("returns TX_BUILD_FAILED when create account custom memoValidator returns error (#91)", async () => {
+    const validator = vi.fn().mockReturnValue(validatorErr("Refused by policy"));
+    const result = await buildCreateAccountTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        startingBalance: "1",
+        memo: "X",
+        memoValidator: validator,
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toBe("Refused by policy");
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  // ── Backward compatibility + edge cases ────────────────────────────────────
+
+  it("does not invoke memoValidator when no memo is provided (backward-compatible) (#91)", async () => {
+    const validator = vi.fn().mockReturnValue(validatorOk());
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        memoValidator: validator,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(validator).not.toHaveBeenCalled();
+  });
+
+  it("validator runs BEFORE memo type validation — a bad hash value is rejected by validator first (#91)", async () => {
+    const validator = vi.fn().mockReturnValue(validatorErr("Rejected by validator"));
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        memo: "deadbeef", // would also fail later as hash (length != 32 hex chars)
+        memoType: "hash",
+        memoValidator: validator,
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.message).toBe("Rejected by validator");
+    }
+    expect(validator).toHaveBeenCalledTimes(1);
+  });
+
+  it("builds payment without memoValidator (backward-compatible — feature is optional) (#91)", async () => {
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        memo: "no-validator",
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(transactionBuilderInstances).toHaveLength(1);
+  });
+
+  it("works in combination with requireMemo — validator receives the memo string (#91)", async () => {
+    const validator = vi.fn().mockReturnValue(validatorOk());
+    const result = await buildPaymentTransaction(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      {
+        destination,
+        amount: "10",
+        memo: "REQ-OK",
+        requireMemo: true,
+        memoValidator: validator,
+      },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(validator).toHaveBeenCalledWith("REQ-OK");
   });
 });
