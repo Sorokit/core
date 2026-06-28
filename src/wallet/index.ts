@@ -66,6 +66,38 @@ export function detectInstalledWallets(adapters: WalletAdapter[]): DetectedWalle
 }
 
 /**
+ * Reorder wallet adapters by availability and an optional preferred type.
+ *
+ * Order: preferred (when available) → other available wallets (input order)
+ * → unavailable wallets (input order). If the preferred wallet is present
+ * but unavailable, it falls to the unavailable bucket and the first
+ * available adapter leads.
+ */
+export function prioritizeWallet(
+  adapters: WalletAdapter[],
+  preferred?: WalletType,
+): WalletAdapter[] {
+  const preferredAvailable: WalletAdapter[] = [];
+  const otherAvailable: WalletAdapter[] = [];
+  const unavailable: WalletAdapter[] = [];
+
+  for (const adapter of adapters) {
+    const available = adapter.isAvailable();
+    if (!available) {
+      unavailable.push(adapter);
+      continue;
+    }
+    if (preferred !== undefined && adapter.walletType === preferred) {
+      preferredAvailable.push(adapter);
+    } else {
+      otherAvailable.push(adapter);
+    }
+  }
+
+  return [...preferredAvailable, ...otherAvailable, ...unavailable];
+}
+
+/**
  * Recommend wallets from a list of adapters based on optional feature criteria.
  * Returns all available wallets when no criteria are provided.
  * Requires a browser environment — adapters report unavailable in Node.

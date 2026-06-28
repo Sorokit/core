@@ -17,6 +17,7 @@ export {
   collectMultiSignatures,
   detectInstalledWallets,
   diagnoseWalletConnection,
+  prioritizeWallet,
   recommendWallets,
 } from "./wallet";
 export { FreighterAdapter } from "./wallet/adapters/freighter";
