@@ -68,6 +68,17 @@ export type {
   BalanceAlertRule,
 } from "./account/types";
 
+// ─── Transaction validation ───────────────────────────────────────────────────
+export {
+  DEFAULT_VALIDATION_RULES,
+  validateTransactionXdr,
+} from "./transaction/validateTransactionXdr";
+export type {
+  TransactionValidationFinding,
+  TransactionValidationReport,
+  ValidationRules,
+} from "./transaction/validateTransactionXdr";
+
 // ─── Transaction types ────────────────────────────────────────────────────────
 export type {
   FeeEstimate,
