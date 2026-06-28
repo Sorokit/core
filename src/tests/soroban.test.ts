@@ -1688,3 +1688,87 @@ describe("prepareContractCall XDR validation (#90)", () => {
     }
   });
 });
+
+describe("simulateContractSafe (#97)", () => {
+  let transactionXdr: string;
+  let networkPassphrase: string;
+
+  beforeAll(async () => {
+    const actualSdk = await vi.importActual<typeof import("@stellar/stellar-sdk")>(
+      "@stellar/stellar-sdk",
+    );
+    const contractId = actualSdk.StrKey.encodeContract(Buffer.alloc(32));
+    const contract = new actualSdk.Contract(contractId);
+    const op = contract.call("hello", actualSdk.xdr.ScVal.scvSymbol("world"));
+    const sourceAccount = new actualSdk.Account(
+      actualSdk.Keypair.random().publicKey(),
+      "1",
+    );
+    const tx = new actualSdk.TransactionBuilder(sourceAccount, {
+      fee: actualSdk.BASE_FEE,
+      networkPassphrase: actualSdk.Networks.TESTNET,
+    })
+      .addOperation(op)
+      .setTimeout(100)
+      .build();
+    transactionXdr = tx.toXDR();
+    networkPassphrase = actualSdk.Networks.TESTNET;
+  });
+
+  beforeEach(() => {
+    resetRpcSimulationMocks();
+  });
+
+  it("returns simulation result on success without fallback", async () => {
+    mockSimulateTransaction.mockResolvedValueOnce({
+      minResourceFee: "12345",
+    });
+    const result = await simulateContractSafe(
+      networkConfig.rpcUrl,
+      networkPassphrase,
+      transactionXdr,
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.success).toBe(true);
+    expect(result.data.fee).toBe("12345");
+    expect(result.data.fromFallback).toBe(false);
+  });
+
+  it("returns fallback when simulation throws and allowFail is true", async () => {
+    mockSimulateTransaction.mockRejectedValueOnce(new Error("rpc down"));
+    const result = await simulateContractSafe(
+      networkConfig.rpcUrl,
+      networkPassphrase,
+      transactionXdr,
+      { allowFail: true, fallbackFee: "500000" },
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.fromFallback).toBe(true);
+    expect(result.data.fee).toBe("500000");
+  });
+
+  it("propagates error when allowFail is false", async () => {
+    mockSimulateTransaction.mockRejectedValueOnce(new Error("rpc down"));
+    const result = await simulateContractSafe(
+      networkConfig.rpcUrl,
+      networkPassphrase,
+      transactionXdr,
+    );
+    expect(result.status).toBe("error");
+  });
+
+  it("uses a default fallback fee when none is provided", async () => {
+    mockSimulateTransaction.mockRejectedValueOnce(new Error("rpc down"));
+    const result = await simulateContractSafe(
+      networkConfig.rpcUrl,
+      networkPassphrase,
+      transactionXdr,
+      { allowFail: true },
+    );
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.fromFallback).toBe(true);
+    expect(Number(result.data.fee)).toBeGreaterThan(0);
+  });
+});

@@ -250,6 +250,7 @@ describe("collectMultiSignatures (#22)", () => {
 import {
   diagnoseWalletConnection,
   detectInstalledWallets,
+  prioritizeWallet,
   recommendWallets,
 } from "../wallet/index";
 
@@ -575,5 +576,76 @@ describe("recommendWallets (#44)", () => {
     ];
     const results = recommendWallets(adapters, { features: [] });
     expect(results).toHaveLength(2);
+  });
+});
+
+describe("prioritizeWallet (#95)", () => {
+  it("returns single wallet unchanged", () => {
+    const adapter = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.FREIGHTER,
+    });
+    const result = prioritizeWallet([adapter]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(adapter);
+  });
+
+  it("returns empty list when no adapters supplied", () => {
+    expect(prioritizeWallet([])).toEqual([]);
+  });
+
+  it("places preferred wallet first when available", () => {
+    const freighter = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.FREIGHTER,
+    });
+    const xbull = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.XBULL,
+    });
+    const result = prioritizeWallet([freighter, xbull], WalletType.XBULL);
+    expect(result[0].walletType).toBe(WalletType.XBULL);
+    expect(result[1].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("places available wallets before unavailable ones", () => {
+    const unavailable = fakeAdapter({
+      isAvailable: () => false,
+      walletType: WalletType.FREIGHTER,
+    });
+    const available = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.XBULL,
+    });
+    const result = prioritizeWallet([unavailable, available]);
+    expect(result[0].walletType).toBe(WalletType.XBULL);
+    expect(result[1].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("demotes preferred wallet when it is not installed", () => {
+    const freighterUnavailable = fakeAdapter({
+      isAvailable: () => false,
+      walletType: WalletType.FREIGHTER,
+    });
+    const xbullAvailable = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.XBULL,
+    });
+    const result = prioritizeWallet(
+      [freighterUnavailable, xbullAvailable],
+      WalletType.FREIGHTER,
+    );
+    expect(result[0].walletType).toBe(WalletType.XBULL);
+    expect(result[1].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("handles list where no wallets are available", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.XBULL }),
+    ];
+    const result = prioritizeWallet(adapters, WalletType.FREIGHTER);
+    expect(result).toHaveLength(2);
+    expect(result.every((a) => !a.isAvailable())).toBe(true);
   });
 });

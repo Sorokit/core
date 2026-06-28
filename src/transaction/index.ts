@@ -32,3 +32,13 @@ export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
+
+export {
+  validateTransactionXdr,
+  DEFAULT_VALIDATION_RULES,
+} from "./validateTransactionXdr";
+export type {
+  TransactionValidationFinding,
+  TransactionValidationReport,
+  ValidationRules,
+} from "./validateTransactionXdr";

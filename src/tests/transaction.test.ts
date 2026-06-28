@@ -2203,3 +2203,105 @@ describe("custom memoValidator callback (#91)", () => {
     expect(validator).toHaveBeenCalledWith("REQ-OK");
   });
 });
+
+describe("validateTransactionXdr (#99)", () => {
+  const realSdk = vi.importActual<typeof import("@stellar/stellar-sdk")>(
+    "@stellar/stellar-sdk",
+  );
+
+  async function buildSamplePaymentXdr(opts?: {
+    destination?: string;
+    amount?: string;
+    fee?: string;
+  }): Promise<{ xdr: string; networkPassphrase: string }> {
+    const sdk = await realSdk;
+    const source = sdk.Keypair.random();
+    const dest =
+      opts?.destination ?? sdk.Keypair.random().publicKey();
+    const account = new sdk.Account(source.publicKey(), "1");
+    const tx = new sdk.TransactionBuilder(account, {
+      fee: opts?.fee ?? sdk.BASE_FEE,
+      networkPassphrase: sdk.Networks.TESTNET,
+    })
+      .addOperation(
+        sdk.Operation.payment({
+          destination: dest,
+          asset: sdk.Asset.native(),
+          amount: opts?.amount ?? "10",
+        }),
+      )
+      .setTimeout(100)
+      .build();
+    return { xdr: tx.toXDR(), networkPassphrase: sdk.Networks.TESTNET };
+  }
+
+  it("returns valid for a well-formed payment transaction", async () => {
+    const { validateTransactionXdr } = await import(
+      "../transaction/validateTransactionXdr"
+    );
+    const { xdr, networkPassphrase } = await buildSamplePaymentXdr();
+    const result = validateTransactionXdr(xdr, { networkPassphrase });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.valid).toBe(true);
+    expect(result.data.errors).toEqual([]);
+    expect(result.data.operationCount).toBe(1);
+  });
+
+  it("flags malformed XDR with an XDR_INVALID finding", async () => {
+    const { validateTransactionXdr } = await import(
+      "../transaction/validateTransactionXdr"
+    );
+    const result = validateTransactionXdr("not-a-real-xdr", {
+      networkPassphrase: "Test SDF Network ; September 2015",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.valid).toBe(false);
+    expect(result.data.errors[0].code).toBe("XDR_INVALID");
+  });
+
+  it("flags fees that exceed the per-op cap as warnings", async () => {
+    const { validateTransactionXdr } = await import(
+      "../transaction/validateTransactionXdr"
+    );
+    const { xdr, networkPassphrase } = await buildSamplePaymentXdr({
+      fee: "5000000",
+    });
+    const result = validateTransactionXdr(xdr, {
+      networkPassphrase,
+      maxFeePerOpStroops: 1000,
+    });
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.warnings.some((w) => w.code === "FEE_TOO_HIGH")).toBe(true);
+  });
+
+  it("respects disallowed operation types", async () => {
+    const { validateTransactionXdr } = await import(
+      "../transaction/validateTransactionXdr"
+    );
+    const { xdr, networkPassphrase } = await buildSamplePaymentXdr();
+    const result = validateTransactionXdr(xdr, {
+      networkPassphrase,
+      disallowedOperationTypes: ["payment"],
+    });
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.valid).toBe(false);
+    expect(result.data.errors.some((e) => e.code === "OPERATION_DISALLOWED")).toBe(true);
+  });
+
+  it("invokes custom operation validator", async () => {
+    const { validateTransactionXdr } = await import(
+      "../transaction/validateTransactionXdr"
+    );
+    const { xdr, networkPassphrase } = await buildSamplePaymentXdr();
+    const result = validateTransactionXdr(xdr, {
+      networkPassphrase,
+      customOperationValidator: () => [
+        { severity: "error", code: "CUSTOM_FAIL", message: "blocked" },
+      ],
+    });
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.errors.some((e) => e.code === "CUSTOM_FAIL")).toBe(true);
+  });
+});
