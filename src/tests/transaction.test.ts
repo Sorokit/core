@@ -482,6 +482,161 @@ describe("transaction streaming filters", () => {
   });
 });
 
+function mockRecentFeeHistory(fees: string[]): void {
+  mockTransactionsCall.mockResolvedValueOnce({
+    records: fees.map((fee_charged) => ({ fee_charged })),
+  });
+}
+
+describe("feeSurge helpers", () => {
+  it("calculateMedian returns the middle value for odd-length arrays", () => {
+    expect(calculateMedian([100, 300, 200])).toBe(200);
+  });
+
+  it("calculateMedian averages the two middle values for even-length arrays", () => {
+    expect(calculateMedian([100, 200, 300, 400])).toBe(250);
+  });
+
+  it("isFeeSurge returns true when fee exceeds 2x median", () => {
+    expect(isFeeSurge(501, 250)).toBe(true);
+  });
+
+  it("isFeeSurge returns false when fee is at or below 2x median", () => {
+    expect(isFeeSurge(500, 250)).toBe(false);
+    expect(isFeeSurge(499, 250)).toBe(false);
+  });
+
+  it("isFeeSurge returns false when median is zero", () => {
+    expect(isFeeSurge(1000, 0)).toBe(false);
+  });
+});
+
+describe("estimateFee — surge detection", () => {
+  beforeEach(() => {
+    transactionBuilderInstances.length = 0;
+    mockTransactionsCall.mockReset();
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "1000" });
+    mocks.fromXDR.mockReturnValue({});
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.isSimulationError.mockReturnValue(false);
+  });
+
+  it("sets surge: false for a normal fee below 2x the recent median", async () => {
+    // Simulated fee = 1000 + 100 (BASE_FEE) = 1100 stroops
+    mockRecentFeeHistory(Array(10).fill("600"));
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.fee).toBe("1100");
+      expect(result.data.surge).toBe(false);
+    }
+  });
+
+  it("sets surge: true when fee exceeds 2x the recent median", async () => {
+    mockRecentFeeHistory(Array(10).fill("400"));
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.surge).toBe(true);
+    }
+  });
+
+  it("omits surge when recent fee history is unavailable", async () => {
+    mockTransactionsCall.mockRejectedValueOnce(new Error("network error"));
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.surge).toBeUndefined();
+    }
+  });
+
+  it("omits surge when Horizon returns no transactions", async () => {
+    mockTransactionsCall.mockResolvedValueOnce({ records: [] });
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.surge).toBeUndefined();
+    }
+  });
+
+  it("invokes onFeeSurge callback when a surge is detected", async () => {
+    mockRecentFeeHistory(Array(10).fill("400"));
+    const onFeeSurge = vi.fn();
+
+    await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      undefined,
+      undefined,
+      { onFeeSurge },
+    );
+
+    expect(onFeeSurge).toHaveBeenCalledOnce();
+    expect(onFeeSurge).toHaveBeenCalledWith(
+      expect.objectContaining({ fee: "1100", surge: true }),
+    );
+  });
+
+  it("does not invoke onFeeSurge when fee is normal", async () => {
+    mockRecentFeeHistory(Array(10).fill("600"));
+    const onFeeSurge = vi.fn();
+
+    await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      undefined,
+      undefined,
+      { onFeeSurge },
+    );
+
+    expect(onFeeSurge).not.toHaveBeenCalled();
+  });
+
+  it("fetchRecentMedianFee uses the last 10 transactions and caches the median", async () => {
+    mockRecentFeeHistory(["100", "200", "300", "400", "500", "600", "700", "800", "900", "1000"]);
+    const cache = makeEmptyCache();
+
+    const median = await fetchRecentMedianFee(networkConfig.horizonUrl, cache);
+
+    expect(median).toBe(550);
+    expect(cache.setCalls).toContainEqual(
+      expect.objectContaining({ key: MEDIAN_FEE_CACHE_KEY, value: 550 }),
+    );
+  });
+});
+
 describe("estimateFee — caching", () => {
   beforeEach(() => {
     transactionBuilderInstances.length = 0;
