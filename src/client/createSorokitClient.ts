@@ -523,7 +523,15 @@ export function createSorokitClient(
           { functionName: "transaction.estimateFee", params: { ...input } },
           () => {
             logger.debug("transaction.estimateFee");
-            return estimateFee(rpcUrl, horizonUrl, networkConfig, input, cache);
+            return estimateFee(
+              rpcUrl,
+              horizonUrl,
+              networkConfig,
+              input,
+              cache,
+              undefined,
+              feeEstimateOptions,
+            );
           }
         ).then(applyTx),
       stream: (publicKey, config, signal) => {

@@ -21,6 +21,7 @@ import {
 } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorokitCache } from "../shared/cache";
+import { fetchRecentMedianFee, isFeeSurge } from "./feeSurge";
 
 /**
  * Fee tiers derived from the 10th, 50th, and 90th percentile of recent
@@ -148,6 +149,10 @@ function describeFeeEstimateFailure(cause: unknown): string {
  * When a `cache` is provided, the SHA-256 hash of the XDR is used as the cache
  * key — cache hits skip the RPC round trip entirely.
  *
+ * Compares the estimated fee against the median of the last 10 network
+ * transactions (via Horizon). When the fee exceeds 2× that median, `surge: true`
+ * is set on the result and `onFeeSurge` is invoked if provided.
+ *
  * @param rpcUrl        - Base URL of the Soroban RPC server.
  * @param horizonUrl    - Base URL of the Horizon server (used in payment mode).
  * @param networkConfig - Resolved network configuration.
@@ -272,6 +277,15 @@ export async function estimateFee(
 
     if (options?.includeTiers) {
       feeEstimate.tiers = await fetchFeeTiers(horizonUrl);
+    }
+
+    const medianCache = options?.cache ?? cache;
+    const medianFee = await fetchRecentMedianFee(horizonUrl, medianCache);
+    if (medianFee != null) {
+      feeEstimate.surge = isFeeSurge(feeStroops, medianFee);
+      if (feeEstimate.surge && options?.onFeeSurge) {
+        options.onFeeSurge(feeEstimate);
+      }
     }
 
     // Store in cache so subsequent calls with the same XDR are free
