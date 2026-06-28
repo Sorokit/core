@@ -96,6 +96,7 @@ export type {
   BatchContractInvocation,
   BatchContractResult,
 } from "./soroban/types";
+export { getContractMethods } from "./soroban/contractMetadata";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
 export { buildContractDeploy } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
