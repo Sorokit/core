@@ -90,37 +90,68 @@ export type FeeEstimateInput =
       assetIssuer?: string;
     };
 
+/** Cache key for fee tiers derived from recent Horizon transactions. */
+export const FEE_TIERS_CACHE_KEY = "sorokit:fee-tiers";
+
+/** Number of recent transactions fetched to compute fee tier percentiles. */
+const FEE_TIERS_TX_LIMIT = 50;
+
+/**
+ * Compute 10th/50th/90th percentile fee tiers from an array of raw fee values.
+ * Invalid and non-positive values are excluded. Falls back to BASE_FEE when
+ * no valid fees remain.
+ */
+export function calculateFeeTiers(fees: number[]): FeeTiers {
+  const base = parseInt(BASE_FEE, 10);
+  const valid = fees.filter((f) => Number.isFinite(f) && f > 0).sort((a, b) => a - b);
+
+  if (valid.length === 0) {
+    return { economy: String(base), standard: String(base), fast: String(base) };
+  }
+
+  const percentile = (pct: number): number => {
+    const idx = Math.min(Math.floor((pct / 100) * valid.length), valid.length - 1);
+    return valid[idx] ?? base;
+  };
+
+  return {
+    economy: String(percentile(10)),
+    standard: String(percentile(50)),
+    fast: String(percentile(90)),
+  };
+}
+
 /**
  * Fetch recent transaction fees from Horizon and compute percentile-based
  * fee tiers. Falls back to BASE_FEE for all tiers if no data is available.
+ * Results are cached for the default fee TTL when a cache is provided.
  */
-export async function fetchFeeTiers(horizonUrl: string): Promise<FeeTiers> {
+export async function fetchFeeTiers(horizonUrl: string, cache?: SorokitCache): Promise<FeeTiers> {
   const base = parseInt(BASE_FEE, 10);
+  const fallback: FeeTiers = { economy: String(base), standard: String(base), fast: String(base) };
+
+  if (cache) {
+    const cached = cache.get(FEE_TIERS_CACHE_KEY);
+    if (cached != null) return cached as FeeTiers;
+  }
+
   try {
     const server = new Horizon.Server(horizonUrl);
-    const page = await server.transactions().order("desc").limit(200).call();
+    const page = await server.transactions().order("desc").limit(FEE_TIERS_TX_LIMIT).call();
 
-    const fees = page.records
-      .map((tx) => parseInt((tx as { fee_charged?: string }).fee_charged ?? "", 10))
-      .filter((f) => Number.isFinite(f) && f > 0)
-      .sort((a, b) => a - b);
+    const fees = page.records.map(
+      (tx) => parseInt((tx as { fee_charged?: string }).fee_charged ?? "", 10),
+    );
 
-    if (fees.length === 0) {
-      return { economy: String(base), standard: String(base), fast: String(base) };
+    const tiers = calculateFeeTiers(fees);
+
+    if (cache) {
+      cache.set(FEE_TIERS_CACHE_KEY, tiers, DEFAULT_FEE_CACHE_TTL_MS);
     }
 
-    const percentile = (pct: number): number => {
-      const idx = Math.min(Math.floor((pct / 100) * fees.length), fees.length - 1);
-      return fees[idx] ?? base;
-    };
-
-    return {
-      economy: String(percentile(10)),
-      standard: String(percentile(50)),
-      fast: String(percentile(90)),
-    };
+    return tiers;
   } catch {
-    return { economy: String(base), standard: String(base), fast: String(base) };
+    return fallback;
   }
 }
 
@@ -276,7 +307,7 @@ export async function estimateFee(
     };
 
     if (options?.includeTiers) {
-      feeEstimate.tiers = await fetchFeeTiers(horizonUrl);
+      feeEstimate.tiers = await fetchFeeTiers(horizonUrl, options?.cache ?? cache);
     }
 
     const medianCache = options?.cache ?? cache;
