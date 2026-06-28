@@ -26,6 +26,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",
     "test:watch": "vitest",
+    "test:bench": "vitest --run src/tests/benchmarks/perfThresholds.test.ts && vitest bench src/tests/benchmarks/performance.bench.ts --run",
     "lint": "eslint src --ext .ts",
     "clean": "rimraf dist"
   },

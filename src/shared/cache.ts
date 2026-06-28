@@ -36,7 +36,11 @@ export function createMemoryCache(): SorokitCache {
         }
         expiresAt = Date.now() + ttlMs;
       }
-      store.set(key, { value, expiresAt });
+      const entry: { value: unknown; expiresAt?: number } = { value };
+      if (expiresAt !== undefined) {
+        entry.expiresAt = expiresAt;
+      }
+      store.set(key, entry);
     },
     invalidate(key: string): void {
       store.delete(key);
