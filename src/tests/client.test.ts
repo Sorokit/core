@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createSorokitClient } from "../client/createSorokitClient";
 import { SorokitErrorCode } from "../shared/response";
 
@@ -18,6 +18,7 @@ describe("createSorokitClient", () => {
       expect(typeof client.account.get).toBe("function");
       expect(typeof client.account.getAccountsBatch).toBe("function");
       expect(typeof client.account.getBalances).toBe("function");
+      expect(typeof client.account.stream).toBe("function"); // #85
       expect(typeof client.account.formatAddress).toBe("function");
       // transaction namespace
       expect(typeof client.transaction.buildPayment).toBe("function");
@@ -130,6 +131,16 @@ describe("createSorokitClient", () => {
       expect(typeof result.data.soroban.prepare).toBe("function");
       expect(typeof result.data.soroban.execute).toBe("function");
       expect(typeof result.data.soroban.invoke).toBe("function");
+    }
+  });
+
+  it("account.stream returns an async generator", async () => {
+    const result = createSorokitClient({ network: "testnet" });
+    if (result.status === "ok") {
+      const stream = result.data.account.stream("GTEST...", { maxPolls: 1 });
+      expect(typeof stream[Symbol.asyncIterator]).toBe("function");
+      // Consume one iteration to verify it's a working generator
+      await stream.next();
     }
   });
 });
