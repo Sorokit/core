@@ -66,7 +66,9 @@ export type {
   FeeEstimate,
   FeeEstimateInput,
   FeeEstimateOptions,
+  FeeTiers,
 } from "./transaction/estimateFee";
+export { calculateFeeTiers } from "./transaction/estimateFee";
 export { streamTransactions } from "./transaction/streamTransactions";
 export type {
   TransactionPage,
