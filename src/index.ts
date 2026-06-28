@@ -108,6 +108,11 @@ export type {
 } from "./transaction/types";
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
+export { simulateContractSafe } from "./soroban/simulateContractSafe";
+export type {
+  SafeSimulationResult,
+  SimulateContractSafeOptions,
+} from "./soroban/simulateContractSafe";
 export {
   decodeContractValue,
   encodeContractArgs,
