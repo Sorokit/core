@@ -1,0 +1,22 @@
+{
+  "xdrParsing": {
+    "baselineMs": 0.15,
+    "maxRegressionPct": 10,
+    "iterations": 200
+  },
+  "feeCalculation": {
+    "baselineMs": 0.35,
+    "maxRegressionPct": 10,
+    "iterations": 40
+  },
+  "accountFetch": {
+    "baselineMs": 0.25,
+    "maxRegressionPct": 10,
+    "iterations": 40
+  },
+  "contractSimulation": {
+    "baselineMs": 0.3,
+    "maxRegressionPct": 10,
+    "iterations": 40
+  }
+}

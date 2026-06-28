@@ -1,0 +1,33 @@
+{
+  "generatedAt": "2026-06-28T06:30:11.287Z",
+  "results": [
+    {
+      "name": "xdrParsing",
+      "baselineMs": 0.15,
+      "measuredMs": 0.015320190000000001,
+      "regressionPct": -89.78654,
+      "passed": true
+    },
+    {
+      "name": "feeCalculation",
+      "baselineMs": 0.35,
+      "measuredMs": 0.084344375,
+      "regressionPct": -75.90160714285715,
+      "passed": true
+    },
+    {
+      "name": "accountFetch",
+      "baselineMs": 0.25,
+      "measuredMs": 0.078197125,
+      "regressionPct": -68.72115,
+      "passed": true
+    },
+    {
+      "name": "contractSimulation",
+      "baselineMs": 0.3,
+      "measuredMs": 0.063982225,
+      "regressionPct": -78.67259166666668,
+      "passed": true
+    }
+  ]
+}

@@ -306,6 +306,18 @@ const adapter = createMockWalletAdapter();
 
 > Requires `vitest` as a peer dependency.
 
+### Performance benchmarks
+
+Benchmark coverage lives in [src/tests/benchmarks](src/tests/benchmarks) and is executed with `npm run test:bench`.
+
+The suite measures four SDK hot paths:
+- XDR parsing
+- Fee calculation
+- Account fetch overhead
+- Contract simulation
+
+Baselines and the acceptable regression threshold are stored in [src/tests/benchmarks/benchmarks.baseline.json](src/tests/benchmarks/benchmarks.baseline.json). CI fails when any benchmark regresses by more than 10% relative to its baseline. The generated report is written to [src/tests/benchmarks/benchmark-report.json](src/tests/benchmarks/benchmark-report.json) and posted as a PR comment from the performance workflow.
+
 ---
 
 ## Design Principles
