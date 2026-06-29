@@ -652,6 +652,7 @@ export async function buildPathPayment(
   networkConfig: ResolvedNetworkConfig,
   sourcePublicKey: string,
   params: PathPaymentParams,
+  trustedIssuers?: string[] | null,
 ): Promise<SorokitResult<string>> {
   const sendAssetResult = resolveAsset(params.sendAssetCode, params.sendAssetIssuer);
   if (sendAssetResult.status === "error") return sendAssetResult;
@@ -659,10 +660,69 @@ export async function buildPathPayment(
   const destAssetResult = resolveAsset(params.destAssetCode, params.destAssetIssuer);
   if (destAssetResult.status === "error") return destAssetResult;
 
-  const pathResult = resolvePathAssets(params.path);
-  if (pathResult.status === "error") return pathResult;
+  if (trustedIssuers !== null && trustedIssuers !== undefined && trustedIssuers.length > 0) {
+    try {
+      if (params.sendAssetCode && params.sendAssetCode.toUpperCase() !== "XLM" && params.sendAssetIssuer) {
+        validateIssuer(params.sendAssetIssuer, trustedIssuers);
+      }
+      if (params.destAssetCode && params.destAssetCode.toUpperCase() !== "XLM" && params.destAssetIssuer) {
+        validateIssuer(params.destAssetIssuer, trustedIssuers);
+      }
+      for (const hop of params.path ?? []) {
+        if (hop.assetCode && hop.assetCode.toUpperCase() !== "XLM" && hop.assetIssuer) {
+          validateIssuer(hop.assetIssuer, trustedIssuers);
+        }
+      }
+    } catch (cause: unknown) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        (cause as Error)?.message || String(cause),
+        cause,
+      );
+    }
+  }
 
   try {
+    const server = new Horizon.Server(horizonUrl);
+
+    let finalPath = params.path;
+    let finalSlippageAmount = params.slippageAmount;
+
+    if (!finalPath || finalPath.length === 0 || !finalSlippageAmount) {
+      if (params.mode === "strict-send") {
+        const response = await server.strictSendPaths(sendAssetResult.data, params.amount, [destAssetResult.data]).call();
+        if (response.records.length === 0) {
+          return err(SorokitErrorCode.TX_BUILD_FAILED, "No path found for strict-send payment.");
+        }
+        const bestPath = response.records.reduce((prev, curr) => 
+          Number(curr.destination_amount) > Number(prev.destination_amount) ? curr : prev
+        );
+        if (!finalPath || finalPath.length === 0) {
+          finalPath = bestPath.path.map(a => ({ assetCode: a.asset_code, assetIssuer: a.asset_issuer }));
+        }
+        if (!finalSlippageAmount) {
+          finalSlippageAmount = bestPath.destination_amount;
+        }
+      } else {
+        const response = await server.strictReceivePaths([sendAssetResult.data], destAssetResult.data, params.amount).call();
+        if (response.records.length === 0) {
+          return err(SorokitErrorCode.TX_BUILD_FAILED, "No path found for strict-receive payment.");
+        }
+        const bestPath = response.records.reduce((prev, curr) => 
+          Number(curr.source_amount) < Number(prev.source_amount) ? curr : prev
+        );
+        if (!finalPath || finalPath.length === 0) {
+          finalPath = bestPath.path.map(a => ({ assetCode: a.asset_code, assetIssuer: a.asset_issuer }));
+        }
+        if (!finalSlippageAmount) {
+          finalSlippageAmount = bestPath.source_amount;
+        }
+      }
+    }
+
+    const pathResult = resolvePathAssets(finalPath);
+    if (pathResult.status === "error") return pathResult;
+
     const useCache = params.autoFetchSequence === true;
     let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
 
@@ -671,11 +731,9 @@ export async function buildPathPayment(
       if (cached) {
         sourceAccount = cached;
       } else {
-        const server = new Horizon.Server(horizonUrl);
         sourceAccount = await server.loadAccount(sourcePublicKey);
       }
     } else {
-      const server = new Horizon.Server(horizonUrl);
       sourceAccount = await server.loadAccount(sourcePublicKey);
     }
 
@@ -691,7 +749,7 @@ export async function buildPathPayment(
           sendAmount: params.amount,
           destination: params.destination,
           destAsset: destAssetResult.data,
-          destMin: params.slippageAmount,
+          destMin: finalSlippageAmount,
           path: pathResult.data,
         }),
       );
@@ -699,7 +757,7 @@ export async function buildPathPayment(
       builder.addOperation(
         Operation.pathPaymentStrictReceive({
           sendAsset: sendAssetResult.data,
-          sendMax: params.slippageAmount,
+          sendMax: finalSlippageAmount,
           destination: params.destination,
           destAsset: destAssetResult.data,
           destAmount: params.amount,
@@ -760,60 +818,67 @@ export async function buildAtomicSwap(
   const pathBResult = resolvePathAssets(params.legB.path);
   if (pathBResult.status === "error") return pathBResult;
 
-  try {
-    const server = new Horizon.Server(horizonUrl);
-    const sourceAccount = await server.loadAccount(sourcePublicKey);
+    const slippageA = params.legA.slippageAmount;
+    const slippageB = params.legB.slippageAmount;
 
-    const builder = new TransactionBuilder(sourceAccount, {
-      fee: BASE_FEE,
-      networkPassphrase: networkConfig.networkPassphrase,
-    });
+    if (!slippageA || !slippageB) {
+      return err(SorokitErrorCode.TX_BUILD_FAILED, "slippageAmount is required for both legs of an atomic swap.");
+    }
 
-    if (params.legA.mode === "strict-send") {
-      builder.addOperation(
-        Operation.pathPaymentStrictSend({
-          sendAsset: sendAssetAResult.data,
-          sendAmount: params.legA.amount,
-          destination: params.legA.destination,
-          destAsset: destAssetAResult.data,
-          destMin: params.legA.slippageAmount,
-          path: pathAResult.data,
-        }),
-      );
-    } else {
-      builder.addOperation(
-        Operation.pathPaymentStrictReceive({
-          sendAsset: sendAssetAResult.data,
-          sendMax: params.legA.slippageAmount,
-          destination: params.legA.destination,
-          destAsset: destAssetAResult.data,
-          destAmount: params.legA.amount,
-          path: pathAResult.data,
-        }),
+    try {
+      const server = new Horizon.Server(horizonUrl);
+      const sourceAccount = await server.loadAccount(sourcePublicKey);
+
+      const builder = new TransactionBuilder(sourceAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: networkConfig.networkPassphrase,
+      });
+
+      if (params.legA.mode === "strict-send") {
+        builder.addOperation(
+          Operation.pathPaymentStrictSend({
+            sendAsset: sendAssetAResult.data,
+            sendAmount: params.legA.amount,
+            destination: params.legA.destination,
+            destAsset: destAssetAResult.data,
+            destMin: slippageA,
+            path: pathAResult.data,
+          }),
+        );
+      } else {
+        builder.addOperation(
+          Operation.pathPaymentStrictReceive({
+            sendAsset: sendAssetAResult.data,
+            sendMax: slippageA,
+            destination: params.legA.destination,
+            destAsset: destAssetAResult.data,
+            destAmount: params.legA.amount,
+            path: pathAResult.data,
+          }),
       );
     }
 
-    if (params.legB.mode === "strict-send") {
-      builder.addOperation(
-        Operation.pathPaymentStrictSend({
-          sendAsset: sendAssetBResult.data,
-          sendAmount: params.legB.amount,
-          destination: params.legB.destination,
-          destAsset: destAssetBResult.data,
-          destMin: params.legB.slippageAmount,
-          path: pathBResult.data,
-        }),
+      if (params.legB.mode === "strict-send") {
+        builder.addOperation(
+          Operation.pathPaymentStrictSend({
+            sendAsset: sendAssetBResult.data,
+            sendAmount: params.legB.amount,
+            destination: params.legB.destination,
+            destAsset: destAssetBResult.data,
+            destMin: slippageB,
+            path: pathBResult.data,
+          }),
       );
-    } else {
-      builder.addOperation(
-        Operation.pathPaymentStrictReceive({
-          sendAsset: sendAssetBResult.data,
-          sendMax: params.legB.slippageAmount,
-          destination: params.legB.destination,
-          destAsset: destAssetBResult.data,
-          destAmount: params.legB.amount,
-          path: pathBResult.data,
-        }),
+      } else {
+        builder.addOperation(
+          Operation.pathPaymentStrictReceive({
+            sendAsset: sendAssetBResult.data,
+            sendMax: slippageB,
+            destination: params.legB.destination,
+            destAsset: destAssetBResult.data,
+            destAmount: params.legB.amount,
+            path: pathBResult.data,
+          }),
       );
     }
 
@@ -830,6 +895,90 @@ export async function buildAtomicSwap(
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
       describeTransactionBuildFailure("atomic swap", cause),
+      cause,
+    );
+  }
+}
+
+export async function checkTrustlines(
+  horizonUrl: string,
+  publicKey: string,
+  assetCodes: string[],
+): Promise<SorokitResult<string[]>> {
+  try {
+    const server = new Horizon.Server(horizonUrl);
+    const account = await server.loadAccount(publicKey);
+    
+    const codeSet = new Set(assetCodes);
+    const trusted: string[] = [];
+
+    for (const balance of account.balances) {
+      if (balance.asset_type !== "native") {
+        const code = (balance as Horizon.BalanceLineAsset).asset_code;
+        if (codeSet.has(code)) {
+          trusted.push(code);
+        }
+      }
+    }
+
+    return ok(trusted);
+  } catch (cause: unknown) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("check trustlines", cause),
+      cause,
+    );
+  }
+}
+
+export async function buildBulkTrustlines(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  assets: Asset[],
+  autoFetchSequence?: boolean,
+): Promise<SorokitResult<string>> {
+  try {
+    const useCache = autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    });
+
+    for (const asset of assets) {
+      builder.addOperation(
+        Operation.changeTrust({ asset }),
+      );
+    }
+
+    const transaction = builder
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
+      .build();
+
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
+
+    return ok(transaction.toXDR());
+  } catch (cause: unknown) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("bulk trustlines", cause),
       cause,
     );
   }

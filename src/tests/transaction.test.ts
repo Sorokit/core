@@ -1,6 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type SpyInstance } from "vitest";
+import { Asset } from "@stellar/stellar-sdk";
 import { createHash } from "crypto";
-import { estimateFee } from "../transaction/estimateFee";
+import {
+  estimateFee,
+  calculateFeeTiers,
+  fetchFeeTiers,
+  FEE_TIERS_CACHE_KEY,
+} from "../transaction/estimateFee";
 import type { FeeEstimate } from "../transaction/estimateFee";
 import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_FEE_CACHE_TTL_MS } from "../shared/constants";
@@ -11,6 +17,8 @@ import {
   buildPaymentWithTrustline,
   buildSwapTransaction,
   clearSequenceCache,
+  checkTrustlines,
+  buildBulkTrustlines,
 } from "../transaction/buildTransaction";
 import { SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -31,6 +39,22 @@ import {
   createTransactionContext,
   TRANSACTION_CONTEXT_TTL_MS,
 } from "../transaction/transactionContext";
+import {
+  createHashMemo,
+  createIdMemo,
+  createReturnMemo,
+  createTextMemo,
+  nativeAsset,
+  usdcAsset,
+  usdtAsset,
+  usdt_assetAsset,
+  eurcAsset,
+  ativeAsset,
+  USDC_MAINNET_ISSUER,
+  USDT_MAINNET_ISSUER,
+  EURC_MAINNET_ISSUER,
+} from "../transaction";
+
 
 const {
   mockSimulateTransaction,
@@ -53,6 +77,8 @@ const {
   mockAddOperation,
   mockAddMemo,
   mockSetTimeout,
+  mockStrictSendPathsCall,
+  mockStrictReceivePathsCall,
 } = vi.hoisted(() => ({
   mockLoadAccount: vi.fn(),
   mockBuild: vi.fn(),
@@ -60,6 +86,8 @@ const {
   mockAddOperation: vi.fn(),
   mockAddMemo: vi.fn(),
   mockSetTimeout: vi.fn(),
+  mockStrictSendPathsCall: vi.fn(),
+  mockStrictReceivePathsCall: vi.fn(),
 }));
 
 // ─── Hoisted mocks (must be defined before vi.mock is hoisted) ────────────────
@@ -85,20 +113,25 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
       transactionBuilderInstances.push(this);
     }
 
-    addOperation() {
+    addOperation(...args: any[]) {
+      mockAddOperation(...args);
       return this;
     }
 
-    setTimeout() {
+    setTimeout(...args: any[]) {
+      mockSetTimeout(...args);
       return this;
     }
 
     addMemo(memo: unknown) {
+      mockAddMemo(memo);
       this.memo = memo;
       return this;
     }
 
-    build() {
+    build(...args: any[]) {
+      const customBuild = mockBuild(...args);
+      if (customBuild) return customBuild;
       return { toXDR: () => MOCK_XDR };
     }
   }
@@ -129,18 +162,15 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
         }),
         loadAccount: mockLoadAccount,
         submitTransaction: mockSubmitTransaction,
+        strictSendPaths: vi.fn(() => ({
+          call: mockStrictSendPathsCall,
+        })),
+        strictReceivePaths: vi.fn(() => ({
+          call: mockStrictReceivePathsCall,
+        })),
       })),
     },
-    TransactionBuilder: {
-      ...actual.TransactionBuilder,
-      fromXDR: mocks.fromXDR,
-      mockImplementation: vi.fn(() => ({
-        addOperation: mockAddOperation,
-        addMemo: mockAddMemo,
-        setTimeout: mockSetTimeout,
-        build: mockBuild,
-      })),
-    },
+
     rpc: {
       ...actual.rpc,
       Server: vi.fn().mockImplementation(() => ({
@@ -180,6 +210,8 @@ const networkConfig: ResolvedNetworkConfig = {
 };
 
 const MOCK_XDR = "AAAAAQAAAAA=";
+const VALID_32_BYTE_HASH =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 const CACHED_FEE: FeeEstimate = {
   fee: "1100",
@@ -288,6 +320,48 @@ function makeHorizonRecord(
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
+
+describe("memo builders (#114)", () => {
+  it("creates valid text memos up to the Stellar 28-byte limit", () => {
+    expect(createTextMemo("invoice-123").type).toBe("text");
+    expect(createTextMemo("a".repeat(28)).value).toBe("a".repeat(28));
+  });
+
+  it("rejects text memos over 28 bytes, including multibyte strings", () => {
+    expect(() => createTextMemo("a".repeat(29))).toThrow("28 bytes");
+    expect(() => createTextMemo("😀".repeat(8))).toThrow("28 bytes");
+  });
+
+  it("creates valid unsigned 64-bit id memos", () => {
+    expect(createIdMemo(0).type).toBe("id");
+    expect(createIdMemo("18446744073709551615").value).toBe(
+      "18446744073709551615",
+    );
+  });
+
+  it("rejects id memos outside the unsigned 64-bit range", () => {
+    expect(() => createIdMemo(-1)).toThrow("unsigned 64-bit");
+    expect(() => createIdMemo("18446744073709551616")).toThrow(
+      "unsigned 64-bit",
+    );
+  });
+
+  it("creates valid hash and return memos from hex strings", () => {
+    expect(createHashMemo(VALID_32_BYTE_HASH).type).toBe("hash");
+    expect(createReturnMemo(VALID_32_BYTE_HASH).type).toBe("return");
+  });
+
+  it("creates hash and return memos from 32-byte arrays", () => {
+    expect(createHashMemo(Buffer.alloc(32)).type).toBe("hash");
+    expect(createReturnMemo(new Uint8Array(32)).type).toBe("return");
+  });
+
+  it("rejects invalid hash formats and lengths", () => {
+    expect(() => createHashMemo("abc")).toThrow("32-byte hex");
+    expect(() => createHashMemo("z".repeat(64))).toThrow("32-byte hex");
+    expect(() => createReturnMemo(Buffer.alloc(31))).toThrow("32 bytes");
+  });
+});
 
 describe("transaction streaming filters", () => {
   it("returns the first page with default pagination when no filters are provided", () => {
@@ -1666,9 +1740,9 @@ function fakeAccount() {
 }
 
 describe("buildReverseTransaction (#45)", () => {
-  let paymentSpy: ReturnType<typeof vi.spyOn>;
-  let changeTrustSpy: ReturnType<typeof vi.spyOn>;
-  let accountMergeSpy: ReturnType<typeof vi.spyOn>;
+  let paymentSpy: MockInstance<any[], any>;
+  let changeTrustSpy: MockInstance<any[], any>;
+  let accountMergeSpy: MockInstance<any[], any>;
 
   beforeEach(() => {
     mocks.loadAccount.mockResolvedValue(fakeAccount());
@@ -1810,8 +1884,14 @@ describe("buildReverseTransaction (#45)", () => {
 });
 
 describe("buildPathPayment (#47)", () => {
-  let strictSendSpy: ReturnType<typeof vi.spyOn>;
-  let strictReceiveSpy: ReturnType<typeof vi.spyOn>;
+  let strictSendSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictSend>,
+    ReturnType<typeof Operation.pathPaymentStrictSend>
+  >;
+  let strictReceiveSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictReceive>,
+    ReturnType<typeof Operation.pathPaymentStrictReceive>
+  >;
 
   const baseParams: PathPaymentParams = {
     destination: DST,
@@ -1883,11 +1963,61 @@ describe("buildPathPayment (#47)", () => {
     expect(result.status).toBe("error");
     if (result.status === "error") expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
   });
+
+  it("dynamically finds strict-send paths when path and slippageAmount are omitted", async () => {
+    mockStrictSendPathsCall.mockResolvedValueOnce({
+      records: [
+        {
+          destination_amount: "98",
+          path: [{ code: "BTC", issuer: "GBTC" }]
+        }
+      ]
+    });
+    
+    const paramsWithoutPath = { ...baseParams };
+    delete paramsWithoutPath.slippageAmount;
+    delete paramsWithoutPath.path;
+
+    const result = await buildPathPayment(networkConfig.horizonUrl, networkConfig, SRC, paramsWithoutPath);
+    expect(result.status).toBe("ok");
+    expect(mockStrictSendPathsCall).toHaveBeenCalledOnce();
+    expect(strictSendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ destMin: "98", path: expect.arrayContaining([expect.anything()]) }),
+    );
+  });
+
+  it("dynamically finds strict-receive paths when path and slippageAmount are omitted", async () => {
+    mockStrictReceivePathsCall.mockResolvedValueOnce({
+      records: [
+        {
+          source_amount: "105",
+          path: [{ code: "ETH", issuer: "GETH" }]
+        }
+      ]
+    });
+    
+    const paramsWithoutPath: PathPaymentParams = { ...baseParams, mode: "strict-receive" };
+    delete paramsWithoutPath.slippageAmount;
+    delete paramsWithoutPath.path;
+
+    const result = await buildPathPayment(networkConfig.horizonUrl, networkConfig, SRC, paramsWithoutPath);
+    expect(result.status).toBe("ok");
+    expect(mockStrictReceivePathsCall).toHaveBeenCalledOnce();
+    expect(strictReceiveSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ sendMax: "105", path: expect.arrayContaining([expect.anything()]) }),
+    );
+  });
 });
 
 describe("buildAtomicSwap (#47)", () => {
-  let strictSendSpy: ReturnType<typeof vi.spyOn>;
-  let strictReceiveSpy: ReturnType<typeof vi.spyOn>;
+  let strictSendSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictSend>,
+    ReturnType<typeof Operation.pathPaymentStrictSend>
+  >;
+  let strictReceiveSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictReceive>,
+    ReturnType<typeof Operation.pathPaymentStrictReceive>
+  >;
 
   const legA: PathPaymentParams = {
     destination: DST,
@@ -2201,6 +2331,341 @@ describe("custom memoValidator callback (#91)", () => {
 
     expect(result.status).toBe("ok");
     expect(validator).toHaveBeenCalledWith("REQ-OK");
+  });
+});
+
+describe("calculateFeeTiers — tier calculation", () => {
+  it("returns BASE_FEE for all tiers when the fee array is empty", () => {
+    const tiers = calculateFeeTiers([]);
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("100");
+    expect(tiers.fast).toBe("100");
+  });
+
+  it("returns BASE_FEE for all tiers when all fees are invalid or non-positive", () => {
+    const tiers = calculateFeeTiers([0, -50, NaN, Infinity]);
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("100");
+    expect(tiers.fast).toBe("100");
+  });
+
+  it("returns the single fee for all tiers when only one fee is provided", () => {
+    const tiers = calculateFeeTiers([300]);
+    expect(tiers.economy).toBe("300");
+    expect(tiers.standard).toBe("300");
+    expect(tiers.fast).toBe("300");
+  });
+
+  it("returns the same value for all tiers when all fees are uniform", () => {
+    const tiers = calculateFeeTiers(Array(10).fill(500));
+    expect(tiers.economy).toBe("500");
+    expect(tiers.standard).toBe("500");
+    expect(tiers.fast).toBe("500");
+  });
+
+  it("computes 10th, 50th, and 90th percentiles from a varied fee distribution", () => {
+    // Unsorted input; sorted result: [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]
+    const fees = [500, 100, 300, 700, 900, 200, 400, 600, 800, 1000];
+    const tiers = calculateFeeTiers(fees);
+    // 10th: floor(0.10 * 10)=1 → sorted[1]=200
+    // 50th: floor(0.50 * 10)=5 → sorted[5]=600
+    // 90th: floor(0.90 * 10)=9 → sorted[9]=1000
+    expect(tiers.economy).toBe("200");
+    expect(tiers.standard).toBe("600");
+    expect(tiers.fast).toBe("1000");
+  });
+
+  it("filters out invalid values before computing percentiles", () => {
+    // Valid fees: [100, 500, 900]; invalid: [0, -1, NaN]
+    const fees = [100, 0, 500, -1, 900, NaN];
+    const tiers = calculateFeeTiers(fees);
+    // sorted valid: [100, 500, 900] (3 elements)
+    // 10th: floor(0.10 * 3)=0 → sorted[0]=100
+    // 50th: floor(0.50 * 3)=1 → sorted[1]=500
+    // 90th: floor(0.90 * 3)=2 → sorted[2]=900
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("500");
+    expect(tiers.fast).toBe("900");
+  });
+});
+
+describe("fetchFeeTiers — caching", () => {
+  beforeEach(() => {
+    mockTransactionsCall.mockReset();
+  });
+
+  it("fetches from Horizon on cache miss and stores result in cache", async () => {
+    const cache = makeEmptyCache();
+    mockTransactionsCall.mockResolvedValueOnce({
+      records: ["100", "500", "900"].map((fee_charged) => ({ fee_charged })),
+    });
+
+    const tiers = await fetchFeeTiers(networkConfig.horizonUrl, cache);
+
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("500");
+    expect(tiers.fast).toBe("900");
+    expect(mockTransactionsCall).toHaveBeenCalledOnce();
+    expect(cache.setCalls).toHaveLength(1);
+    expect(cache.setCalls[0]?.key).toBe(FEE_TIERS_CACHE_KEY);
+    expect(cache.setCalls[0]?.ttl).toBe(DEFAULT_FEE_CACHE_TTL_MS);
+  });
+
+  it("returns cached tiers on hit without calling Horizon", async () => {
+    const cache = makeEmptyCache();
+    mockTransactionsCall.mockResolvedValue({
+      records: ["100", "500", "900"].map((fee_charged) => ({ fee_charged })),
+    });
+
+    const first = await fetchFeeTiers(networkConfig.horizonUrl, cache);
+    const second = await fetchFeeTiers(networkConfig.horizonUrl, cache);
+
+    expect(first).toEqual(second);
+    // Horizon must only be called once (second call is served from cache)
+    expect(mockTransactionsCall).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to BASE_FEE for all tiers when Horizon throws", async () => {
+    mockTransactionsCall.mockRejectedValueOnce(new Error("network error"));
+
+    const tiers = await fetchFeeTiers(networkConfig.horizonUrl);
+
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("100");
+    expect(tiers.fast).toBe("100");
+  });
+
+  it("falls back to BASE_FEE for all tiers when Horizon returns no records", async () => {
+    mockTransactionsCall.mockResolvedValueOnce({ records: [] });
+
+    const tiers = await fetchFeeTiers(networkConfig.horizonUrl);
+
+    expect(tiers.economy).toBe("100");
+    expect(tiers.standard).toBe("100");
+    expect(tiers.fast).toBe("100");
+  });
+});
+
+describe("estimateFee — fee tiers", () => {
+  beforeEach(() => {
+    mocks.simulateTransaction.mockResolvedValue({ minResourceFee: "1000" });
+    mocks.fromXDR.mockReturnValue({});
+    mocks.isSimulationSuccess.mockReturnValue(true);
+    mocks.isSimulationError.mockReturnValue(false);
+    mockTransactionsCall.mockReset();
+  });
+
+  it("includes tiers in the result when includeTiers is true", async () => {
+    // First mockTransactionsCall goes to fetchFeeTiers, second to fetchRecentMedianFee
+    mockTransactionsCall
+      .mockResolvedValueOnce({
+        records: ["100", "500", "900"].map((fee_charged) => ({ fee_charged })),
+      })
+      .mockResolvedValueOnce({
+        records: Array(10).fill({ fee_charged: "400" }),
+      });
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      undefined,
+      undefined,
+      { includeTiers: true },
+describe("checkTrustlines", () => {
+  const horizonUrl = "https://horizon-testnet.stellar.org";
+  const sourcePublicKey = "GAS4V4O2B7DW5T7IQRPEEVCRXMDZESKISR7DVIGKZQYYV3OSQ5SH5LPE";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+  });
+
+  it("returns trusted assets", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      balances: [
+        { asset_type: "native", balance: "100.0" },
+        { asset_type: "credit_alphanum4", asset_code: "USD", balance: "10.0" },
+        { asset_type: "credit_alphanum4", asset_code: "EUR", balance: "5.0" },
+      ],
+    });
+
+    const result = await checkTrustlines(horizonUrl, sourcePublicKey, ["USD", "GBP"]);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toEqual(["USD"]);
+    }
+  });
+
+  it("handles empty balances", async () => {
+    mockLoadAccount.mockResolvedValueOnce({ balances: [] });
+    const result = await checkTrustlines(horizonUrl, sourcePublicKey, ["USD"]);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toEqual([]);
+    }
+  });
+
+  it("handles no existing trustlines", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      balances: [
+        { asset_type: "native", balance: "100.0" },
+        { asset_type: "credit_alphanum4", asset_code: "EUR", balance: "5.0" },
+      ],
+    });
+    const result = await checkTrustlines(horizonUrl, sourcePublicKey, ["USD"]);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toEqual([]);
+    }
+  });
+});
+
+describe("buildBulkTrustlines", () => {
+  const networkConfig: ResolvedNetworkConfig = {
+    horizonUrl: "https://horizon-testnet.stellar.org",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    networkType: "testnet",
+  };
+  const sourcePublicKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const issuerPublicKey = "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    mockBuild.mockReset();
+    mockAddOperation.mockReset();
+    clearSequenceCache();
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
+  });
+
+  it("builds multiple changeTrust operations", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
+    });
+
+    const result = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey), new Asset("EUR", issuerPublicKey)]
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.tiers).toBeDefined();
+      expect(result.data.tiers?.economy).toBe("100");
+      expect(result.data.tiers?.standard).toBe("500");
+      expect(result.data.tiers?.fast).toBe("900");
+    }
+  });
+
+  it("omits tiers when includeTiers is not set", async () => {
+    mockTransactionsCall.mockResolvedValueOnce({
+      records: Array(10).fill({ fee_charged: "400" }),
+    });
+
+    const result = await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockAddOperation).toHaveBeenCalledTimes(2);
+  });
+
+  it("builds a single changeTrust operation", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
+    });
+
+    const result = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey)]
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.tiers).toBeUndefined();
+    }
+  });
+
+  it("uses cache for fee tiers when options.cache is provided", async () => {
+    const cache = makeEmptyCache();
+    // First call: Horizon for tiers, then Horizon for median
+    mockTransactionsCall
+      .mockResolvedValueOnce({
+        records: ["100", "500", "900"].map((fee_charged) => ({ fee_charged })),
+      })
+      .mockResolvedValueOnce({
+        records: Array(10).fill({ fee_charged: "400" }),
+      });
+
+    await estimateFee(
+      networkConfig.rpcUrl,
+      networkConfig.horizonUrl,
+      networkConfig,
+      { kind: "xdr", transactionXdr: MOCK_XDR },
+      undefined,
+      undefined,
+      { includeTiers: true, cache },
+    );
+
+    // The tiers should have been stored under FEE_TIERS_CACHE_KEY
+    const cachedKey = cache.setCalls.find((c) => c.key === FEE_TIERS_CACHE_KEY);
+    expect(cachedKey).toBeDefined();
+  });
+});
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockAddOperation).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses the cached sequence when autoFetchSequence is enabled", async () => {
+    const mockAccount = {
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: vi.fn().mockReturnValue("12345"),
+      balances: [],
+    };
+    mockLoadAccount.mockResolvedValue(mockAccount);
+
+    const first = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey)],
+      true,
+    );
+    expect(first.status).toBe("ok");
+    expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+
+    mockLoadAccount.mockClear();
+
+    const second = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("EUR", issuerPublicKey)],
+      true,
+    );
+    if (second.status === "error") {
+      throw new Error(second.error.message);
+    }
+    expect(second.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+    expect(mockAccount.sequenceNumber).toHaveBeenCalledTimes(1);
   });
 });
 

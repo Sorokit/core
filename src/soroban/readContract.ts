@@ -5,6 +5,7 @@ import {
   scValToNative,
   rpc as SorobanRpc,
   TransactionBuilder,
+  xdr,
 } from "@stellar/stellar-sdk";
 import { createHash } from "crypto";
 import { toMessage } from "../shared";
