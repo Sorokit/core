@@ -11,7 +11,7 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 
 import { validateIssuer } from "../shared/validateIssuer";
-import { isNetworkConnectivityError, isTimeoutError, isXdrInvalidError, toMessage } from "../shared";
+import { isNetworkConnectivityError, isTimeoutError, isXdrInvalidError, toMessage, isNotFoundError, retryWithBackoff } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type {
@@ -900,46 +900,61 @@ export async function buildAtomicSwap(
   }
 }
 
-export async function checkTrustlines(
-  horizonUrl: string,
-  publicKey: string,
-  assetCodes: string[],
-): Promise<SorokitResult<string[]>> {
-  try {
-    const server = new Horizon.Server(horizonUrl);
-    const account = await server.loadAccount(publicKey);
-    
-    const codeSet = new Set(assetCodes);
-    const trusted: string[] = [];
-
-    for (const balance of account.balances) {
-      if (balance.asset_type !== "native") {
-        const code = (balance as Horizon.BalanceLineAsset).asset_code;
-        if (codeSet.has(code)) {
-          trusted.push(code);
-        }
-      }
-    }
-
-    return ok(trusted);
-  } catch (cause: unknown) {
-    return err(
-      SorokitErrorCode.TX_BUILD_FAILED,
-      describeTransactionBuildFailure("check trustlines", cause),
-      cause,
-    );
-  }
+export interface AccountMergeOptions {
+  autoFetchSequence?: boolean;
+  checkExists?: boolean;
+  memo?: string;
+  memoType?: "text" | "id" | "hash" | "return";
+  requireMemo?: boolean;
+  memoValidator?: (memo: string) => SorokitResult<void>;
 }
 
-export async function buildBulkTrustlines(
+/**
+ * Build an unsigned account merge transaction XDR.
+ *
+ * Merges the source account into the destination account. The source account
+ * will be deleted from the ledger, and all its remaining XLM will be transferred
+ * to the destination account.
+ *
+ * @param horizonUrl - Base URL of the Horizon server.
+ * @param networkConfig - Resolved network configuration.
+ * @param sourcePublicKey - G-address of the account to be merged (deleted).
+ * @param destinationPublicKey - G-address of the account to receive the remaining XLM.
+ * @param options - Optional parameters: memo, autoFetchSequence, checkExists.
+ * @returns `ok(xdr)` — unsigned transaction XDR, or `error`.
+ */
+export async function buildAccountMerge(
   horizonUrl: string,
   networkConfig: ResolvedNetworkConfig,
   sourcePublicKey: string,
-  assets: Asset[],
-  autoFetchSequence?: boolean,
+  destinationPublicKey: string,
+  options?: AccountMergeOptions,
 ): Promise<SorokitResult<string>> {
+  if (options?.checkExists) {
+    try {
+      const server = new Horizon.Server(horizonUrl);
+      await retryWithBackoff(() => server.loadAccount(destinationPublicKey));
+    } catch (cause) {
+      if (isNotFoundError(cause)) {
+        return err(
+          SorokitErrorCode.ACCOUNT_NOT_FOUND,
+          `Destination account ${destinationPublicKey} does not exist.`,
+          cause,
+        );
+      }
+      return err(
+        SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+        `Failed to verify destination account existence: ${toMessage(cause)}`,
+        cause,
+      );
+    }
+  }
+
+  const memoResult = options ? validateMemoParams(options) : ok(undefined);
+  if (memoResult.status === "error") return memoResult;
+
   try {
-    const useCache = autoFetchSequence === true;
+    const useCache = options?.autoFetchSequence === true;
     let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
 
     if (useCache) {
@@ -958,28 +973,30 @@ export async function buildBulkTrustlines(
     const builder = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,
       networkPassphrase: networkConfig.networkPassphrase,
-    });
+    })
+      .addOperation(
+        Operation.accountMerge({
+          destination: destinationPublicKey,
+        }),
+      )
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
 
-    for (const asset of assets) {
-      builder.addOperation(
-        Operation.changeTrust({ asset }),
-      );
+    if (memoResult.data) {
+      builder.addMemo(memoResult.data);
     }
 
-    const transaction = builder
-      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
-      .build();
-
+    const tx = builder.build();
     if (useCache) {
       updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
     }
 
-    return ok(transaction.toXDR());
-  } catch (cause: unknown) {
+    return ok(tx.toXDR());
+  } catch (cause) {
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
-      describeTransactionBuildFailure("bulk trustlines", cause),
+      describeTransactionBuildFailure("account merge", cause),
       cause,
     );
   }
 }
+

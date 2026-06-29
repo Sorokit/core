@@ -74,9 +74,9 @@ export {
   buildReverseTransaction,
   buildPathPayment,
   buildAtomicSwap,
-  checkTrustlines,
-  buildBulkTrustlines,
+  buildAccountMerge,
 } from "./buildTransaction";
+export type { AccountMergeOptions } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";
@@ -112,32 +112,9 @@ export type {
   ValidationRules,
 } from "./validateTransactionXdr";
 
-// ─── Asset constants and factories ───────────────────────────────────────────
-export const USDC_MAINNET_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
-export const USDC_TESTNET_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
-export const USDT_MAINNET_ISSUER = "GCVJWGVZCVSRMEMEMIYLAUQDFKCEH6HMA5HZGBF4QSQCIIQG7HFIC76L";
-export const EURC_MAINNET_ISSUER = "GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2";
-export const EURC_TESTNET_ISSUER = "GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO";
-
-export function nativeAsset(): Asset {
-  return Asset.native();
-}
-
-export function usdcAsset(issuer?: string): Asset {
-  return new Asset("USDC", issuer || USDC_MAINNET_ISSUER);
-}
-
-export function usdtAsset(issuer?: string): Asset {
-  return new Asset("USDT", issuer || USDT_MAINNET_ISSUER);
-}
-
-export function usdt_assetAsset(issuer?: string): Asset {
-  return usdtAsset(issuer);
-}
-
-export function eurcAsset(issuer?: string): Asset {
-  return new Asset("EURC", issuer || EURC_MAINNET_ISSUER);
-}
-
-export { nativeAsset as ativeAsset };
+export { validateDestination } from "./validateDestination";
+export type {
+  DestinationValidationResult,
+  ValidateDestinationOptions,
+} from "./validateDestination";
 

@@ -2771,50 +2771,172 @@ describe("validateTransactionXdr (#99)", () => {
   });
 });
 
-describe("Asset Factories", () => {
-  it("creates a native asset", () => {
-    const asset = nativeAsset();
-    expect(asset.isNative()).toBe(true);
+describe("validateDestination", () => {
+  const VALID_DEST = "GBRPYHIL2CI3FNQ4BXLFMNDLFTECCNAIZ3JFRVKEAOJCHBR35CXY7Z5D";
 
-    const assetTypo = ativeAsset();
-    expect(assetTypo.isNative()).toBe(true);
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
   });
 
-  it("creates a USDC asset with mainnet or custom issuer", () => {
-    const asset = usdcAsset();
-    expect(asset.getCode()).toBe("USDC");
-    expect(asset.getIssuer()).toBe(USDC_MAINNET_ISSUER);
-
-    const customIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
-    const customAsset = usdcAsset(customIssuer);
-    expect(customAsset.getCode()).toBe("USDC");
-    expect(customAsset.getIssuer()).toBe(customIssuer);
+  it("validates valid public key format without existence check", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination(VALID_DEST);
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(true);
+    expect(res.data.formatValid).toBe(true);
+    expect(res.data.isSource).toBe(false);
+    expect(res.data.exists).toBeNull();
   });
 
-  it("creates a USDT asset with mainnet or custom issuer", () => {
-    const asset = usdtAsset();
-    expect(asset.getCode()).toBe("USDT");
-    expect(asset.getIssuer()).toBe(USDT_MAINNET_ISSUER);
-
-    const customIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
-    const customAsset = usdtAsset(customIssuer);
-    expect(customAsset.getCode()).toBe("USDT");
-    expect(customAsset.getIssuer()).toBe(customIssuer);
-
-    const aliasAsset = usdt_assetAsset();
-    expect(aliasAsset.getCode()).toBe("USDT");
-    expect(aliasAsset.getIssuer()).toBe(USDT_MAINNET_ISSUER);
+  it("returns invalid format for malformed public key", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination("invalid-key");
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.formatValid).toBe(false);
+    expect(res.data.error?.code).toBe("INVALID_FORMAT");
   });
 
-  it("creates a EURC asset with mainnet or custom issuer", () => {
-    const asset = eurcAsset();
-    expect(asset.getCode()).toBe("EURC");
-    expect(asset.getIssuer()).toBe(EURC_MAINNET_ISSUER);
+  it("returns isSource true when destination matches source", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination(VALID_DEST, { source: VALID_DEST });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.isSource).toBe(true);
+    expect(res.data.error?.code).toBe("SAME_AS_SOURCE");
+  });
 
-    const customIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
-    const customAsset = eurcAsset(customIssuer);
-    expect(customAsset.getCode()).toBe("EURC");
-    expect(customAsset.getIssuer()).toBe(customIssuer);
+  it("fails if checkExists is true but horizonUrl is missing", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination(VALID_DEST, { checkExists: true });
+    expect(res.status).toBe("error");
+    if (res.status !== "error") return;
+    expect(res.error.message).toContain("horizonUrl is required");
+  });
+
+  it("returns exists true when account exists on-chain", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    mockLoadAccount.mockResolvedValue({ id: VALID_DEST });
+
+    const res = await validateDestination(VALID_DEST, {
+      checkExists: true,
+      horizonUrl: "https://horizon-testnet.stellar.org",
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(true);
+    expect(res.data.exists).toBe(true);
+    expect(mockLoadAccount).toHaveBeenCalledWith(VALID_DEST);
+  });
+
+  it("returns exists false when account is not found on-chain", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const notFoundError = new Error("Request failed with status 404");
+    (notFoundError as any).response = { status: 404 };
+    mockLoadAccount.mockRejectedValue(notFoundError);
+
+    const res = await validateDestination(VALID_DEST, {
+      checkExists: true,
+      horizonUrl: "https://horizon-testnet.stellar.org",
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.exists).toBe(false);
+    expect(res.data.error?.code).toBe("ACCOUNT_NOT_FOUND");
+  });
+
+  it("returns FETCH_FAILED when Horizon check fails with other error", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    mockLoadAccount.mockRejectedValue(new Error("Rate limit exceeded"));
+
+    const res = await validateDestination(VALID_DEST, {
+      checkExists: true,
+      horizonUrl: "https://horizon-testnet.stellar.org",
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.exists).toBeNull();
+    expect(res.data.error?.code).toBe("FETCH_FAILED");
   });
 });
 
+describe("buildAccountMerge", () => {
+  const sourcePublicKey = "GDQ2HJG63WD7K2DOW4A6W2G2S6LRY2W7Q7W543L6Z7V4G2M3Q2Y37S4Q";
+  const destinationPublicKey = "GBRPYHIL2CI3FNQ4BXLFMNDLFTECCNAIZ3JFRVKEAOJCHBR35CXY7Z5D";
+  const networkConfig = {
+    networkPassphrase: "Test SDF Network ; September 2015",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+  };
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+  });
+
+  it("successfully builds an account merge transaction", async () => {
+    const { buildAccountMerge } = await import("../transaction/buildTransaction");
+    mockLoadAccount.mockResolvedValue({
+      id: sourcePublicKey,
+      sequenceNumber: () => "100",
+    });
+
+    const result = await buildAccountMerge(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      destinationPublicKey,
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data).toBeDefined();
+    expect(mockLoadAccount).toHaveBeenCalledWith(sourcePublicKey);
+  });
+
+  it("checks destination existence and fails if destination does not exist", async () => {
+    const { buildAccountMerge } = await import("../transaction/buildTransaction");
+    const notFoundError = new Error("Request failed with status 404");
+    (notFoundError as any).response = { status: 404 };
+    
+    mockLoadAccount.mockRejectedValue(notFoundError);
+
+    const result = await buildAccountMerge(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      destinationPublicKey,
+      { checkExists: true },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
+    expect(result.error.message).toContain("does not exist");
+  });
+
+  it("checks destination existence and succeeds if destination exists", async () => {
+    const { buildAccountMerge } = await import("../transaction/buildTransaction");
+    
+    mockLoadAccount
+      .mockResolvedValueOnce({ id: destinationPublicKey })
+      .mockResolvedValueOnce({
+        id: sourcePublicKey,
+        sequenceNumber: () => "100",
+      });
+
+    const result = await buildAccountMerge(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      destinationPublicKey,
+      { checkExists: true },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(mockLoadAccount).toHaveBeenCalledTimes(2);
+  });
+});
