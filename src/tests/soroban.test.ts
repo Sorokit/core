@@ -1374,7 +1374,7 @@ function makeInvocation(
   return { contractId, method, publicKey: Keypair.random().publicKey() };
 }
 
-describe("invokeBatchContracts (#46)", () => {
+describe("invokeBatchContracts (#104)", () => {
   beforeEach(() => {
     mockInvokeContract.mockReset();
   });
@@ -1501,6 +1501,32 @@ describe("invokeBatchContracts (#46)", () => {
       pollConfig,
       logger,
     );
+  });
+
+  it("executes invocations sequentially when parallel is false", async () => {
+    const order: number[] = [];
+    mockInvokeContract.mockImplementation(async () => {
+      const callIndex = mockInvokeContract.mock.calls.length;
+      order.push(callIndex);
+      return sorokitOk(`hash-${callIndex}`);
+    });
+
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [
+        makeInvocation(CONTRACT_A, "first"),
+        makeInvocation(CONTRACT_B, "second"),
+      ],
+      SIGN_FN,
+      { parallel: false },
+    );
+
+    expect(order).toEqual([1, 2]);
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe("ok");
+    expect(results[1].status).toBe("ok");
   });
 });
 
@@ -1686,5 +1712,89 @@ describe("prepareContractCall XDR validation (#90)", () => {
       expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
       expect(result.error.message).toContain("malformed XDR");
     }
+  });
+});
+
+describe("simulateContractSafe (#97)", () => {
+  let transactionXdr: string;
+  let networkPassphrase: string;
+
+  beforeAll(async () => {
+    const actualSdk = await vi.importActual<typeof import("@stellar/stellar-sdk")>(
+      "@stellar/stellar-sdk",
+    );
+    const contractId = actualSdk.StrKey.encodeContract(Buffer.alloc(32));
+    const contract = new actualSdk.Contract(contractId);
+    const op = contract.call("hello", actualSdk.xdr.ScVal.scvSymbol("world"));
+    const sourceAccount = new actualSdk.Account(
+      actualSdk.Keypair.random().publicKey(),
+      "1",
+    );
+    const tx = new actualSdk.TransactionBuilder(sourceAccount, {
+      fee: actualSdk.BASE_FEE,
+      networkPassphrase: actualSdk.Networks.TESTNET,
+    })
+      .addOperation(op)
+      .setTimeout(100)
+      .build();
+    transactionXdr = tx.toXDR();
+    networkPassphrase = actualSdk.Networks.TESTNET;
+  });
+
+  beforeEach(() => {
+    resetRpcSimulationMocks();
+  });
+
+  it("returns simulation result on success without fallback", async () => {
+    mockSimulateTransaction.mockResolvedValueOnce({
+      minResourceFee: "12345",
+    });
+    const result = await simulateContractSafe(
+      networkConfig.rpcUrl,
+      networkPassphrase,
+      transactionXdr,
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.success).toBe(true);
+    expect(result.data.fee).toBe("12345");
+    expect(result.data.fromFallback).toBe(false);
+  });
+
+  it("returns fallback when simulation throws and allowFail is true", async () => {
+    mockSimulateTransaction.mockRejectedValueOnce(new Error("rpc down"));
+    const result = await simulateContractSafe(
+      networkConfig.rpcUrl,
+      networkPassphrase,
+      transactionXdr,
+      { allowFail: true, fallbackFee: "500000" },
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.fromFallback).toBe(true);
+    expect(result.data.fee).toBe("500000");
+  });
+
+  it("propagates error when allowFail is false", async () => {
+    mockSimulateTransaction.mockRejectedValueOnce(new Error("rpc down"));
+    const result = await simulateContractSafe(
+      networkConfig.rpcUrl,
+      networkPassphrase,
+      transactionXdr,
+    );
+    expect(result.status).toBe("error");
+  });
+
+  it("uses a default fallback fee when none is provided", async () => {
+    mockSimulateTransaction.mockRejectedValueOnce(new Error("rpc down"));
+    const result = await simulateContractSafe(
+      networkConfig.rpcUrl,
+      networkPassphrase,
+      transactionXdr,
+      { allowFail: true },
+    );
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.fromFallback).toBe(true);
+    expect(Number(result.data.fee)).toBeGreaterThan(0);
   });
 });

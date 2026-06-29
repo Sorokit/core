@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type SpyInstance } from "vitest";
+import { Asset } from "@stellar/stellar-sdk";
 import { createHash } from "crypto";
 import {
   estimateFee,
@@ -17,6 +17,8 @@ import {
   buildPaymentWithTrustline,
   buildSwapTransaction,
   clearSequenceCache,
+  checkTrustlines,
+  buildBulkTrustlines,
 } from "../transaction/buildTransaction";
 import { SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -37,6 +39,22 @@ import {
   createTransactionContext,
   TRANSACTION_CONTEXT_TTL_MS,
 } from "../transaction/transactionContext";
+import {
+  createHashMemo,
+  createIdMemo,
+  createReturnMemo,
+  createTextMemo,
+  nativeAsset,
+  usdcAsset,
+  usdtAsset,
+  usdt_assetAsset,
+  eurcAsset,
+  ativeAsset,
+  USDC_MAINNET_ISSUER,
+  USDT_MAINNET_ISSUER,
+  EURC_MAINNET_ISSUER,
+} from "../transaction";
+
 
 const {
   mockSimulateTransaction,
@@ -59,6 +77,8 @@ const {
   mockAddOperation,
   mockAddMemo,
   mockSetTimeout,
+  mockStrictSendPathsCall,
+  mockStrictReceivePathsCall,
 } = vi.hoisted(() => ({
   mockLoadAccount: vi.fn(),
   mockBuild: vi.fn(),
@@ -66,6 +86,8 @@ const {
   mockAddOperation: vi.fn(),
   mockAddMemo: vi.fn(),
   mockSetTimeout: vi.fn(),
+  mockStrictSendPathsCall: vi.fn(),
+  mockStrictReceivePathsCall: vi.fn(),
 }));
 
 // ─── Hoisted mocks (must be defined before vi.mock is hoisted) ────────────────
@@ -91,20 +113,25 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
       transactionBuilderInstances.push(this);
     }
 
-    addOperation() {
+    addOperation(...args: any[]) {
+      mockAddOperation(...args);
       return this;
     }
 
-    setTimeout() {
+    setTimeout(...args: any[]) {
+      mockSetTimeout(...args);
       return this;
     }
 
     addMemo(memo: unknown) {
+      mockAddMemo(memo);
       this.memo = memo;
       return this;
     }
 
-    build() {
+    build(...args: any[]) {
+      const customBuild = mockBuild(...args);
+      if (customBuild) return customBuild;
       return { toXDR: () => MOCK_XDR };
     }
   }
@@ -135,8 +162,15 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
         }),
         loadAccount: mockLoadAccount,
         submitTransaction: mockSubmitTransaction,
+        strictSendPaths: vi.fn(() => ({
+          call: mockStrictSendPathsCall,
+        })),
+        strictReceivePaths: vi.fn(() => ({
+          call: mockStrictReceivePathsCall,
+        })),
       })),
     },
+
     rpc: {
       ...actual.rpc,
       Server: vi.fn().mockImplementation(() => ({
@@ -176,6 +210,8 @@ const networkConfig: ResolvedNetworkConfig = {
 };
 
 const MOCK_XDR = "AAAAAQAAAAA=";
+const VALID_32_BYTE_HASH =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 const CACHED_FEE: FeeEstimate = {
   fee: "1100",
@@ -284,6 +320,48 @@ function makeHorizonRecord(
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
+
+describe("memo builders (#114)", () => {
+  it("creates valid text memos up to the Stellar 28-byte limit", () => {
+    expect(createTextMemo("invoice-123").type).toBe("text");
+    expect(createTextMemo("a".repeat(28)).value).toBe("a".repeat(28));
+  });
+
+  it("rejects text memos over 28 bytes, including multibyte strings", () => {
+    expect(() => createTextMemo("a".repeat(29))).toThrow("28 bytes");
+    expect(() => createTextMemo("😀".repeat(8))).toThrow("28 bytes");
+  });
+
+  it("creates valid unsigned 64-bit id memos", () => {
+    expect(createIdMemo(0).type).toBe("id");
+    expect(createIdMemo("18446744073709551615").value).toBe(
+      "18446744073709551615",
+    );
+  });
+
+  it("rejects id memos outside the unsigned 64-bit range", () => {
+    expect(() => createIdMemo(-1)).toThrow("unsigned 64-bit");
+    expect(() => createIdMemo("18446744073709551616")).toThrow(
+      "unsigned 64-bit",
+    );
+  });
+
+  it("creates valid hash and return memos from hex strings", () => {
+    expect(createHashMemo(VALID_32_BYTE_HASH).type).toBe("hash");
+    expect(createReturnMemo(VALID_32_BYTE_HASH).type).toBe("return");
+  });
+
+  it("creates hash and return memos from 32-byte arrays", () => {
+    expect(createHashMemo(Buffer.alloc(32)).type).toBe("hash");
+    expect(createReturnMemo(new Uint8Array(32)).type).toBe("return");
+  });
+
+  it("rejects invalid hash formats and lengths", () => {
+    expect(() => createHashMemo("abc")).toThrow("32-byte hex");
+    expect(() => createHashMemo("z".repeat(64))).toThrow("32-byte hex");
+    expect(() => createReturnMemo(Buffer.alloc(31))).toThrow("32 bytes");
+  });
+});
 
 describe("transaction streaming filters", () => {
   it("returns the first page with default pagination when no filters are provided", () => {
@@ -1806,8 +1884,14 @@ describe("buildReverseTransaction (#45)", () => {
 });
 
 describe("buildPathPayment (#47)", () => {
-  let strictSendSpy: MockInstance<any[], any>;
-  let strictReceiveSpy: MockInstance<any[], any>;
+  let strictSendSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictSend>,
+    ReturnType<typeof Operation.pathPaymentStrictSend>
+  >;
+  let strictReceiveSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictReceive>,
+    ReturnType<typeof Operation.pathPaymentStrictReceive>
+  >;
 
   const baseParams: PathPaymentParams = {
     destination: DST,
@@ -1879,11 +1963,61 @@ describe("buildPathPayment (#47)", () => {
     expect(result.status).toBe("error");
     if (result.status === "error") expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
   });
+
+  it("dynamically finds strict-send paths when path and slippageAmount are omitted", async () => {
+    mockStrictSendPathsCall.mockResolvedValueOnce({
+      records: [
+        {
+          destination_amount: "98",
+          path: [{ code: "BTC", issuer: "GBTC" }]
+        }
+      ]
+    });
+    
+    const paramsWithoutPath = { ...baseParams };
+    delete paramsWithoutPath.slippageAmount;
+    delete paramsWithoutPath.path;
+
+    const result = await buildPathPayment(networkConfig.horizonUrl, networkConfig, SRC, paramsWithoutPath);
+    expect(result.status).toBe("ok");
+    expect(mockStrictSendPathsCall).toHaveBeenCalledOnce();
+    expect(strictSendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ destMin: "98", path: expect.arrayContaining([expect.anything()]) }),
+    );
+  });
+
+  it("dynamically finds strict-receive paths when path and slippageAmount are omitted", async () => {
+    mockStrictReceivePathsCall.mockResolvedValueOnce({
+      records: [
+        {
+          source_amount: "105",
+          path: [{ code: "ETH", issuer: "GETH" }]
+        }
+      ]
+    });
+    
+    const paramsWithoutPath: PathPaymentParams = { ...baseParams, mode: "strict-receive" };
+    delete paramsWithoutPath.slippageAmount;
+    delete paramsWithoutPath.path;
+
+    const result = await buildPathPayment(networkConfig.horizonUrl, networkConfig, SRC, paramsWithoutPath);
+    expect(result.status).toBe("ok");
+    expect(mockStrictReceivePathsCall).toHaveBeenCalledOnce();
+    expect(strictReceiveSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ sendMax: "105", path: expect.arrayContaining([expect.anything()]) }),
+    );
+  });
 });
 
 describe("buildAtomicSwap (#47)", () => {
-  let strictSendSpy: MockInstance<any[], any>;
-  let strictReceiveSpy: MockInstance<any[], any>;
+  let strictSendSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictSend>,
+    ReturnType<typeof Operation.pathPaymentStrictSend>
+  >;
+  let strictReceiveSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictReceive>,
+    ReturnType<typeof Operation.pathPaymentStrictReceive>
+  >;
 
   const legA: PathPaymentParams = {
     destination: DST,
@@ -2339,6 +2473,87 @@ describe("estimateFee — fee tiers", () => {
       undefined,
       undefined,
       { includeTiers: true },
+describe("checkTrustlines", () => {
+  const horizonUrl = "https://horizon-testnet.stellar.org";
+  const sourcePublicKey = "GAS4V4O2B7DW5T7IQRPEEVCRXMDZESKISR7DVIGKZQYYV3OSQ5SH5LPE";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+  });
+
+  it("returns trusted assets", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      balances: [
+        { asset_type: "native", balance: "100.0" },
+        { asset_type: "credit_alphanum4", asset_code: "USD", balance: "10.0" },
+        { asset_type: "credit_alphanum4", asset_code: "EUR", balance: "5.0" },
+      ],
+    });
+
+    const result = await checkTrustlines(horizonUrl, sourcePublicKey, ["USD", "GBP"]);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toEqual(["USD"]);
+    }
+  });
+
+  it("handles empty balances", async () => {
+    mockLoadAccount.mockResolvedValueOnce({ balances: [] });
+    const result = await checkTrustlines(horizonUrl, sourcePublicKey, ["USD"]);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toEqual([]);
+    }
+  });
+
+  it("handles no existing trustlines", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      balances: [
+        { asset_type: "native", balance: "100.0" },
+        { asset_type: "credit_alphanum4", asset_code: "EUR", balance: "5.0" },
+      ],
+    });
+    const result = await checkTrustlines(horizonUrl, sourcePublicKey, ["USD"]);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toEqual([]);
+    }
+  });
+});
+
+describe("buildBulkTrustlines", () => {
+  const networkConfig: ResolvedNetworkConfig = {
+    horizonUrl: "https://horizon-testnet.stellar.org",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    networkType: "testnet",
+  };
+  const sourcePublicKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const issuerPublicKey = "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    mockBuild.mockReset();
+    mockAddOperation.mockReset();
+    clearSequenceCache();
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
+  });
+
+  it("builds multiple changeTrust operations", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
+    });
+
+    const result = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey), new Asset("EUR", issuerPublicKey)]
     );
 
     expect(result.status).toBe("ok");
@@ -2360,6 +2575,24 @@ describe("estimateFee — fee tiers", () => {
       networkConfig.horizonUrl,
       networkConfig,
       { kind: "xdr", transactionXdr: MOCK_XDR },
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockAddOperation).toHaveBeenCalledTimes(2);
+  });
+
+  it("builds a single changeTrust operation", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
+    });
+
+    const result = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey)]
     );
 
     expect(result.status).toBe("ok");
@@ -2394,3 +2627,194 @@ describe("estimateFee — fee tiers", () => {
     expect(cachedKey).toBeDefined();
   });
 });
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockAddOperation).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses the cached sequence when autoFetchSequence is enabled", async () => {
+    const mockAccount = {
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: vi.fn().mockReturnValue("12345"),
+      balances: [],
+    };
+    mockLoadAccount.mockResolvedValue(mockAccount);
+
+    const first = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey)],
+      true,
+    );
+    expect(first.status).toBe("ok");
+    expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+
+    mockLoadAccount.mockClear();
+
+    const second = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("EUR", issuerPublicKey)],
+      true,
+    );
+    if (second.status === "error") {
+      throw new Error(second.error.message);
+    }
+    expect(second.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+    expect(mockAccount.sequenceNumber).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("validateTransactionXdr (#99)", () => {
+  const realSdk = vi.importActual<typeof import("@stellar/stellar-sdk")>(
+    "@stellar/stellar-sdk",
+  );
+
+  async function buildSamplePaymentXdr(opts?: {
+    destination?: string;
+    amount?: string;
+    fee?: string;
+  }): Promise<{ xdr: string; networkPassphrase: string }> {
+    const sdk = await realSdk;
+    const source = sdk.Keypair.random();
+    const dest =
+      opts?.destination ?? sdk.Keypair.random().publicKey();
+    const account = new sdk.Account(source.publicKey(), "1");
+    const tx = new sdk.TransactionBuilder(account, {
+      fee: opts?.fee ?? sdk.BASE_FEE,
+      networkPassphrase: sdk.Networks.TESTNET,
+    })
+      .addOperation(
+        sdk.Operation.payment({
+          destination: dest,
+          asset: sdk.Asset.native(),
+          amount: opts?.amount ?? "10",
+        }),
+      )
+      .setTimeout(100)
+      .build();
+    return { xdr: tx.toXDR(), networkPassphrase: sdk.Networks.TESTNET };
+  }
+
+  it("returns valid for a well-formed payment transaction", async () => {
+    const { validateTransactionXdr } = await import(
+      "../transaction/validateTransactionXdr"
+    );
+    const { xdr, networkPassphrase } = await buildSamplePaymentXdr();
+    const result = validateTransactionXdr(xdr, { networkPassphrase });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.valid).toBe(true);
+    expect(result.data.errors).toEqual([]);
+    expect(result.data.operationCount).toBe(1);
+  });
+
+  it("flags malformed XDR with an XDR_INVALID finding", async () => {
+    const { validateTransactionXdr } = await import(
+      "../transaction/validateTransactionXdr"
+    );
+    const result = validateTransactionXdr("not-a-real-xdr", {
+      networkPassphrase: "Test SDF Network ; September 2015",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.valid).toBe(false);
+    expect(result.data.errors[0].code).toBe("XDR_INVALID");
+  });
+
+  it("flags fees that exceed the per-op cap as warnings", async () => {
+    const { validateTransactionXdr } = await import(
+      "../transaction/validateTransactionXdr"
+    );
+    const { xdr, networkPassphrase } = await buildSamplePaymentXdr({
+      fee: "5000000",
+    });
+    const result = validateTransactionXdr(xdr, {
+      networkPassphrase,
+      maxFeePerOpStroops: 1000,
+    });
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.warnings.some((w) => w.code === "FEE_TOO_HIGH")).toBe(true);
+  });
+
+  it("respects disallowed operation types", async () => {
+    const { validateTransactionXdr } = await import(
+      "../transaction/validateTransactionXdr"
+    );
+    const { xdr, networkPassphrase } = await buildSamplePaymentXdr();
+    const result = validateTransactionXdr(xdr, {
+      networkPassphrase,
+      disallowedOperationTypes: ["payment"],
+    });
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.valid).toBe(false);
+    expect(result.data.errors.some((e) => e.code === "OPERATION_DISALLOWED")).toBe(true);
+  });
+
+  it("invokes custom operation validator", async () => {
+    const { validateTransactionXdr } = await import(
+      "../transaction/validateTransactionXdr"
+    );
+    const { xdr, networkPassphrase } = await buildSamplePaymentXdr();
+    const result = validateTransactionXdr(xdr, {
+      networkPassphrase,
+      customOperationValidator: () => [
+        { severity: "error", code: "CUSTOM_FAIL", message: "blocked" },
+      ],
+    });
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.errors.some((e) => e.code === "CUSTOM_FAIL")).toBe(true);
+  });
+});
+
+describe("Asset Factories", () => {
+  it("creates a native asset", () => {
+    const asset = nativeAsset();
+    expect(asset.isNative()).toBe(true);
+
+    const assetTypo = ativeAsset();
+    expect(assetTypo.isNative()).toBe(true);
+  });
+
+  it("creates a USDC asset with mainnet or custom issuer", () => {
+    const asset = usdcAsset();
+    expect(asset.getCode()).toBe("USDC");
+    expect(asset.getIssuer()).toBe(USDC_MAINNET_ISSUER);
+
+    const customIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const customAsset = usdcAsset(customIssuer);
+    expect(customAsset.getCode()).toBe("USDC");
+    expect(customAsset.getIssuer()).toBe(customIssuer);
+  });
+
+  it("creates a USDT asset with mainnet or custom issuer", () => {
+    const asset = usdtAsset();
+    expect(asset.getCode()).toBe("USDT");
+    expect(asset.getIssuer()).toBe(USDT_MAINNET_ISSUER);
+
+    const customIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const customAsset = usdtAsset(customIssuer);
+    expect(customAsset.getCode()).toBe("USDT");
+    expect(customAsset.getIssuer()).toBe(customIssuer);
+
+    const aliasAsset = usdt_assetAsset();
+    expect(aliasAsset.getCode()).toBe("USDT");
+    expect(aliasAsset.getIssuer()).toBe(USDT_MAINNET_ISSUER);
+  });
+
+  it("creates a EURC asset with mainnet or custom issuer", () => {
+    const asset = eurcAsset();
+    expect(asset.getCode()).toBe("EURC");
+    expect(asset.getIssuer()).toBe(EURC_MAINNET_ISSUER);
+
+    const customIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const customAsset = eurcAsset(customIssuer);
+    expect(customAsset.getCode()).toBe("EURC");
+    expect(customAsset.getIssuer()).toBe(customIssuer);
+  });
+});
+

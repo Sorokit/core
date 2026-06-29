@@ -92,9 +92,9 @@ export interface PathPaymentParams extends MemoParams {
   mode: PathPaymentMode;
   /** Amount to send (strict-send) or receive (strict-receive) */
   amount: string;
-  /** Slippage bound: min dest (strict-send) or max send (strict-receive) */
-  slippageAmount: string;
-  /** Intermediate assets in the payment path */
+  /** Slippage bound: min dest (strict-send) or max send (strict-receive). If omitted, dynamic path discovery is used to compute it. */
+  slippageAmount?: string;
+  /** Intermediate assets in the payment path. If omitted, dynamically discovered. */
   path?: Array<{ assetCode?: string; assetIssuer?: string }>;
   autoFetchSequence?: boolean;
 }
