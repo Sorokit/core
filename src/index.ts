@@ -14,10 +14,17 @@ export type {
 
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
 export {
+  addSignatureToEnvelope,
   collectMultiSignatures,
   detectInstalledWallets,
   diagnoseWalletConnection,
+  prioritizeWallet,
   recommendWallets,
+  removeSignatureFromEnvelope,
+} from "./wallet";
+export type {
+  EnvelopeSignatureInput,
+  SignatureHintInput,
 } from "./wallet";
 export { FreighterAdapter } from "./wallet/adapters/freighter";
 export { LobstrAdapter } from "./wallet/adapters/lobstr";
@@ -45,6 +52,13 @@ export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type { ResolvedNetworkConfig } from "./shared/types";
+export { checkNetworkHealth } from "./network";
+export type {
+  CheckNetworkHealthOptions,
+  NetworkEndpointHealth,
+  NetworkHealthReport,
+  NetworkHealthStatus,
+} from "./network";
 
 // ─── Account types ────────────────────────────────────────────────────────────
 export { evaluateBalanceAlerts } from "./account/balanceAlerts";
@@ -62,6 +76,33 @@ export type {
   BalanceAlertRule,
 } from "./account/types";
 
+// ─── Transaction validation ───────────────────────────────────────────────────
+export {
+  createHashMemo,
+  createIdMemo,
+  createReturnMemo,
+  createTextMemo,
+  DEFAULT_VALIDATION_RULES,
+  validateTransactionXdr,
+  USDC_MAINNET_ISSUER,
+  USDC_TESTNET_ISSUER,
+  USDT_MAINNET_ISSUER,
+  EURC_MAINNET_ISSUER,
+  EURC_TESTNET_ISSUER,
+  nativeAsset,
+  usdcAsset,
+  usdtAsset,
+  usdt_assetAsset,
+  eurcAsset,
+  ativeAsset,
+} from "./transaction";
+export type { SorokitMemo } from "./transaction";
+export type {
+  TransactionValidationFinding,
+  TransactionValidationReport,
+  ValidationRules,
+} from "./transaction/validateTransactionXdr";
+
 // ─── Transaction types ────────────────────────────────────────────────────────
 export type {
   FeeEstimate,
@@ -71,6 +112,7 @@ export type {
 } from "./transaction/estimateFee";
 export { calculateFeeTiers } from "./transaction/estimateFee";
 export { streamTransactions } from "./transaction/streamTransactions";
+export { buildPathPayment, checkTrustlines, buildBulkTrustlines } from "./transaction/index";
 export type {
   TransactionPage,
   TransactionStreamConfig,
@@ -93,6 +135,11 @@ export type {
 } from "./transaction/types";
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
+export { simulateContractSafe } from "./soroban/simulateContractSafe";
+export type {
+  SafeSimulationResult,
+  SimulateContractSafeOptions,
+} from "./soroban/simulateContractSafe";
 export {
   decodeContractValue,
   encodeContractArgs,
