@@ -77,6 +77,7 @@ export type {
 
 // ─── Transaction validation ───────────────────────────────────────────────────
 export {
+  analyzeFeeHistory,
   createHashMemo,
   createIdMemo,
   createReturnMemo,
@@ -95,7 +96,7 @@ export {
   eurcAsset,
   ativeAsset,
 } from "./transaction";
-export type { SorokitMemo } from "./transaction";
+export type { FeeHistoryAnalytics, FeeHistoryPercentiles, SorokitMemo } from "./transaction";
 export type {
   TransactionValidationFinding,
   TransactionValidationReport,
