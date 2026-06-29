@@ -49,3 +49,13 @@ export type {
 } from "./types";
 export { describeStorageSlot } from "./storageSlot";
 export type { StorageSlotInfo, StorageSlotType } from "./storageSlot";
+export {
+  trackContractStateHistory,
+  getStateHistory,
+  clearContractStateHistory,
+  InMemoryContractStateHistoryStore,
+} from "./contractStateHistory";
+export type {
+  ContractStateSnapshot,
+  ContractStateHistoryStore,
+} from "./contractStateHistory";
