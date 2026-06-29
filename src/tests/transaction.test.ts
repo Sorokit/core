@@ -40,6 +40,7 @@ import {
   TRANSACTION_CONTEXT_TTL_MS,
 } from "../transaction/transactionContext";
 import {
+  analyzeFeeHistory,
   createHashMemo,
   createIdMemo,
   createReturnMemo,
@@ -360,6 +361,68 @@ describe("memo builders (#114)", () => {
     expect(() => createHashMemo("abc")).toThrow("32-byte hex");
     expect(() => createHashMemo("z".repeat(64))).toThrow("32-byte hex");
     expect(() => createReturnMemo(Buffer.alloc(31))).toThrow("32 bytes");
+  });
+});
+
+describe("analyzeFeeHistory", () => {
+  it("returns null metrics for transactions without fee data", () => {
+    const analytics = analyzeFeeHistory([{ hash: "tx_1", status: "success" }], 3);
+
+    expect(analytics.count).toBe(0);
+    expect(analytics.min).toBeNull();
+    expect(analytics.max).toBeNull();
+    expect(analytics.avg).toBeNull();
+    expect(analytics.median).toBeNull();
+    expect(analytics.stddev).toBeNull();
+    expect(analytics.percentiles).toEqual({
+      p10: null,
+      p25: null,
+      p50: null,
+      p75: null,
+      p90: null,
+    });
+  });
+
+  it("computes summary statistics for a varied fee distribution", () => {
+    const analytics = analyzeFeeHistory(
+      [
+        { hash: "tx_1", status: "success", fee: "100" },
+        { hash: "tx_2", status: "success", fee: "200" },
+        { hash: "tx_3", status: "success", fee: "300" },
+        { hash: "tx_4", status: "success", fee: "400" },
+        { hash: "tx_5", status: "success", fee: "500" },
+      ],
+      5,
+    );
+
+    expect(analytics.count).toBe(5);
+    expect(analytics.min).toBe(100);
+    expect(analytics.max).toBe(500);
+    expect(analytics.avg).toBe(300);
+    expect(analytics.median).toBe(300);
+    expect(analytics.stddev).toBeCloseTo(141.4213562373095);
+    expect(analytics.percentiles.p10).toBe(100);
+    expect(analytics.percentiles.p50).toBe(300);
+    expect(analytics.percentiles.p90).toBe(500);
+  });
+
+  it("uses the most recent transactions up to the requested window size", () => {
+    const analytics = analyzeFeeHistory(
+      [
+        { hash: "tx_1", status: "success", fee: "100" },
+        { hash: "tx_2", status: "success", fee: "200" },
+        { hash: "tx_3", status: "success", fee: "300" },
+        { hash: "tx_4", status: "success", fee: "400" },
+      ],
+      2,
+    );
+
+    expect(analytics.count).toBe(2);
+    expect(analytics.min).toBe(300);
+    expect(analytics.max).toBe(400);
+    expect(analytics.avg).toBe(350);
+    expect(analytics.median).toBe(350);
+    expect(analytics.stddev).toBe(50);
   });
 });
 

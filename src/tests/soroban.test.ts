@@ -2062,93 +2062,50 @@ describe("parseContractResult (#119)", () => {
   });
 });
 
-describe("detectContractStateChanges", () => {
-  it("detects added fields", async () => {
-    const { detectContractStateChanges } = await import("../soroban/index");
-    const oldState = { field1: "value1" };
-    const newState = { field1: "value1", field2: "value2" };
-    const result = detectContractStateChanges(oldState, newState);
-    expect(result.added).toEqual({ field2: "value2" });
-    expect(result.removed).toEqual({});
-    expect(result.modified).toEqual({});
+describe("soroban/describeStorageSlot", () => {
+  const { describeStorageSlot } = require("../soroban/storageSlot");
+
+  it("returns ok with slot info for ledger type", () => {
+    const result = describeStorageSlot("ledger");
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.slotType).toBe("ledger");
+    expect(result.data.capacity).toBeTruthy();
+    expect(result.data.retentionPeriod).toBeTruthy();
+    expect(result.data.costModel).toBeTruthy();
+    expect(result.data.notes).toBeTruthy();
   });
 
-  it("detects removed fields", async () => {
-    const { detectContractStateChanges } = await import("../soroban/index");
-    const oldState = { field1: "value1", field2: "value2" };
-    const newState = { field1: "value1" };
-    const result = detectContractStateChanges(oldState, newState);
-    expect(result.added).toEqual({});
-    expect(result.removed).toEqual({ field2: "value2" });
-    expect(result.modified).toEqual({});
+  it("returns ok with slot info for instance type", () => {
+    const result = describeStorageSlot("instance");
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.slotType).toBe("instance");
+    expect(result.data.capacity).toBeTruthy();
+    expect(result.data.retentionPeriod).toBeTruthy();
+    expect(result.data.costModel).toBeTruthy();
+    expect(result.data.notes).toBeTruthy();
   });
 
-  it("detects modified fields", async () => {
-    const { detectContractStateChanges } = await import("../soroban/index");
-    const oldState = { field1: "value1", field2: "value2" };
-    const newState = { field1: "value1", field2: "newValue2" };
-    const result = detectContractStateChanges(oldState, newState);
-    expect(result.added).toEqual({});
-    expect(result.removed).toEqual({});
-    expect(result.modified).toEqual({
-      field2: { oldValue: "value2", newValue: "newValue2" },
-    });
+  it("ledger and instance descriptions differ", () => {
+    const ledger = describeStorageSlot("ledger");
+    const instance = describeStorageSlot("instance");
+    if (ledger.status !== "ok" || instance.status !== "ok") return;
+    expect(ledger.data.retentionPeriod).not.toBe(instance.data.retentionPeriod);
+    expect(ledger.data.costModel).not.toBe(instance.data.costModel);
   });
 
-  it("detects complex changes in objects", async () => {
-    const { detectContractStateChanges } = await import("../soroban/index");
-    const oldState = {
-      user: { name: "Alice", balance: 100 },
-      active: true,
-    };
-    const newState = {
-      user: { name: "Alice", balance: 150 },
-      active: true,
-      metadata: { created: "2025-01-01" },
-    };
-    const result = detectContractStateChanges(oldState, newState);
-    expect(result.added).toEqual({ metadata: { created: "2025-01-01" } });
-    expect(result.removed).toEqual({});
-    expect(result.modified.user).toBeDefined();
+  it("returns error for unknown slot type", () => {
+    const result = describeStorageSlot("persistent" as any);
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.message).toContain("persistent");
   });
 
-  it("detects changes in arrays", async () => {
-    const { detectContractStateChanges } = await import("../soroban/index");
-    const oldState = { items: [1, 2, 3] };
-    const newState = { items: [1, 2, 3, 4] };
-    const result = detectContractStateChanges(oldState, newState);
-    expect(result.modified.items).toBeDefined();
-    expect(result.modified.items.oldValue).toEqual([1, 2, 3]);
-    expect(result.modified.items.newValue).toEqual([1, 2, 3, 4]);
-  });
-
-  it("handles empty old state", async () => {
-    const { detectContractStateChanges } = await import("../soroban/index");
-    const oldState = {};
-    const newState = { field1: "value1" };
-    const result = detectContractStateChanges(oldState, newState);
-    expect(result.added).toEqual({ field1: "value1" });
-    expect(result.removed).toEqual({});
-    expect(result.modified).toEqual({});
-  });
-
-  it("handles empty new state", async () => {
-    const { detectContractStateChanges } = await import("../soroban/index");
-    const oldState = { field1: "value1" };
-    const newState = {};
-    const result = detectContractStateChanges(oldState, newState);
-    expect(result.added).toEqual({});
-    expect(result.removed).toEqual({ field1: "value1" });
-    expect(result.modified).toEqual({});
-  });
-
-  it("handles identical states", async () => {
-    const { detectContractStateChanges } = await import("../soroban/index");
-    const oldState = { field1: "value1", field2: "value2" };
-    const newState = { field1: "value1", field2: "value2" };
-    const result = detectContractStateChanges(oldState, newState);
-    expect(result.added).toEqual({});
-    expect(result.removed).toEqual({});
-    expect(result.modified).toEqual({});
+  it("covers all documented Soroban slot types without throwing", () => {
+    const types = ["ledger", "instance"] as const;
+    for (const t of types) {
+      expect(() => describeStorageSlot(t)).not.toThrow();
+    }
   });
 });

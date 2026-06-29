@@ -9,6 +9,8 @@ import {
 } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import { estimateFee } from "./estimateFee";
+import type { FeeEstimate } from "./estimateFee";
 
 import { validateIssuer } from "../shared/validateIssuer";
 import { isNetworkConnectivityError, isTimeoutError, isXdrInvalidError, toMessage, isNotFoundError, retryWithBackoff } from "../shared";
@@ -166,7 +168,7 @@ export async function buildPaymentTransaction(
   sourcePublicKey: string,
   params: PaymentParams,
   trustedIssuers?: string[] | null,
-): Promise<SorokitResult<string>> {
+): Promise<SorokitResult<string | FeeEstimate>> {
   const assetResult = resolveAsset(params.assetCode, params.assetIssuer);
   if (assetResult.status === "error") return assetResult;
 
@@ -232,7 +234,22 @@ export async function buildPaymentTransaction(
       updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
     }
 
-    return ok(tx.toXDR());
+    const xdr = tx.toXDR();
+
+    if (params.preview === true) {
+      if (!params.rpcUrl) {
+        return err(
+          SorokitErrorCode.TX_SIMULATE_FAILED,
+          "preview mode requires rpcUrl to be set in params",
+        );
+      }
+      return estimateFee(params.rpcUrl, horizonUrl, networkConfig, {
+        kind: "xdr",
+        transactionXdr: xdr,
+      });
+    }
+
+    return ok(xdr);
   } catch (cause) {
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,

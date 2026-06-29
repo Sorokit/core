@@ -6,6 +6,25 @@ export type SorokitMemo =
   | ReturnType<typeof Memo.hash>
   | ReturnType<typeof Memo.return>;
 
+export interface FeeHistoryPercentiles {
+  p10: number | null;
+  p25: number | null;
+  p50: number | null;
+  p75: number | null;
+  p90: number | null;
+}
+
+export interface FeeHistoryAnalytics {
+  windowSize: number;
+  count: number;
+  min: number | null;
+  max: number | null;
+  avg: number | null;
+  median: number | null;
+  stddev: number | null;
+  percentiles: FeeHistoryPercentiles;
+}
+
 const MAX_TEXT_MEMO_BYTES = 28;
 const UINT64_MAX = 18_446_744_073_709_551_615n;
 const HASH_HEX_PATTERN = /^[0-9a-fA-F]{64}$/;
@@ -27,6 +46,98 @@ function normalizeHash(hash: string | Buffer | Uint8Array): string | Buffer {
   }
 
   return Buffer.from(hash);
+}
+
+function parseTransactionFee(fee: string | number | undefined): number | null {
+  if (fee == null || fee === "") {
+    return null;
+  }
+
+  const parsed = typeof fee === "number" ? fee : Number.parseFloat(fee);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function calculatePercentiles(values: number[]): FeeHistoryPercentiles {
+  if (values.length === 0) {
+    return {
+      p10: null,
+      p25: null,
+      p50: null,
+      p75: null,
+      p90: null,
+    };
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const percentile = (ratio: number): number | null => {
+    if (sorted.length === 0) {
+      return null;
+    }
+
+    const index = Math.min(Math.floor(ratio * sorted.length), sorted.length - 1);
+    return sorted[index] ?? null;
+  };
+
+  return {
+    p10: percentile(0.1),
+    p25: percentile(0.25),
+    p50: percentile(0.5),
+    p75: percentile(0.75),
+    p90: percentile(0.9),
+  };
+}
+
+export function analyzeFeeHistory(
+  recentTransactions: Array<{ fee?: string | number }>,
+  windowSize: number,
+): FeeHistoryAnalytics {
+  const normalizedWindowSize = Number.isFinite(windowSize) && windowSize > 0 ? Math.floor(windowSize) : 0;
+  const window = normalizedWindowSize > 0
+    ? recentTransactions.slice(-normalizedWindowSize)
+    : recentTransactions;
+  const fees = window
+    .map((transaction) => parseTransactionFee(transaction.fee))
+    .filter((fee): fee is number => fee != null);
+
+  if (fees.length === 0) {
+    return {
+      windowSize: normalizedWindowSize,
+      count: 0,
+      min: null,
+      max: null,
+      avg: null,
+      median: null,
+      stddev: null,
+      percentiles: {
+        p10: null,
+        p25: null,
+        p50: null,
+        p75: null,
+        p90: null,
+      },
+    };
+  }
+
+  const sorted = [...fees].sort((a, b) => a - b);
+  const count = fees.length;
+  const sum = fees.reduce((acc, fee) => acc + fee, 0);
+  const avg = sum / count;
+  const median = count % 2 === 0
+    ? (sorted[count / 2 - 1]! + sorted[count / 2]!) / 2
+    : sorted[(count - 1) / 2]!;
+  const variance = fees.reduce((acc, fee) => acc + (fee - avg) ** 2, 0) / count;
+  const stddev = Math.sqrt(variance);
+
+  return {
+    windowSize: normalizedWindowSize,
+    count,
+    min: sorted[0] ?? null,
+    max: sorted[sorted.length - 1] ?? null,
+    avg,
+    median,
+    stddev,
+    percentiles: calculatePercentiles(fees),
+  };
 }
 
 export function createTextMemo(text: string): SorokitMemo {
