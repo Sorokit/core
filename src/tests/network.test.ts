@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { resolveNetwork } from "../network/resolveNetwork";
 import { getNetwork } from "../network/getNetwork";
 import { setNetwork } from "../network/setNetwork";
+import { checkNetworkHealth } from "../network";
 import { SorokitErrorCode } from "../shared/response";
 
 describe("network/resolveNetwork", () => {
@@ -90,5 +91,82 @@ describe("network/setNetwork (delegates to resolveNetwork)", () => {
     if (result.status === "ok") {
       expect(result.data.horizonUrl).toBe("https://custom.example.com");
     }
+  });
+});
+
+describe("network/checkNetworkHealth (#98)", () => {
+  it("reports healthy when both endpoints respond ok", async () => {
+    const fetchFn = vi.fn(async () => ({ ok: true, status: 200 })) as unknown as typeof fetch;
+    const result = await checkNetworkHealth(
+      "https://horizon.test",
+      "https://rpc.test",
+      { fetchFn },
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.status).toBe("healthy");
+    expect(result.data.horizon.reachable).toBe(true);
+    expect(result.data.rpc.reachable).toBe(true);
+    expect(result.data.issues).toEqual([]);
+  });
+
+  it("reports degraded when only one endpoint is reachable", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+      .mockResolvedValueOnce({ ok: false, status: 503 }) as unknown as typeof fetch;
+    const result = await checkNetworkHealth(
+      "https://horizon.test",
+      "https://rpc.test",
+      { fetchFn },
+    );
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.status).toBe("degraded");
+    expect(result.data.rpc.reachable).toBe(false);
+    expect(result.data.recommendations.length).toBeGreaterThan(0);
+  });
+
+  it("reports down when both endpoints fail", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    const result = await checkNetworkHealth(
+      "https://horizon.test",
+      "https://rpc.test",
+      { fetchFn },
+    );
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.status).toBe("down");
+    expect(result.data.horizon.reachable).toBe(false);
+    expect(result.data.rpc.reachable).toBe(false);
+    expect(result.data.issues.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("measures latency for each endpoint", async () => {
+    const fetchFn = vi.fn(async () => ({ ok: true, status: 200 })) as unknown as typeof fetch;
+    const result = await checkNetworkHealth(
+      "https://horizon.test",
+      "https://rpc.test",
+      { fetchFn },
+    );
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.horizon.latencyMs).not.toBeNull();
+    expect(result.data.rpc.latencyMs).not.toBeNull();
+  });
+
+  it("times out when a request hangs", async () => {
+    const fetchFn = vi.fn(async (_url: string, init?: { signal?: AbortSignal }) => {
+      return new Promise<{ ok: boolean; status: number }>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    }) as unknown as typeof fetch;
+    const result = await checkNetworkHealth(
+      "https://horizon.test",
+      "https://rpc.test",
+      { fetchFn, timeoutMs: 10 },
+    );
+    if (result.status !== "ok") throw new Error("expected ok");
+    expect(result.data.status).toBe("down");
+    expect(result.data.horizon.reachable).toBe(false);
   });
 });

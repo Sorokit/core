@@ -2,6 +2,11 @@ export { readContract } from "./readContract";
 export { decodeContractValue, encodeContractArgs } from "./contractEncoding";
 export { prepareContractCall } from "./prepareCall";
 export { simulateTransaction } from "./simulateTransaction";
+export { simulateContractSafe } from "./simulateContractSafe";
+export type {
+  SimulateContractSafeOptions,
+  SafeSimulationResult,
+} from "./simulateContractSafe";
 export { executeContract } from "./executeContract";
 export { invokeContract } from "./invokeContract";
 export { invokeBatchContracts } from "./invokeBatchContracts";
