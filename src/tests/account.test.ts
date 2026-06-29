@@ -862,4 +862,145 @@ describe("getMultipleAssetBalances — bulk account queries (#42)", () => {
     // Parallel: should be ~DELAY ms, not DELAY*N ms
     expect(elapsed).toBeLessThan(DELAY * keys.length * 0.9);
   }, 10_000);
+
+  describe("prefetchSequence", () => {
+    it("fetches and caches sequence number for 30 seconds", async () => {
+      const { prefetchSequence } = await import("../account/prefetchSequence");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const { clearSequenceCache } = await import("../shared/sequenceCache");
+
+      clearSequenceCache();
+
+      const mockLoadAccount = vi.fn().mockResolvedValue({
+        sequence: "123456789",
+        sequenceNumber: () => "123456789",
+      });
+
+      vi.spyOn(Horizon, "Server").mockImplementation(
+        () =>
+          ({
+            loadAccount: mockLoadAccount,
+          } as any),
+      );
+
+      const result = await prefetchSequence(HORIZON_URL, KEY_A);
+
+      expect(result.status).toBe("ok");
+      expect(result.data).toBe("123456789");
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+
+      // Second call should use cache
+      const result2 = await prefetchSequence(HORIZON_URL, KEY_A);
+      expect(result2.status).toBe("ok");
+      expect(result2.data).toBe("123456789");
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1); // No additional call
+    });
+
+    it("returns cached sequence without fetching if already cached", async () => {
+      const { prefetchSequence } = await import("../account/prefetchSequence");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const { cacheSequence, clearSequenceCache } = await import(
+        "../shared/sequenceCache",
+      );
+
+      clearSequenceCache();
+
+      // Pre-cache a sequence
+      cacheSequence(KEY_A, "987654321");
+
+      const mockLoadAccount = vi.fn().mockResolvedValue({
+        sequence: "123456789",
+        sequenceNumber: () => "123456789",
+      });
+
+      vi.spyOn(Horizon, "Server").mockImplementation(
+        () =>
+          ({
+            loadAccount: mockLoadAccount,
+          } as any),
+      );
+
+      const result = await prefetchSequence(HORIZON_URL, KEY_A);
+
+      expect(result.status).toBe("ok");
+      expect(result.data).toBe("987654321"); // Should return cached value
+      expect(mockLoadAccount).not.toHaveBeenCalled(); // Should not fetch
+    });
+
+    it("expires cache after 30 seconds", async () => {
+      const { prefetchSequence } = await import("../account/prefetchSequence");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const { cacheSequence, clearSequenceCache, _getSequenceCacheForTesting } =
+        await import("../shared/sequenceCache");
+
+      clearSequenceCache();
+
+      // Pre-cache with old timestamp
+      cacheSequence(KEY_A, "111111111");
+
+      // Manually expire the cache by manipulating the internal state
+      const _sequenceCache = _getSequenceCacheForTesting();
+      const entry = _sequenceCache.get(KEY_A);
+      if (entry) {
+        entry.cachedAt = Date.now() - 31_000; // 31 seconds ago
+      }
+
+      const mockLoadAccount = vi.fn().mockResolvedValue({
+        sequence: "222222222",
+        sequenceNumber: () => "222222222",
+      });
+
+      vi.spyOn(Horizon, "Server").mockImplementation(
+        () =>
+          ({
+            loadAccount: mockLoadAccount,
+          } as any),
+      );
+
+      const result = await prefetchSequence(HORIZON_URL, KEY_A);
+
+      expect(result.status).toBe("ok");
+      expect(result.data).toBe("222222222"); // Should fetch new value
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns error when account not found", async () => {
+      const { prefetchSequence } = await import("../account/prefetchSequence");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const { clearSequenceCache } = await import("../shared/sequenceCache");
+
+      clearSequenceCache();
+
+      const mockLoadAccount = vi.fn().mockRejectedValue(
+        new Error("404 Not Found"),
+      );
+
+      vi.spyOn(Horizon, "Server").mockImplementation(
+        () =>
+          ({
+            loadAccount: mockLoadAccount,
+          } as any),
+      );
+
+      const result = await prefetchSequence(HORIZON_URL, KEY_A);
+
+      expect(result.status).toBe("error");
+      expect(result.error.code).toBe("ACCOUNT_FETCH_FAILED");
+    });
+
+    it("clears cache when clearSequenceCache is called", async () => {
+      const { prefetchSequence } = await import("../account/prefetchSequence");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const { cacheSequence, clearSequenceCache, getCachedSequence } =
+        await import("../shared/sequenceCache");
+
+      clearSequenceCache();
+
+      cacheSequence(KEY_A, "555555555");
+      expect(getCachedSequence(KEY_A)).toBe("555555555");
+
+      clearSequenceCache();
+      expect(getCachedSequence(KEY_A)).toBeNull();
+    });
+  });
 });

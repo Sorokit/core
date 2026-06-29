@@ -15,6 +15,13 @@ export enum WalletType {
   RABET = "RABET",
 }
 
+export enum WalletConnectionState {
+  DISCONNECTED = "disconnected",
+  CONNECTING = "connecting",
+  CONNECTED = "connected",
+  DISCONNECTING = "disconnecting",
+}
+
 export interface WalletState {
   connected: boolean;
   publicKey: string | null;

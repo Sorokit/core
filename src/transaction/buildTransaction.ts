@@ -3,17 +3,21 @@ import {
   TransactionBuilder,
   Operation,
   Asset,
+  LiquidityPoolAsset,
   Memo,
   BASE_FEE,
   Account,
 } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import { estimateFee } from "./estimateFee";
+import type { FeeEstimate } from "./estimateFee";
 
 import { validateIssuer } from "../shared/validateIssuer";
 import { isNetworkConnectivityError, isTimeoutError, isXdrInvalidError, toMessage, isNotFoundError, retryWithBackoff } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
+import { getCachedSequence, cacheSequence, clearSequenceCache as clearSharedSequenceCache } from "../shared/sequenceCache";
 import type {
   MemoParams,
   PaymentParams,
@@ -26,31 +30,23 @@ import type {
   AtomicSwapParams,
 } from "./types";
 
-// ─── Sequence cache (shared across builders for autoFetchSequence) ────────────
-
-const SEQUENCE_CACHE_TTL_MS = 5_000;
-const _sequenceCache = new Map<string, { sequence: string; cachedAt: number }>();
+// ─── Sequence cache helpers (using shared 30s cache) ───────────────────────────
 
 function getSequenceCacheEntry(publicKey: string): Account | null {
-  const entry = _sequenceCache.get(publicKey);
-  if (!entry || Date.now() - entry.cachedAt > SEQUENCE_CACHE_TTL_MS) {
-    _sequenceCache.delete(publicKey);
+  const sequence = getCachedSequence(publicKey);
+  if (!sequence) {
     return null;
   }
-  return new Account(publicKey, entry.sequence);
+  return new Account(publicKey, sequence);
 }
 
 function updateSequenceCache(publicKey: string, postBuildSequence: string): void {
-  const existing = _sequenceCache.get(publicKey);
-  _sequenceCache.set(publicKey, {
-    sequence: postBuildSequence,
-    cachedAt: existing?.cachedAt ?? Date.now(),
-  });
+  cacheSequence(publicKey, postBuildSequence);
 }
 
-/** Clear the module-level sequence cache. Useful for test isolation. */
+/** Clear the shared sequence cache. Useful for test isolation. */
 export function clearSequenceCache(): void {
-  _sequenceCache.clear();
+  clearSharedSequenceCache();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -166,7 +162,7 @@ export async function buildPaymentTransaction(
   sourcePublicKey: string,
   params: PaymentParams,
   trustedIssuers?: string[] | null,
-): Promise<SorokitResult<string>> {
+): Promise<SorokitResult<string | FeeEstimate>> {
   const assetResult = resolveAsset(params.assetCode, params.assetIssuer);
   if (assetResult.status === "error") return assetResult;
 
@@ -232,7 +228,22 @@ export async function buildPaymentTransaction(
       updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
     }
 
-    return ok(tx.toXDR());
+    const xdr = tx.toXDR();
+
+    if (params.preview === true) {
+      if (!params.rpcUrl) {
+        return err(
+          SorokitErrorCode.TX_SIMULATE_FAILED,
+          "preview mode requires rpcUrl to be set in params",
+        );
+      }
+      return estimateFee(params.rpcUrl, horizonUrl, networkConfig, {
+        kind: "xdr",
+        transactionXdr: xdr,
+      });
+    }
+
+    return ok(xdr);
   } catch (cause) {
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
@@ -995,6 +1006,387 @@ export async function buildAccountMerge(
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
       describeTransactionBuildFailure("account merge", cause),
+      cause,
+    );
+  }
+}
+
+export interface CreateLiquidityPoolParams extends MemoParams {
+  /** Asset A in the liquidity pool (first asset) */
+  assetA: { assetCode?: string; assetIssuer?: string };
+  /** Asset B in the liquidity pool (second asset) */
+  assetB: { assetCode?: string; assetIssuer?: string };
+  /** Fee basis points (e.g., 30 for 0.3% fee) */
+  fee: number;
+  autoFetchSequence?: boolean;
+}
+
+export interface DepositLiquidityPoolParams extends MemoParams {
+  /** Liquidity pool ID */
+  liquidityPoolId: string;
+  /** Maximum amount of asset A to deposit */
+  maxAmountA: string;
+  /** Maximum amount of asset B to deposit */
+  maxAmountB: string;
+  /** Minimum price (depositA/depositB) */
+  minPrice: string;
+  /** Maximum price (depositA/depositB) */
+  maxPrice: string;
+  autoFetchSequence?: boolean;
+}
+
+export interface WithdrawLiquidityPoolParams extends MemoParams {
+  /** Liquidity pool ID */
+  liquidityPoolId: string;
+  /** Amount of pool shares to withdraw */
+  amount: string;
+  /** Minimum amount of asset A to receive */
+  minAmountA: string;
+  /** Minimum amount of asset B to receive */
+  minAmountB: string;
+  autoFetchSequence?: boolean;
+}
+
+/**
+ * Build an unsigned transaction to create a liquidity pool.
+ *
+ * Creates a trustline to a liquidity pool, enabling the account to deposit
+ * assets and receive pool shares. The pool is identified by its asset pair
+ * and fee rate.
+ *
+ * @param horizonUrl - Base URL of the Horizon server.
+ * @param networkConfig - Resolved network configuration.
+ * @param sourcePublicKey - G-address of the account creating the pool trustline.
+ * @param params - Pool parameters: assets, fee, optional memo.
+ * @param trustedIssuers - Optional whitelist of trusted issuer G-addresses.
+ * @returns `ok(xdr)` — unsigned transaction XDR, or `error(TX_BUILD_FAILED)`.
+ *
+ * @example
+ * const result = await buildCreateLiquidityPool(horizonUrl, networkConfig, sourceKey, {
+ *   assetA: { assetCode: "USDC", assetIssuer: "GA5ZS..." },
+ *   assetB: { assetCode: "XLM" },
+ *   fee: 30,
+ * });
+ */
+export async function buildCreateLiquidityPool(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  params: CreateLiquidityPoolParams,
+  trustedIssuers?: string[] | null,
+): Promise<SorokitResult<string>> {
+  // Validate assets
+  const assetAResult = resolveAsset(params.assetA.assetCode, params.assetA.assetIssuer);
+  if (assetAResult.status === "error") return assetAResult;
+
+  const assetBResult = resolveAsset(params.assetB.assetCode, params.assetB.assetIssuer);
+  if (assetBResult.status === "error") return assetBResult;
+
+  // Validate fee
+  if (params.fee < 0 || params.fee > 10000 || !Number.isInteger(params.fee)) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Liquidity pool fee must be an integer between 0 and 10000 basis points",
+    );
+  }
+
+  // Validate issuers against whitelist if configured
+  if (trustedIssuers !== null && trustedIssuers !== undefined && trustedIssuers.length > 0) {
+    try {
+      if (params.assetA.assetCode && params.assetA.assetCode.toUpperCase() !== "XLM" && params.assetA.assetIssuer) {
+        validateIssuer(params.assetA.assetIssuer, trustedIssuers);
+      }
+      if (params.assetB.assetCode && params.assetB.assetCode.toUpperCase() !== "XLM" && params.assetB.assetIssuer) {
+        validateIssuer(params.assetB.assetIssuer, trustedIssuers);
+      }
+    } catch (cause: unknown) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        (cause as Error)?.message || String(cause),
+        cause,
+      );
+    }
+  }
+
+  const memoResult = validateMemoParams(params);
+  if (memoResult.status === "error") return memoResult;
+
+  try {
+    const useCache = params.autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
+
+    // Create liquidity pool asset
+    const liquidityPoolAsset = new LiquidityPoolAsset(
+      assetAResult.data,
+      assetBResult.data,
+      params.fee,
+    );
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    })
+      .addOperation(
+        Operation.changeTrust({
+          asset: liquidityPoolAsset,
+        }),
+      )
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
+
+    if (memoResult.data) {
+      builder.addMemo(memoResult.data);
+    }
+
+    const tx = builder.build();
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
+
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("create liquidity pool", cause),
+      cause,
+    );
+  }
+}
+
+/**
+ * Build an unsigned transaction to deposit assets into a liquidity pool.
+ *
+ * Deposits assets into an existing liquidity pool in exchange for pool shares.
+ * The actual amounts deposited depend on the current pool reserves. Use minPrice
+ * and maxPrice to control slippage.
+ *
+ * @param horizonUrl - Base URL of the Horizon server.
+ * @param networkConfig - Resolved network configuration.
+ * @param sourcePublicKey - G-address of the account depositing assets.
+ * @param params - Deposit parameters: pool ID, amounts, price bounds, optional memo.
+ * @returns `ok(xdr)` — unsigned transaction XDR, or `error(TX_BUILD_FAILED)`.
+ *
+ * @example
+ * const result = await buildDepositLiquidityPool(horizonUrl, networkConfig, sourceKey, {
+ *   liquidityPoolId: "abc123...",
+ *   maxAmountA: "100",
+ *   maxAmountB: "200",
+ *   minPrice: "0.45",
+ *   maxPrice: "0.55",
+ * });
+ */
+export async function buildDepositLiquidityPool(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  params: DepositLiquidityPoolParams,
+): Promise<SorokitResult<string>> {
+  // Validate amounts
+  if (!params.maxAmountA || !params.maxAmountB) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Both maxAmountA and maxAmountB are required for liquidity pool deposit",
+    );
+  }
+
+  if (parseFloat(params.maxAmountA) <= 0 || parseFloat(params.maxAmountB) <= 0) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Deposit amounts must be positive numbers",
+    );
+  }
+
+  // Validate price bounds
+  if (!params.minPrice || !params.maxPrice) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Both minPrice and maxPrice are required for liquidity pool deposit",
+    );
+  }
+
+  if (parseFloat(params.minPrice) <= 0 || parseFloat(params.maxPrice) <= 0) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Price bounds must be positive numbers",
+    );
+  }
+
+  if (parseFloat(params.minPrice) > parseFloat(params.maxPrice)) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "minPrice must be less than or equal to maxPrice",
+    );
+  }
+
+  const memoResult = validateMemoParams(params);
+  if (memoResult.status === "error") return memoResult;
+
+  try {
+    const useCache = params.autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    })
+      .addOperation(
+        Operation.liquidityPoolDeposit({
+          liquidityPoolId: params.liquidityPoolId,
+          maxAmountA: params.maxAmountA,
+          maxAmountB: params.maxAmountB,
+          minPrice: params.minPrice,
+          maxPrice: params.maxPrice,
+        }),
+      )
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
+
+    if (memoResult.data) {
+      builder.addMemo(memoResult.data);
+    }
+
+    const tx = builder.build();
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
+
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("liquidity pool deposit", cause),
+      cause,
+    );
+  }
+}
+
+/**
+ * Build an unsigned transaction to withdraw assets from a liquidity pool.
+ *
+ * Redeems pool shares to withdraw a proportional amount of the underlying assets.
+ * Use minAmountA and minAmountB to protect against slippage.
+ *
+ * @param horizonUrl - Base URL of the Horizon server.
+ * @param networkConfig - Resolved network configuration.
+ * @param sourcePublicKey - G-address of the account withdrawing assets.
+ * @param params - Withdrawal parameters: pool ID, share amount, minimum amounts, optional memo.
+ * @returns `ok(xdr)` — unsigned transaction XDR, or `error(TX_BUILD_FAILED)`.
+ *
+ * @example
+ * const result = await buildWithdrawLiquidityPool(horizonUrl, networkConfig, sourceKey, {
+ *   liquidityPoolId: "abc123...",
+ *   amount: "50",
+ *   minAmountA: "90",
+ *   minAmountB: "180",
+ * });
+ */
+export async function buildWithdrawLiquidityPool(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  params: WithdrawLiquidityPoolParams,
+): Promise<SorokitResult<string>> {
+  // Validate amounts
+  if (!params.amount) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Amount of pool shares to withdraw is required",
+    );
+  }
+
+  if (parseFloat(params.amount) <= 0) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Withdrawal amount must be a positive number",
+    );
+  }
+
+  if (!params.minAmountA || !params.minAmountB) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Both minAmountA and minAmountB are required for liquidity pool withdrawal",
+    );
+  }
+
+  if (parseFloat(params.minAmountA) < 0 || parseFloat(params.minAmountB) < 0) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "Minimum amounts must be non-negative numbers",
+    );
+  }
+
+  const memoResult = validateMemoParams(params);
+  if (memoResult.status === "error") return memoResult;
+
+  try {
+    const useCache = params.autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    })
+      .addOperation(
+        Operation.liquidityPoolWithdraw({
+          liquidityPoolId: params.liquidityPoolId,
+          amount: params.amount,
+          minAmountA: params.minAmountA,
+          minAmountB: params.minAmountB,
+        }),
+      )
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
+
+    if (memoResult.data) {
+      builder.addMemo(memoResult.data);
+    }
+
+    const tx = builder.build();
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
+
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("liquidity pool withdrawal", cause),
       cause,
     );
   }

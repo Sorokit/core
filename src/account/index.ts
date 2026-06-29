@@ -5,6 +5,7 @@ export { getAssetBalances } from "./getAssetBalances";
 export { getMultipleAssetBalances } from "./getMultipleAssetBalances";
 export { streamAccount } from "./streamAccount";
 export { evaluateBalanceAlerts } from "./balanceAlerts";
+export { prefetchSequence } from "./prefetchSequence";
 export type {
   AccountInfo,
   AssetBalance,

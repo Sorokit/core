@@ -144,3 +144,9 @@ export interface ParsedContractResult {
   type: string;
   value: unknown;
 }
+
+export interface ContractStateChangeReport {
+  added: Record<string, unknown>;
+  removed: Record<string, unknown>;
+  modified: Record<string, { oldValue: unknown; newValue: unknown }>;
+}
