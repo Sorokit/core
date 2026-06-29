@@ -22,8 +22,9 @@ import {
   buildPaymentTransaction,
   buildCreateAccountTransaction,
   buildTrustlineTransaction,
-  buildPathPayment,
+  buildAccountMerge,
 } from "../transaction/buildTransaction";
+import type { AccountMergeOptions } from "../transaction/buildTransaction";
 import { submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
 import { estimateFee } from "../transaction/estimateFee";
@@ -200,10 +201,11 @@ export interface SorokitClient {
       sourcePublicKey: string,
       params: TrustlineParams,
     ): Promise<SorokitResult<string>>;
-    /** Build a path payment transaction XDR (unsigned) */
-    buildPathPayment(
+    /** Build an account merge transaction XDR (unsigned) */
+    buildAccountMerge(
       sourcePublicKey: string,
-      params: PathPaymentParams,
+      destinationPublicKey: string,
+      options?: AccountMergeOptions,
     ): Promise<SorokitResult<string>>;
     /** Submit a signed transaction XDR */
     submit(signedXdr: string): Promise<SorokitResult<TransactionResult>>;
@@ -517,18 +519,18 @@ export function createSorokitClient(
             );
           }
         ).then(applyTx),
-      buildPathPayment: (sourcePublicKey, params) =>
+      buildAccountMerge: (sourcePublicKey, destinationPublicKey, options) =>
         withErrorHandling(
           errorHandler,
-          { functionName: "transaction.buildPathPayment", params: { sourcePublicKey, ...params } },
+          { functionName: "transaction.buildAccountMerge", params: { sourcePublicKey, destinationPublicKey, options } },
           () => {
-            logger.debug("transaction.buildPathPayment", { sourcePublicKey });
-            return buildPathPayment(
+            logger.debug("transaction.buildAccountMerge", { sourcePublicKey, destinationPublicKey });
+            return buildAccountMerge(
               horizonUrl,
               networkConfig,
               sourcePublicKey,
-              params,
-              client.trustedIssuers,
+              destinationPublicKey,
+              options,
             );
           }
         ).then(applyTx),
