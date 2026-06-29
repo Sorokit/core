@@ -563,7 +563,7 @@ describe("estimateFee — surge detection", () => {
 
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
-      expect(result.data.surge).toBeUndefined();
+      expect(result.data.surge).toBeUndefined()
     }
   });
 
