@@ -36,7 +36,17 @@ import {
   createIdMemo,
   createReturnMemo,
   createTextMemo,
+  nativeAsset,
+  usdcAsset,
+  usdtAsset,
+  usdt_assetAsset,
+  eurcAsset,
+  ativeAsset,
+  USDC_MAINNET_ISSUER,
+  USDT_MAINNET_ISSUER,
+  EURC_MAINNET_ISSUER,
 } from "../transaction";
+
 
 const {
   mockSimulateTransaction,
@@ -2417,3 +2427,51 @@ describe("validateTransactionXdr (#99)", () => {
     expect(result.data.errors.some((e) => e.code === "CUSTOM_FAIL")).toBe(true);
   });
 });
+
+describe("Asset Factories", () => {
+  it("creates a native asset", () => {
+    const asset = nativeAsset();
+    expect(asset.isNative()).toBe(true);
+
+    const assetTypo = ativeAsset();
+    expect(assetTypo.isNative()).toBe(true);
+  });
+
+  it("creates a USDC asset with mainnet or custom issuer", () => {
+    const asset = usdcAsset();
+    expect(asset.getCode()).toBe("USDC");
+    expect(asset.getIssuer()).toBe(USDC_MAINNET_ISSUER);
+
+    const customIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const customAsset = usdcAsset(customIssuer);
+    expect(customAsset.getCode()).toBe("USDC");
+    expect(customAsset.getIssuer()).toBe(customIssuer);
+  });
+
+  it("creates a USDT asset with mainnet or custom issuer", () => {
+    const asset = usdtAsset();
+    expect(asset.getCode()).toBe("USDT");
+    expect(asset.getIssuer()).toBe(USDT_MAINNET_ISSUER);
+
+    const customIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const customAsset = usdtAsset(customIssuer);
+    expect(customAsset.getCode()).toBe("USDT");
+    expect(customAsset.getIssuer()).toBe(customIssuer);
+
+    const aliasAsset = usdt_assetAsset();
+    expect(aliasAsset.getCode()).toBe("USDT");
+    expect(aliasAsset.getIssuer()).toBe(USDT_MAINNET_ISSUER);
+  });
+
+  it("creates a EURC asset with mainnet or custom issuer", () => {
+    const asset = eurcAsset();
+    expect(asset.getCode()).toBe("EURC");
+    expect(asset.getIssuer()).toBe(EURC_MAINNET_ISSUER);
+
+    const customIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const customAsset = eurcAsset(customIssuer);
+    expect(customAsset.getCode()).toBe("EURC");
+    expect(customAsset.getIssuer()).toBe(customIssuer);
+  });
+});
+

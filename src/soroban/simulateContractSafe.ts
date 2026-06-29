@@ -48,7 +48,7 @@ export async function simulateContractSafe(
         fee: fallbackFee,
         error: result.data.error,
         fromFallback: true,
-      });
+      } as SafeSimulationResult);
     }
     return ok({ ...result.data, fromFallback: false });
   }
@@ -59,8 +59,8 @@ export async function simulateContractSafe(
       fee: fallbackFee,
       error: result.error.message,
       fromFallback: true,
-    });
+    } as SafeSimulationResult);
   }
 
-  return result;
+  return result as any;
 }

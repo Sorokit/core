@@ -83,6 +83,17 @@ export {
   createTextMemo,
   DEFAULT_VALIDATION_RULES,
   validateTransactionXdr,
+  USDC_MAINNET_ISSUER,
+  USDC_TESTNET_ISSUER,
+  USDT_MAINNET_ISSUER,
+  EURC_MAINNET_ISSUER,
+  EURC_TESTNET_ISSUER,
+  nativeAsset,
+  usdcAsset,
+  usdtAsset,
+  usdt_assetAsset,
+  eurcAsset,
+  ativeAsset,
 } from "./transaction";
 export type { SorokitMemo } from "./transaction";
 export type {
