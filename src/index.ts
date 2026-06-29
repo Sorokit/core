@@ -117,7 +117,8 @@ export type {
 } from "./transaction/estimateFee";
 export { calculateFeeTiers } from "./transaction/estimateFee";
 export { streamTransactions } from "./transaction/streamTransactions";
-export { buildPathPayment, checkTrustlines, buildBulkTrustlines } from "./transaction/index";
+export { buildPathPayment, checkTrustlines, buildBulkTrustlines, prepareAccountCreation } from "./transaction/index";
+export type { PrepareAccountCreationOptions } from "./transaction/index";
 export type {
   TransactionPage,
   TransactionStreamConfig,
