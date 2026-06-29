@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type SpyInstance } from "vitest";
 import { createHash } from "crypto";
 import { estimateFee } from "../transaction/estimateFee";
 import type { FeeEstimate } from "../transaction/estimateFee";
@@ -59,6 +59,8 @@ const {
   mockAddOperation,
   mockAddMemo,
   mockSetTimeout,
+  mockStrictSendPathsCall,
+  mockStrictReceivePathsCall,
 } = vi.hoisted(() => ({
   mockLoadAccount: vi.fn(),
   mockBuild: vi.fn(),
@@ -66,6 +68,8 @@ const {
   mockAddOperation: vi.fn(),
   mockAddMemo: vi.fn(),
   mockSetTimeout: vi.fn(),
+  mockStrictSendPathsCall: vi.fn(),
+  mockStrictReceivePathsCall: vi.fn(),
 }));
 
 // ─── Hoisted mocks (must be defined before vi.mock is hoisted) ────────────────
@@ -91,20 +95,25 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
       transactionBuilderInstances.push(this);
     }
 
-    addOperation() {
+    addOperation(...args: any[]) {
+      mockAddOperation(...args);
       return this;
     }
 
-    setTimeout() {
+    setTimeout(...args: any[]) {
+      mockSetTimeout(...args);
       return this;
     }
 
     addMemo(memo: unknown) {
+      mockAddMemo(memo);
       this.memo = memo;
       return this;
     }
 
-    build() {
+    build(...args: any[]) {
+      const customBuild = mockBuild(...args);
+      if (customBuild) return customBuild;
       return { toXDR: () => MOCK_XDR };
     }
   }
@@ -135,18 +144,15 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
         }),
         loadAccount: mockLoadAccount,
         submitTransaction: mockSubmitTransaction,
+        strictSendPaths: vi.fn(() => ({
+          call: mockStrictSendPathsCall,
+        })),
+        strictReceivePaths: vi.fn(() => ({
+          call: mockStrictReceivePathsCall,
+        })),
       })),
     },
-    TransactionBuilder: {
-      ...actual.TransactionBuilder,
-      fromXDR: mocks.fromXDR,
-      mockImplementation: vi.fn(() => ({
-        addOperation: mockAddOperation,
-        addMemo: mockAddMemo,
-        setTimeout: mockSetTimeout,
-        build: mockBuild,
-      })),
-    },
+
     rpc: {
       ...actual.rpc,
       Server: vi.fn().mockImplementation(() => ({
@@ -1716,9 +1722,9 @@ function fakeAccount() {
 }
 
 describe("buildReverseTransaction (#45)", () => {
-  let paymentSpy: ReturnType<typeof vi.spyOn>;
-  let changeTrustSpy: ReturnType<typeof vi.spyOn>;
-  let accountMergeSpy: ReturnType<typeof vi.spyOn>;
+  let paymentSpy: any;
+  let changeTrustSpy: any;
+  let accountMergeSpy: any;
 
   beforeEach(() => {
     mocks.loadAccount.mockResolvedValue(fakeAccount());
@@ -1860,8 +1866,14 @@ describe("buildReverseTransaction (#45)", () => {
 });
 
 describe("buildPathPayment (#47)", () => {
-  let strictSendSpy: ReturnType<typeof vi.spyOn>;
-  let strictReceiveSpy: ReturnType<typeof vi.spyOn>;
+  let strictSendSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictSend>,
+    ReturnType<typeof Operation.pathPaymentStrictSend>
+  >;
+  let strictReceiveSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictReceive>,
+    ReturnType<typeof Operation.pathPaymentStrictReceive>
+  >;
 
   const baseParams: PathPaymentParams = {
     destination: DST,
@@ -1933,11 +1945,61 @@ describe("buildPathPayment (#47)", () => {
     expect(result.status).toBe("error");
     if (result.status === "error") expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
   });
+
+  it("dynamically finds strict-send paths when path and slippageAmount are omitted", async () => {
+    mockStrictSendPathsCall.mockResolvedValueOnce({
+      records: [
+        {
+          destination_amount: "98",
+          path: [{ code: "BTC", issuer: "GBTC" }]
+        }
+      ]
+    });
+    
+    const paramsWithoutPath = { ...baseParams };
+    delete paramsWithoutPath.slippageAmount;
+    delete paramsWithoutPath.path;
+
+    const result = await buildPathPayment(networkConfig.horizonUrl, networkConfig, SRC, paramsWithoutPath);
+    expect(result.status).toBe("ok");
+    expect(mockStrictSendPathsCall).toHaveBeenCalledOnce();
+    expect(strictSendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ destMin: "98", path: expect.arrayContaining([expect.anything()]) }),
+    );
+  });
+
+  it("dynamically finds strict-receive paths when path and slippageAmount are omitted", async () => {
+    mockStrictReceivePathsCall.mockResolvedValueOnce({
+      records: [
+        {
+          source_amount: "105",
+          path: [{ code: "ETH", issuer: "GETH" }]
+        }
+      ]
+    });
+    
+    const paramsWithoutPath: PathPaymentParams = { ...baseParams, mode: "strict-receive" };
+    delete paramsWithoutPath.slippageAmount;
+    delete paramsWithoutPath.path;
+
+    const result = await buildPathPayment(networkConfig.horizonUrl, networkConfig, SRC, paramsWithoutPath);
+    expect(result.status).toBe("ok");
+    expect(mockStrictReceivePathsCall).toHaveBeenCalledOnce();
+    expect(strictReceiveSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ sendMax: "105", path: expect.arrayContaining([expect.anything()]) }),
+    );
+  });
 });
 
 describe("buildAtomicSwap (#47)", () => {
-  let strictSendSpy: ReturnType<typeof vi.spyOn>;
-  let strictReceiveSpy: ReturnType<typeof vi.spyOn>;
+  let strictSendSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictSend>,
+    ReturnType<typeof Operation.pathPaymentStrictSend>
+  >;
+  let strictReceiveSpy: SpyInstance<
+    Parameters<typeof Operation.pathPaymentStrictReceive>,
+    ReturnType<typeof Operation.pathPaymentStrictReceive>
+  >;
 
   const legA: PathPaymentParams = {
     destination: DST,
