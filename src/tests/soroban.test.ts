@@ -1374,7 +1374,7 @@ function makeInvocation(
   return { contractId, method, publicKey: Keypair.random().publicKey() };
 }
 
-describe("invokeBatchContracts (#46)", () => {
+describe("invokeBatchContracts (#104)", () => {
   beforeEach(() => {
     mockInvokeContract.mockReset();
   });
@@ -1501,6 +1501,32 @@ describe("invokeBatchContracts (#46)", () => {
       pollConfig,
       logger,
     );
+  });
+
+  it("executes invocations sequentially when parallel is false", async () => {
+    const order: number[] = [];
+    mockInvokeContract.mockImplementation(async () => {
+      const callIndex = mockInvokeContract.mock.calls.length;
+      order.push(callIndex);
+      return sorokitOk(`hash-${callIndex}`);
+    });
+
+    const results = await invokeBatchContracts(
+      RPC,
+      NETWORK,
+      HORIZON,
+      [
+        makeInvocation(CONTRACT_A, "first"),
+        makeInvocation(CONTRACT_B, "second"),
+      ],
+      SIGN_FN,
+      { parallel: false },
+    );
+
+    expect(order).toEqual([1, 2]);
+    expect(results).toHaveLength(2);
+    expect(results[0].status).toBe("ok");
+    expect(results[1].status).toBe("ok");
   });
 });
 
