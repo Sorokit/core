@@ -1,3 +1,5 @@
+import type { ContractStateChangeReport } from "./types";
+
 export { readContract } from "./readContract";
 export { decodeContractValue, encodeContractArgs } from "./contractEncoding";
 export { parseContractResult } from "./parseContractResult";
@@ -43,6 +45,7 @@ export type {
   SimulateTransactionResult,
   BatchContractInvocation,
   BatchContractResult,
+  ContractStateChangeReport,
 } from "./types";
 export { describeStorageSlot } from "./storageSlot";
 export type { StorageSlotInfo, StorageSlotType } from "./storageSlot";

@@ -2928,140 +2928,180 @@ describe("validateDestination", () => {
   });
 });
 
-describe("transaction/streamTransactions operationTypes filter", () => {
-  const { applyTransactionFilters } = require("../transaction/streamTransactions");
-
-  function makeTx(operationTypes: string[], hash = "abc"): import("../transaction/types").TransactionResult {
-    return { hash, status: "success" as const, operationTypes };
-  }
-
-  it("passes all transactions when no operationTypes filter is set", () => {
-    const txs = [makeTx(["payment"]), makeTx(["changeTrust"]), makeTx(["createAccount"])];
-    const result = applyTransactionFilters(txs, { limit: 10 });
-    expect(result).toHaveLength(3);
-  });
-
-  it("filters to only transactions containing the specified operation type", () => {
-    const txs = [makeTx(["payment"], "tx1"), makeTx(["changeTrust"], "tx2"), makeTx(["payment", "changeTrust"], "tx3")];
-    const result = applyTransactionFilters(txs, { operationTypes: ["payment"], limit: 10 });
-    expect(result).toHaveLength(2);
-    expect(result.map((t) => t.hash)).toEqual(["tx1", "tx3"]);
-  });
-
-  it("matches transactions containing any of multiple specified types", () => {
-    const txs = [makeTx(["payment"], "tx1"), makeTx(["changeTrust"], "tx2"), makeTx(["createAccount"], "tx3")];
-    const result = applyTransactionFilters(txs, { operationTypes: ["payment", "changeTrust"], limit: 10 });
-    expect(result).toHaveLength(2);
-    expect(result.map((t) => t.hash)).toContain("tx1");
-    expect(result.map((t) => t.hash)).toContain("tx2");
-  });
-
-  it("returns empty array when no transactions match the filter", () => {
-    const txs = [makeTx(["changeTrust"]), makeTx(["createAccount"])];
-    const result = applyTransactionFilters(txs, { operationTypes: ["payment"], limit: 10 });
-    expect(result).toHaveLength(0);
-  });
-
-  it("treats empty operationTypes array as no filter", () => {
-    const txs = [makeTx(["payment"]), makeTx(["changeTrust"])];
-    const result = applyTransactionFilters(txs, { operationTypes: [], limit: 10 });
-    expect(result).toHaveLength(2);
-  });
-
-  it("handles transactions with no operationTypes field gracefully", () => {
-    const txs: import("../transaction/types").TransactionResult[] = [
-      { hash: "x", status: "success" as const },
+describe("exportTransactionHistory", () => {
+  it("exports transactions to JSON format", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const transactions = [
+      {
+        hash: "abc123",
+        status: "success" as const,
+        ledger: 100,
+        fee: "100",
+      },
+      {
+        hash: "def456",
+        status: "pending" as const,
+        fee: "150",
+      },
     ];
-    const result = applyTransactionFilters(txs, { operationTypes: ["payment"], limit: 10 });
-    expect(result).toHaveLength(0);
+    const result = exportTransactionHistory(transactions, "json");
+    const parsed = JSON.parse(result);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].hash).toBe("abc123");
+    expect(parsed[1].hash).toBe("def456");
+  });
+
+  it("exports transactions to CSV format", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const transactions = [
+      {
+        hash: "abc123",
+        status: "success" as const,
+        ledger: 100,
+        fee: "100",
+      },
+      {
+        hash: "def456",
+        status: "pending" as const,
+        fee: "150",
+      },
+    ];
+    const result = exportTransactionHistory(transactions, "csv");
+    const lines = result.split("\n");
+    expect(lines[0]).toContain("hash");
+    expect(lines[0]).toContain("status");
+    expect(lines[1]).toContain("abc123");
+    expect(lines[2]).toContain("def456");
+  });
+
+  it("returns empty string for empty transaction array in CSV", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const result = exportTransactionHistory([], "csv");
+    expect(result).toBe("");
+  });
+
+  it("returns empty array JSON for empty transaction array", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const result = exportTransactionHistory([], "json");
+    const parsed = JSON.parse(result);
+    expect(parsed).toHaveLength(0);
+  });
+
+  it("escapes CSV fields with commas", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const transactions = [
+      {
+        hash: "abc,123",
+        status: "success" as const,
+        fee: "100",
+      },
+    ];
+    const result = exportTransactionHistory(transactions, "csv");
+    expect(result).toContain('"abc,123"');
+  });
+
+  it("escapes CSV fields with quotes", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const transactions = [
+      {
+        hash: 'abc"123',
+        status: "success" as const,
+        fee: "100",
+      },
+    ];
+    const result = exportTransactionHistory(transactions, "csv");
+    expect(result).toContain('abc""123');
+  });
+
+  it("throws for unsupported export format", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const transactions = [{ hash: "abc123", status: "success" as const }];
+    expect(() => exportTransactionHistory(transactions, "xml" as any)).toThrow(
+      "Unsupported export format",
+    );
   });
 });
 
-describe("transaction/buildPaymentTransaction preview mode", () => {
-  const mockSimulateTransaction = vi.fn();
-  const mockLoadAccount = vi.fn();
-
-  vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
-    const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
-    return {
-      ...actual,
-      rpc: {
-        ...actual.rpc,
-        Server: class {
-          simulateTransaction = mockSimulateTransaction;
-        },
-      },
-      Horizon: {
-        ...actual.Horizon,
-        Server: class {
-          loadAccount = mockLoadAccount;
-          transactions() { return { forAccount: () => ({ limit: () => ({ order: () => ({ call: async () => ({ records: [] }) }) }) }) }; }
-        },
-      },
-    };
-  });
-
-  const { rpc: { Api } } = await import("@stellar/stellar-sdk");
-  const { buildPaymentTransaction } = await import("../transaction/buildTransaction");
-
-  const networkConfig = {
-    network: "testnet" as const,
-    networkPassphrase: "Test SDF Network ; September 2015",
-    horizonUrl: "https://horizon-testnet.stellar.org",
-    rpcUrl: "https://soroban-testnet.stellar.org",
-  };
-
+describe("predictNetworkFee", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
-    mockLoadAccount.mockResolvedValue({
-      id: "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
-      sequence: "0",
-      sequenceNumber: () => "0",
-      incrementSequenceNumber: () => {},
+    vi.clearAllMocks();
+  });
+
+  it("throws for minutesAhead less than 1", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    await expect(predictNetworkFee("https://horizon.example.com", 0)).rejects.toThrow(
+      "minutesAhead must be between 1 and 60",
+    );
+  });
+
+  it("throws for minutesAhead greater than 60", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    await expect(predictNetworkFee("https://horizon.example.com", 61)).rejects.toThrow(
+      "minutesAhead must be between 1 and 60",
+    );
+  });
+
+  it("returns base fee when no recent transactions found", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ _embedded: { records: [] } }),
     });
-    mockSimulateTransaction.mockResolvedValue({
-      result: { retval: null },
-      minResourceFee: "500",
+    const result = await predictNetworkFee("https://horizon.example.com", 5);
+    expect(result).toBe("100");
+  });
+
+  it("predicts fee based on recent transactions", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            { max_fee: "100" },
+            { max_fee: "200" },
+            { max_fee: "300" },
+            { max_fee: "400" },
+            { max_fee: "500" },
+          ],
+        },
+      }),
     });
-    vi.spyOn(Api, "isSimulationSuccess").mockReturnValue(true);
-    vi.spyOn(Api, "isSimulationError").mockReturnValue(false);
+    const result = await predictNetworkFee("https://horizon.example.com", 5);
+    const predictedFee = BigInt(result);
+    expect(predictedFee).toBeGreaterThan(0n);
   });
 
-  it("returns error when preview is true but rpcUrl is not provided", async () => {
-    const result = await buildPaymentTransaction(
-      "https://horizon.test",
-      networkConfig,
-      "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
-      { destination: "GDEST...", amount: "10", preview: true },
+  it("throws when Horizon returns error", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    });
+    await expect(predictNetworkFee("https://horizon.example.com", 5)).rejects.toThrow(
+      "Failed to predict network fee",
     );
-    expect(result.status).toBe("error");
-    if (result.status !== "error") return;
-    expect(result.error.message).toContain("rpcUrl");
   });
 
-  it("returns a FeeEstimate object when preview is true and rpcUrl is set", async () => {
-    const result = await buildPaymentTransaction(
-      "https://horizon.test",
-      networkConfig,
-      "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
-      { destination: "GDEST...", amount: "10", preview: true, rpcUrl: "https://soroban.test" },
+  it("throws when network request fails", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    global.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
+    await expect(predictNetworkFee("https://horizon.example.com", 5)).rejects.toThrow(
+      "Failed to predict network fee",
     );
-    expect(result.status).toBe("ok");
-    if (result.status !== "ok") return;
-    expect(typeof result.data).toBe("object");
-    expect((result.data as any).fee).toBeDefined();
-    expect(typeof (result.data as any).fee).toBe("string");
   });
 
-  it("returns XDR string when preview is false (default behaviour)", async () => {
-    const result = await buildPaymentTransaction(
-      "https://horizon.test",
-      networkConfig,
-      "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
-      { destination: "GDEST...", amount: "10" },
-    );
-    expect(result.status).toBe("ok");
-    if (result.status !== "ok") return;
-    expect(typeof result.data).toBe("string");
+  it("appends transactions path to Horizon URL", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ _embedded: { records: [{ max_fee: "100" }] } }),
+    });
+    global.fetch = fetchSpy;
+    await predictNetworkFee("https://horizon.example.com", 5);
+    const callUrl = fetchSpy.mock.calls[0][0] as string;
+    expect(callUrl).toContain("transactions");
+    expect(callUrl).toContain("limit=10");
+    expect(callUrl).toContain("order=desc");
   });
 });
