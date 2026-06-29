@@ -2061,3 +2061,51 @@ describe("parseContractResult (#119)", () => {
     ).toThrow(TypeError);
   });
 });
+
+describe("soroban/describeStorageSlot", () => {
+  const { describeStorageSlot } = require("../soroban/storageSlot");
+
+  it("returns ok with slot info for ledger type", () => {
+    const result = describeStorageSlot("ledger");
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.slotType).toBe("ledger");
+    expect(result.data.capacity).toBeTruthy();
+    expect(result.data.retentionPeriod).toBeTruthy();
+    expect(result.data.costModel).toBeTruthy();
+    expect(result.data.notes).toBeTruthy();
+  });
+
+  it("returns ok with slot info for instance type", () => {
+    const result = describeStorageSlot("instance");
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.slotType).toBe("instance");
+    expect(result.data.capacity).toBeTruthy();
+    expect(result.data.retentionPeriod).toBeTruthy();
+    expect(result.data.costModel).toBeTruthy();
+    expect(result.data.notes).toBeTruthy();
+  });
+
+  it("ledger and instance descriptions differ", () => {
+    const ledger = describeStorageSlot("ledger");
+    const instance = describeStorageSlot("instance");
+    if (ledger.status !== "ok" || instance.status !== "ok") return;
+    expect(ledger.data.retentionPeriod).not.toBe(instance.data.retentionPeriod);
+    expect(ledger.data.costModel).not.toBe(instance.data.costModel);
+  });
+
+  it("returns error for unknown slot type", () => {
+    const result = describeStorageSlot("persistent" as any);
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.message).toContain("persistent");
+  });
+
+  it("covers all documented Soroban slot types without throwing", () => {
+    const types = ["ledger", "instance"] as const;
+    for (const t of types) {
+      expect(() => describeStorageSlot(t)).not.toThrow();
+    }
+  });
+});
