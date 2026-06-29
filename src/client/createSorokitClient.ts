@@ -66,6 +66,7 @@ import type {
   TrustlineParams,
   AccountCreateParams,
   TransactionResult,
+  PathPaymentParams,
 } from "../transaction/types";
 import type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "../transaction/estimateFee";
 import type {

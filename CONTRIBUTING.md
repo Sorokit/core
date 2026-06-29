@@ -96,6 +96,22 @@ Be respectful and constructive. We're building a framework for the Stellar ecosy
 
 ## Pull Request Guidelines
 
+### Before Opening a PR
+
+**CRITICAL: Keep your branch up to date with main**
+
+Before pushing, always rebase/merge the latest main:
+
+```bash
+git fetch origin main
+git rebase origin/main
+# or if conflicts exist, resolve and commit
+npm run typecheck && npm run lint && npm run test
+git push origin your-branch
+```
+
+This prevents conflicts during merge and ensures CI passes on the merge commit.
+
 ### PR Title
 
 Keep titles concise and under 70 characters:
@@ -139,9 +155,22 @@ Fixes #123 / Implements feature X
 
 ### Review Process
 
+**PR Merge Requirements:**
+
+Your PR can only be merged if ALL of the following are true:
+
+1. ✅ **All CI checks pass** — type-check, lint, test, build
+2. ✅ **At least 1 reviewer approval** — code review complete
+3. ✅ **No unresolved conversations** — feedback addressed
+4. ✅ **Branch is up to date with main** — enforced by GitHub, use "Update branch" button if needed
+5. ✅ **No merge conflicts** — resolved before merge attempt
+
+**Process:**
+
 - Address feedback promptly
 - Respond to comments even if you disagree
-- Be patient — maintainers review PRs as time allows
+- Use "Update branch" button to sync with main if needed
+- CI will re-run after update to verify everything still passes
 - If a PR becomes stale (inactive for 2+ weeks), it may be closed
 
 ## Testing

@@ -33,6 +33,7 @@ export type {
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { toMessage } from "../shared/errors";
+import { xdr } from "@stellar/stellar-sdk";
 import type {
   WalletState,
   WalletAdapter,
@@ -52,6 +53,139 @@ const WALLET_FEATURE_MAP: Record<WalletType, WalletFeature[]> = {
   [WalletType.HANA]: [],
   [WalletType.RABET]: [],
 };
+
+export type EnvelopeSignatureInput = string | xdr.DecoratedSignature;
+export type SignatureHintInput = string | Buffer | Uint8Array;
+
+function parseEnvelope(envelopeXdr: string): xdr.TransactionEnvelope {
+  if (typeof envelopeXdr !== "string" || envelopeXdr.trim().length === 0) {
+    throw new Error("Transaction envelope XDR must be a non-empty base64 string.");
+  }
+
+  try {
+    return xdr.TransactionEnvelope.fromXDR(envelopeXdr, "base64");
+  } catch {
+    throw new Error("Invalid transaction envelope XDR.");
+  }
+}
+
+function parseSignature(signature: EnvelopeSignatureInput): xdr.DecoratedSignature {
+  let decoratedSignature: xdr.DecoratedSignature;
+
+  if (typeof signature === "string") {
+    if (signature.trim().length === 0) {
+      throw new Error("Signature XDR must be a non-empty base64 string.");
+    }
+
+    try {
+      decoratedSignature = xdr.DecoratedSignature.fromXDR(signature, "base64");
+    } catch {
+      throw new Error("Invalid decorated signature XDR.");
+    }
+  } else {
+    decoratedSignature = signature;
+  }
+
+  if (decoratedSignature.hint().length !== 4) {
+    throw new Error("Signature hint must be exactly 4 bytes.");
+  }
+
+  if (decoratedSignature.signature().length === 0) {
+    throw new Error("Signature bytes must not be empty.");
+  }
+
+  return decoratedSignature;
+}
+
+function normalizeSignatureHint(hint: SignatureHintInput): Buffer {
+  const bytes =
+    typeof hint === "string"
+      ? /^[0-9a-fA-F]{8}$/.test(hint)
+        ? Buffer.from(hint, "hex")
+        : Buffer.from(hint, "base64")
+      : Buffer.from(hint);
+
+  if (bytes.length !== 4) {
+    throw new Error("Signature hint must be exactly 4 bytes.");
+  }
+
+  return bytes;
+}
+
+function bufferEquals(left: Buffer | Uint8Array, right: Buffer | Uint8Array): boolean {
+  return Buffer.from(left).equals(Buffer.from(right));
+}
+
+function getEnvelopeSignatures(envelope: xdr.TransactionEnvelope): xdr.DecoratedSignature[] {
+  switch (envelope.switch()) {
+    case xdr.EnvelopeType.envelopeTypeTxV0():
+      return envelope.v0().signatures();
+    case xdr.EnvelopeType.envelopeTypeTx():
+      return envelope.v1().signatures();
+    case xdr.EnvelopeType.envelopeTypeTxFeeBump():
+      return envelope.feeBump().signatures();
+    default:
+      throw new Error("Unsupported transaction envelope type.");
+  }
+}
+
+function setEnvelopeSignatures(
+  envelope: xdr.TransactionEnvelope,
+  signatures: xdr.DecoratedSignature[],
+): void {
+  switch (envelope.switch()) {
+    case xdr.EnvelopeType.envelopeTypeTxV0():
+      envelope.v0().signatures(signatures);
+      return;
+    case xdr.EnvelopeType.envelopeTypeTx():
+      envelope.v1().signatures(signatures);
+      return;
+    case xdr.EnvelopeType.envelopeTypeTxFeeBump():
+      envelope.feeBump().signatures(signatures);
+      return;
+    default:
+      throw new Error("Unsupported transaction envelope type.");
+  }
+}
+
+/**
+ * Add a decorated signature to a transaction envelope XDR.
+ *
+ * The input envelope is parsed and re-serialized; the original XDR string is not
+ * modified. `signature` may be a base64-encoded DecoratedSignature XDR or an SDK
+ * DecoratedSignature instance.
+ */
+export function addSignatureToEnvelope(
+  envelopeXdr: string,
+  signature: EnvelopeSignatureInput,
+): string {
+  const envelope = parseEnvelope(envelopeXdr);
+  const decoratedSignature = parseSignature(signature);
+  setEnvelopeSignatures(envelope, [
+    ...getEnvelopeSignatures(envelope),
+    decoratedSignature,
+  ]);
+  return envelope.toXDR("base64");
+}
+
+/**
+ * Remove decorated signatures with the provided 4-byte hint from an envelope XDR.
+ *
+ * `hint` may be raw bytes, an 8-character hex string, or a base64-encoded
+ * 4-byte signature hint. The returned XDR is a fresh serialized envelope.
+ */
+export function removeSignatureFromEnvelope(
+  envelopeXdr: string,
+  hint: SignatureHintInput,
+): string {
+  const envelope = parseEnvelope(envelopeXdr);
+  const normalizedHint = normalizeSignatureHint(hint);
+  const retainedSignatures = getEnvelopeSignatures(envelope)
+    .filter((signature) => !bufferEquals(signature.hint(), normalizedHint));
+
+  setEnvelopeSignatures(envelope, retainedSignatures);
+  return envelope.toXDR("base64");
+}
 
 /**
  * Detect which wallet adapters are currently installed and available.

@@ -14,11 +14,17 @@ export type {
 
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
 export {
+  addSignatureToEnvelope,
   collectMultiSignatures,
   detectInstalledWallets,
   diagnoseWalletConnection,
   prioritizeWallet,
   recommendWallets,
+  removeSignatureFromEnvelope,
+} from "./wallet";
+export type {
+  EnvelopeSignatureInput,
+  SignatureHintInput,
 } from "./wallet";
 export { FreighterAdapter } from "./wallet/adapters/freighter";
 export { LobstrAdapter } from "./wallet/adapters/lobstr";
@@ -71,9 +77,25 @@ export type {
 
 // ─── Transaction validation ───────────────────────────────────────────────────
 export {
+  createHashMemo,
+  createIdMemo,
+  createReturnMemo,
+  createTextMemo,
   DEFAULT_VALIDATION_RULES,
   validateTransactionXdr,
-} from "./transaction/validateTransactionXdr";
+  USDC_MAINNET_ISSUER,
+  USDC_TESTNET_ISSUER,
+  USDT_MAINNET_ISSUER,
+  EURC_MAINNET_ISSUER,
+  EURC_TESTNET_ISSUER,
+  nativeAsset,
+  usdcAsset,
+  usdtAsset,
+  usdt_assetAsset,
+  eurcAsset,
+  ativeAsset,
+} from "./transaction";
+export type { SorokitMemo } from "./transaction";
 export type {
   TransactionValidationFinding,
   TransactionValidationReport,
@@ -90,8 +112,11 @@ export type {
   FeeEstimate,
   FeeEstimateInput,
   FeeEstimateOptions,
+  FeeTiers,
 } from "./transaction/estimateFee";
+export { calculateFeeTiers } from "./transaction/estimateFee";
 export { streamTransactions } from "./transaction/streamTransactions";
+export { buildPathPayment, checkTrustlines, buildBulkTrustlines } from "./transaction/index";
 export type {
   TransactionPage,
   TransactionStreamConfig,
