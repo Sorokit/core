@@ -899,3 +899,87 @@ export async function buildAtomicSwap(
     );
   }
 }
+
+export async function checkTrustlines(
+  horizonUrl: string,
+  publicKey: string,
+  assetCodes: string[],
+): Promise<SorokitResult<string[]>> {
+  try {
+    const server = new Horizon.Server(horizonUrl);
+    const account = await server.loadAccount(publicKey);
+    
+    const codeSet = new Set(assetCodes);
+    const trusted: string[] = [];
+
+    for (const balance of account.balances) {
+      if (balance.asset_type !== "native") {
+        const code = (balance as Horizon.BalanceLineAsset).asset_code;
+        if (codeSet.has(code)) {
+          trusted.push(code);
+        }
+      }
+    }
+
+    return ok(trusted);
+  } catch (cause: unknown) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("check trustlines", cause),
+      cause,
+    );
+  }
+}
+
+export async function buildBulkTrustlines(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  assets: Asset[],
+  autoFetchSequence?: boolean,
+): Promise<SorokitResult<string>> {
+  try {
+    const useCache = autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    });
+
+    for (const asset of assets) {
+      builder.addOperation(
+        Operation.changeTrust({ asset }),
+      );
+    }
+
+    const transaction = builder
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS)
+      .build();
+
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
+
+    return ok(transaction.toXDR());
+  } catch (cause: unknown) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("bulk trustlines", cause),
+      cause,
+    );
+  }
+}

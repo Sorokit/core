@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type SpyInstance } from "vitest";
+import { Asset } from "@stellar/stellar-sdk";
 import { createHash } from "crypto";
 import { estimateFee } from "../transaction/estimateFee";
 import type { FeeEstimate } from "../transaction/estimateFee";
@@ -11,6 +12,8 @@ import {
   buildPaymentWithTrustline,
   buildSwapTransaction,
   clearSequenceCache,
+  checkTrustlines,
+  buildBulkTrustlines,
 } from "../transaction/buildTransaction";
 import { SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -2313,6 +2316,155 @@ describe("custom memoValidator callback (#91)", () => {
 
     expect(result.status).toBe("ok");
     expect(validator).toHaveBeenCalledWith("REQ-OK");
+  });
+});
+
+describe("checkTrustlines", () => {
+  const horizonUrl = "https://horizon-testnet.stellar.org";
+  const sourcePublicKey = "GAS4V4O2B7DW5T7IQRPEEVCRXMDZESKISR7DVIGKZQYYV3OSQ5SH5LPE";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+  });
+
+  it("returns trusted assets", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      balances: [
+        { asset_type: "native", balance: "100.0" },
+        { asset_type: "credit_alphanum4", asset_code: "USD", balance: "10.0" },
+        { asset_type: "credit_alphanum4", asset_code: "EUR", balance: "5.0" },
+      ],
+    });
+
+    const result = await checkTrustlines(horizonUrl, sourcePublicKey, ["USD", "GBP"]);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toEqual(["USD"]);
+    }
+  });
+
+  it("handles empty balances", async () => {
+    mockLoadAccount.mockResolvedValueOnce({ balances: [] });
+    const result = await checkTrustlines(horizonUrl, sourcePublicKey, ["USD"]);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toEqual([]);
+    }
+  });
+
+  it("handles no existing trustlines", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      balances: [
+        { asset_type: "native", balance: "100.0" },
+        { asset_type: "credit_alphanum4", asset_code: "EUR", balance: "5.0" },
+      ],
+    });
+    const result = await checkTrustlines(horizonUrl, sourcePublicKey, ["USD"]);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toEqual([]);
+    }
+  });
+});
+
+describe("buildBulkTrustlines", () => {
+  const networkConfig: ResolvedNetworkConfig = {
+    horizonUrl: "https://horizon-testnet.stellar.org",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    networkType: "testnet",
+  };
+  const sourcePublicKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const issuerPublicKey = "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    mockBuild.mockReset();
+    mockAddOperation.mockReset();
+    clearSequenceCache();
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
+  });
+
+  it("builds multiple changeTrust operations", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
+    });
+
+    const result = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey), new Asset("EUR", issuerPublicKey)]
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockAddOperation).toHaveBeenCalledTimes(2);
+  });
+
+  it("builds a single changeTrust operation", async () => {
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
+    });
+
+    const result = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey)]
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    expect(mockAddOperation).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses the cached sequence when autoFetchSequence is enabled", async () => {
+    const mockAccount = {
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: vi.fn().mockReturnValue("12345"),
+      balances: [],
+    };
+    mockLoadAccount.mockResolvedValue(mockAccount);
+
+    const first = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey)],
+      true,
+    );
+    expect(first.status).toBe("ok");
+    expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+
+    mockLoadAccount.mockClear();
+
+    const second = await buildBulkTrustlines(
+      networkConfig.horizonUrl,
+      networkConfig,
+      sourcePublicKey,
+      [new Asset("EUR", issuerPublicKey)],
+      true,
+    );
+    if (second.status === "error") {
+      throw new Error(second.error.message);
+    }
+    expect(second.status).toBe("ok");
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+    expect(mockAccount.sequenceNumber).toHaveBeenCalledTimes(1);
   });
 });
 
