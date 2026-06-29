@@ -71,9 +71,14 @@ export type {
 
 // ─── Transaction validation ───────────────────────────────────────────────────
 export {
+  createHashMemo,
+  createIdMemo,
+  createReturnMemo,
+  createTextMemo,
   DEFAULT_VALIDATION_RULES,
   validateTransactionXdr,
-} from "./transaction/validateTransactionXdr";
+} from "./transaction";
+export type { SorokitMemo } from "./transaction";
 export type {
   TransactionValidationFinding,
   TransactionValidationReport,

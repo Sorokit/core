@@ -31,6 +31,12 @@ import {
   createTransactionContext,
   TRANSACTION_CONTEXT_TTL_MS,
 } from "../transaction/transactionContext";
+import {
+  createHashMemo,
+  createIdMemo,
+  createReturnMemo,
+  createTextMemo,
+} from "../transaction";
 
 const {
   mockSimulateTransaction,
@@ -180,6 +186,8 @@ const networkConfig: ResolvedNetworkConfig = {
 };
 
 const MOCK_XDR = "AAAAAQAAAAA=";
+const VALID_32_BYTE_HASH =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 const CACHED_FEE: FeeEstimate = {
   fee: "1100",
@@ -288,6 +296,48 @@ function makeHorizonRecord(
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
+
+describe("memo builders (#114)", () => {
+  it("creates valid text memos up to the Stellar 28-byte limit", () => {
+    expect(createTextMemo("invoice-123").type).toBe("text");
+    expect(createTextMemo("a".repeat(28)).value).toBe("a".repeat(28));
+  });
+
+  it("rejects text memos over 28 bytes, including multibyte strings", () => {
+    expect(() => createTextMemo("a".repeat(29))).toThrow("28 bytes");
+    expect(() => createTextMemo("😀".repeat(8))).toThrow("28 bytes");
+  });
+
+  it("creates valid unsigned 64-bit id memos", () => {
+    expect(createIdMemo(0).type).toBe("id");
+    expect(createIdMemo("18446744073709551615").value).toBe(
+      "18446744073709551615",
+    );
+  });
+
+  it("rejects id memos outside the unsigned 64-bit range", () => {
+    expect(() => createIdMemo(-1)).toThrow("unsigned 64-bit");
+    expect(() => createIdMemo("18446744073709551616")).toThrow(
+      "unsigned 64-bit",
+    );
+  });
+
+  it("creates valid hash and return memos from hex strings", () => {
+    expect(createHashMemo(VALID_32_BYTE_HASH).type).toBe("hash");
+    expect(createReturnMemo(VALID_32_BYTE_HASH).type).toBe("return");
+  });
+
+  it("creates hash and return memos from 32-byte arrays", () => {
+    expect(createHashMemo(Buffer.alloc(32)).type).toBe("hash");
+    expect(createReturnMemo(new Uint8Array(32)).type).toBe("return");
+  });
+
+  it("rejects invalid hash formats and lengths", () => {
+    expect(() => createHashMemo("abc")).toThrow("32-byte hex");
+    expect(() => createHashMemo("z".repeat(64))).toThrow("32-byte hex");
+    expect(() => createReturnMemo(Buffer.alloc(31))).toThrow("32 bytes");
+  });
+});
 
 describe("transaction streaming filters", () => {
   it("returns the first page with default pagination when no filters are provided", () => {
