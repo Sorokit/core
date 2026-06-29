@@ -2536,6 +2536,18 @@ describe("estimateFee — fee tiers", () => {
       undefined,
       undefined,
       { includeTiers: true },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.tiers).toBeDefined();
+      expect(result.data.tiers?.economy).toBe("100");
+      expect(result.data.tiers?.standard).toBe("500");
+      expect(result.data.tiers?.fast).toBe("900");
+    }
+  });
+});
+
 describe("checkTrustlines", () => {
   const horizonUrl = "https://horizon-testnet.stellar.org";
   const sourcePublicKey = "GAS4V4O2B7DW5T7IQRPEEVCRXMDZESKISR7DVIGKZQYYV3OSQ5SH5LPE";
@@ -2629,15 +2641,22 @@ describe("buildBulkTrustlines", () => {
   });
 
   it("omits tiers when includeTiers is not set", async () => {
-    mockTransactionsCall.mockResolvedValueOnce({
-      records: Array(10).fill({ fee_charged: "400" }),
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
     });
 
-    const result = await estimateFee(
-      networkConfig.rpcUrl,
+    const result = await buildBulkTrustlines(
       networkConfig.horizonUrl,
       networkConfig,
-      { kind: "xdr", transactionXdr: MOCK_XDR },
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey), new Asset("EUR", issuerPublicKey)]
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
       expect(result.data).toBe(MOCK_XDR);
     }
     expect(mockAddOperation).toHaveBeenCalledTimes(2);
@@ -2690,9 +2709,24 @@ describe("buildBulkTrustlines", () => {
     expect(cachedKey).toBeDefined();
   });
 });
-      expect(result.data).toBe(MOCK_XDR);
-    }
-    expect(mockAddOperation).toHaveBeenCalledTimes(1);
+
+describe("buildBulkTrustlines — sequence caching", () => {
+  const bulkNetworkConfig: ResolvedNetworkConfig = {
+    horizonUrl: "https://horizon-testnet.stellar.org",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    network: "testnet",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+  };
+  const sourcePublicKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const issuerPublicKey = "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    clearSequenceCache();
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
   });
 
   it("reuses the cached sequence when autoFetchSequence is enabled", async () => {
@@ -2925,6 +2959,387 @@ describe("validateDestination", () => {
     expect(res.data.valid).toBe(false);
     expect(res.data.exists).toBeNull();
     expect(res.data.error?.code).toBe("FETCH_FAILED");
+  });
+});
+
+// ─── Issue #113 — prepareAccountCreation ─────────────────────────────────────
+
+import { prepareAccountCreation } from "../transaction/index";
+
+describe("prepareAccountCreation (#113)", () => {
+  // Valid Stellar G-addresses used across all tests
+  const SOURCE = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const DEST   = "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+
+  function mockSourceAccount() {
+    return {
+      accountId: () => SOURCE,
+      sequenceNumber: () => "1",
+      incrementSequenceNumber: () => {},
+    };
+  }
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    transactionBuilderInstances.length = 0;
+    // Default: source account loads OK; destination does NOT exist (404)
+    const notFound = new Error("Request failed with status 404");
+    (notFound as any).response = { status: 404 };
+
+    mockLoadAccount.mockImplementation((key: string) => {
+      if (key === SOURCE) return Promise.resolve(mockSourceAccount());
+      return Promise.reject(notFound);
+    });
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
+  });
+
+  // ── Happy path ─────────────────────────────────────────────────────────────
+
+  it("returns ok with XDR when source, destination, and balance are valid", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(typeof result.data).toBe("string");
+      expect(result.data).toBe(MOCK_XDR);
+    }
+  });
+
+  it("defaults startingBalance to 1 XLM when omitted", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    // The builder should have been constructed exactly once
+    expect(transactionBuilderInstances).toHaveLength(1);
+  });
+
+  it("accepts exactly 1 XLM as the minimum valid balance", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "1",
+    );
+
+    expect(result.status).toBe("ok");
+  });
+
+  it("accepts a large starting balance", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "10000",
+    );
+
+    expect(result.status).toBe("ok");
+  });
+
+  // ── Minimum balance enforcement ────────────────────────────────────────────
+
+  it("returns INVALID_BALANCE when startingBalance is below 1 XLM", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "0.5",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_BALANCE);
+      expect(result.error.message).toContain("1 XLM");
+      expect(result.error.message).toContain("0.5");
+    }
+    // No transaction builder should have been created
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("returns INVALID_BALANCE when startingBalance is 0", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "0",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_BALANCE);
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("returns INVALID_BALANCE when startingBalance is negative", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "-5",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_BALANCE);
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("returns INVALID_BALANCE when startingBalance is not a number", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "abc",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_BALANCE);
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  // ── Public key format validation ───────────────────────────────────────────
+
+  it("returns TX_BUILD_FAILED when sourceKey is not a valid Stellar public key", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "not-a-valid-key",
+      DEST,
+      "2",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("Source key");
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("returns TX_BUILD_FAILED when destinationKey is not a valid Stellar public key", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      "INVALID_DEST",
+      "2",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("Destination key");
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  // ── Destination-exists check ───────────────────────────────────────────────
+
+  it("returns TX_BUILD_FAILED when destination already exists and checkDestinationExists is true", async () => {
+    // Override: both source AND destination load successfully (destination exists)
+    mockLoadAccount.mockResolvedValue(mockSourceAccount());
+
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { checkDestinationExists: true },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("already exists");
+      expect(result.error.message).toContain(DEST);
+    }
+    // Transaction must not be built when the destination already exists
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("proceeds normally when destination does not exist and checkDestinationExists is true", async () => {
+    // Source loads OK; destination 404 (does not exist) — default mock setup
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { checkDestinationExists: true },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+  });
+
+  it("returns ACCOUNT_FETCH_FAILED when existence check throws an unexpected error", async () => {
+    mockLoadAccount.mockImplementation((key: string) => {
+      if (key === SOURCE) return Promise.resolve(mockSourceAccount());
+      return Promise.reject(new Error("Rate limit exceeded"));
+    });
+
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { checkDestinationExists: true },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.ACCOUNT_FETCH_FAILED);
+      expect(result.error.message).toContain("verify destination account existence");
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("skips existence check by default (no checkDestinationExists option)", async () => {
+    // Even if destination existed, we should not fail without the flag
+    mockLoadAccount.mockResolvedValue(mockSourceAccount());
+
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+    );
+
+    // No existence check → should succeed and build the XDR
+    expect(result.status).toBe("ok");
+  });
+
+  // ── Memo handling ──────────────────────────────────────────────────────────
+
+  it("attaches a text memo when provided via options", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { memo: "welcome", memoType: "text" },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(transactionBuilderInstances).toHaveLength(1);
+    expect((transactionBuilderInstances[0]?.memo as any)?.type).toBe("text");
+    expect((transactionBuilderInstances[0]?.memo as any)?.value).toBe("welcome");
+  });
+
+  it("returns TX_BUILD_FAILED when requireMemo is true but no memo is supplied", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { requireMemo: true },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("Memo is required");
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("runs memoValidator before building and surfaces validator errors", async () => {
+    const validator = vi.fn().mockReturnValue({
+      status: "error",
+      data: null,
+      error: {
+        code: SorokitErrorCode.TX_BUILD_FAILED,
+        message: "Memo blocked by policy",
+      },
+    } as SorokitResult<void>);
+
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { memo: "INV-999", memoValidator: validator },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toBe("Memo blocked by policy");
+    }
+    expect(validator).toHaveBeenCalledWith("INV-999");
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  // ── Validation ordering ────────────────────────────────────────────────────
+
+  it("validates public key format before checking minimum balance", async () => {
+    // Bad source key — should fail on format, not balance
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "BADKEY",
+      DEST,
+      "0", // would also fail balance check
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("Source key");
+    }
+  });
+
+  it("validates minimum balance before checking destination existence", async () => {
+    // Low balance should fail before any Horizon call for existence check
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "0.001",
+      { checkDestinationExists: true },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_BALANCE);
+    }
+    // loadAccount must NOT have been called for the existence check
+    expect(mockLoadAccount).not.toHaveBeenCalled();
   });
 });
 
@@ -3622,6 +4037,9 @@ describe("liquidity pool operations", () => {
 
       expect(mockLoadAccount).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
 describe("exportTransactionHistory", () => {
   it("exports transactions to JSON format", async () => {
     const { exportTransactionHistory } = await import("../transaction/index");
