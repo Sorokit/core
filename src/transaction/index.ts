@@ -118,3 +118,122 @@ export type {
   ValidateDestinationOptions,
 } from "./validateDestination";
 
+/**
+ * Export transaction history in CSV or JSON format.
+ * Includes all transaction fields in the export.
+ *
+ * @param transactions - Array of TransactionResult objects to export
+ * @param format - Export format: 'csv' or 'json'
+ * @returns Formatted string (CSV or JSON)
+ */
+export function exportTransactionHistory(
+  transactions: TransactionResult[],
+  format: "csv" | "json",
+): string {
+  if (format === "json") {
+    return JSON.stringify(transactions, null, 2);
+  }
+
+  if (format === "csv") {
+    if (transactions.length === 0) {
+      return "";
+    }
+
+    const headers = [
+      "hash",
+      "status",
+      "ledger",
+      "createdAt",
+      "fee",
+      "envelopeXdr",
+      "resultXdr",
+    ];
+    const rows = transactions.map((tx) => [
+      escapeCsvField(tx.hash),
+      escapeCsvField(tx.status),
+      tx.ledger?.toString() ?? "",
+      escapeCsvField(tx.createdAt ?? ""),
+      escapeCsvField(tx.fee ?? ""),
+      escapeCsvField(tx.envelopeXdr ?? ""),
+      escapeCsvField(tx.resultXdr ?? ""),
+    ]);
+
+    const headerRow = headers.join(",");
+    const dataRows = rows.map((row) => row.join(","));
+    return [headerRow, ...dataRows].join("\n");
+  }
+
+  throw new Error("Unsupported export format. Use 'csv' or 'json'.");
+}
+
+function escapeCsvField(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+/**
+ * Predict network fee based on recent transaction fee trends.
+ * Analyzes recent fees and predicts the fee minutesAhead in the future.
+ *
+ * @param horizonUrl - Horizon server URL to fetch recent transactions
+ * @param minutesAhead - Number of minutes to predict ahead (1-60)
+ * @returns Predicted fee in stroops
+ */
+export async function predictNetworkFee(
+  horizonUrl: string,
+  minutesAhead: number = 5,
+): Promise<string> {
+  if (minutesAhead < 1 || minutesAhead > 60) {
+    throw new Error("minutesAhead must be between 1 and 60.");
+  }
+
+  try {
+    const url = new URL(horizonUrl);
+    if (!url.pathname.endsWith("/")) {
+      url.pathname += "/";
+    }
+    url.pathname += "transactions";
+    url.searchParams.set("limit", "10");
+    url.searchParams.set("order", "desc");
+
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error(`Failed to fetch transactions: HTTP ${response.status}`);
+    }
+
+    const data = (await response.json()) as {
+      _embedded?: { records?: Array<{ max_fee?: string }> };
+    };
+    const records = data._embedded?.records ?? [];
+
+    if (records.length === 0) {
+      return "100";
+    }
+
+    const fees = records
+      .map((r) => {
+        const fee = r.max_fee ?? "0";
+        return BigInt(fee);
+      })
+      .sort((a, b) => {
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return 0;
+      });
+
+    const median = fees[Math.floor(fees.length / 2)];
+    const max = fees[fees.length - 1];
+    const min = fees[0];
+    const avgTrend = (max - min) / BigInt(fees.length);
+
+    const minuteFraction = BigInt(minutesAhead) / BigInt(60);
+    const predictedFee = median + avgTrend * minuteFraction;
+
+    return predictedFee.toString();
+  } catch (cause) {
+    throw new Error(`Failed to predict network fee: ${cause instanceof Error ? cause.message : "unknown error"}`);
+  }
+}
+

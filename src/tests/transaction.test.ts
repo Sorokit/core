@@ -2864,3 +2864,181 @@ describe("validateDestination", () => {
     expect(res.data.error?.code).toBe("FETCH_FAILED");
   });
 });
+
+describe("exportTransactionHistory", () => {
+  it("exports transactions to JSON format", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const transactions = [
+      {
+        hash: "abc123",
+        status: "success" as const,
+        ledger: 100,
+        fee: "100",
+      },
+      {
+        hash: "def456",
+        status: "pending" as const,
+        fee: "150",
+      },
+    ];
+    const result = exportTransactionHistory(transactions, "json");
+    const parsed = JSON.parse(result);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[0].hash).toBe("abc123");
+    expect(parsed[1].hash).toBe("def456");
+  });
+
+  it("exports transactions to CSV format", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const transactions = [
+      {
+        hash: "abc123",
+        status: "success" as const,
+        ledger: 100,
+        fee: "100",
+      },
+      {
+        hash: "def456",
+        status: "pending" as const,
+        fee: "150",
+      },
+    ];
+    const result = exportTransactionHistory(transactions, "csv");
+    const lines = result.split("\n");
+    expect(lines[0]).toContain("hash");
+    expect(lines[0]).toContain("status");
+    expect(lines[1]).toContain("abc123");
+    expect(lines[2]).toContain("def456");
+  });
+
+  it("returns empty string for empty transaction array in CSV", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const result = exportTransactionHistory([], "csv");
+    expect(result).toBe("");
+  });
+
+  it("returns empty array JSON for empty transaction array", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const result = exportTransactionHistory([], "json");
+    const parsed = JSON.parse(result);
+    expect(parsed).toHaveLength(0);
+  });
+
+  it("escapes CSV fields with commas", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const transactions = [
+      {
+        hash: "abc,123",
+        status: "success" as const,
+        fee: "100",
+      },
+    ];
+    const result = exportTransactionHistory(transactions, "csv");
+    expect(result).toContain('"abc,123"');
+  });
+
+  it("escapes CSV fields with quotes", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const transactions = [
+      {
+        hash: 'abc"123',
+        status: "success" as const,
+        fee: "100",
+      },
+    ];
+    const result = exportTransactionHistory(transactions, "csv");
+    expect(result).toContain('abc""123');
+  });
+
+  it("throws for unsupported export format", async () => {
+    const { exportTransactionHistory } = await import("../transaction/index");
+    const transactions = [{ hash: "abc123", status: "success" as const }];
+    expect(() => exportTransactionHistory(transactions, "xml" as any)).toThrow(
+      "Unsupported export format",
+    );
+  });
+});
+
+describe("predictNetworkFee", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("throws for minutesAhead less than 1", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    await expect(predictNetworkFee("https://horizon.example.com", 0)).rejects.toThrow(
+      "minutesAhead must be between 1 and 60",
+    );
+  });
+
+  it("throws for minutesAhead greater than 60", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    await expect(predictNetworkFee("https://horizon.example.com", 61)).rejects.toThrow(
+      "minutesAhead must be between 1 and 60",
+    );
+  });
+
+  it("returns base fee when no recent transactions found", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ _embedded: { records: [] } }),
+    });
+    const result = await predictNetworkFee("https://horizon.example.com", 5);
+    expect(result).toBe("100");
+  });
+
+  it("predicts fee based on recent transactions", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            { max_fee: "100" },
+            { max_fee: "200" },
+            { max_fee: "300" },
+            { max_fee: "400" },
+            { max_fee: "500" },
+          ],
+        },
+      }),
+    });
+    const result = await predictNetworkFee("https://horizon.example.com", 5);
+    const predictedFee = BigInt(result);
+    expect(predictedFee).toBeGreaterThan(0n);
+  });
+
+  it("throws when Horizon returns error", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    });
+    await expect(predictNetworkFee("https://horizon.example.com", 5)).rejects.toThrow(
+      "Failed to predict network fee",
+    );
+  });
+
+  it("throws when network request fails", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    global.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
+    await expect(predictNetworkFee("https://horizon.example.com", 5)).rejects.toThrow(
+      "Failed to predict network fee",
+    );
+  });
+
+  it("appends transactions path to Horizon URL", async () => {
+    const { predictNetworkFee } = await import("../transaction/index");
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ _embedded: { records: [{ max_fee: "100" }] } }),
+    });
+    global.fetch = fetchSpy;
+    await predictNetworkFee("https://horizon.example.com", 5);
+    const callUrl = fetchSpy.mock.calls[0][0] as string;
+    expect(callUrl).toContain("transactions");
+    expect(callUrl).toContain("limit=10");
+    expect(callUrl).toContain("order=desc");
+  });
+});
