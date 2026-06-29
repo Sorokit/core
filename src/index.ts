@@ -141,6 +141,7 @@ export {
   decodeContractValue,
   encodeContractArgs,
 } from "./soroban/contractEncoding";
+export { parseContractResult } from "./soroban/parseContractResult";
 export { getContractMethods } from "./soroban/contractMetadata";
 export { buildContractDeploy } from "./soroban/deployContract";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
@@ -161,6 +162,8 @@ export type {
   ContractMethod,
   ContractMethodInput,
   ContractReadParams,
+  ContractResultType,
+  ParsedContractResult,
   PreparedContractCall,
   SimulateTransactionResult,
   SorobanPollConfig,

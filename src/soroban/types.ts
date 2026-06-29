@@ -123,3 +123,24 @@ export type BatchContractResult =
       contractId: string;
       method: string;
     };
+
+export type ContractResultType =
+  | "bool"
+  | "u32"
+  | "i32"
+  | "u64"
+  | "i64"
+  | "u128"
+  | "i128"
+  | "string"
+  | "symbol"
+  | "bytes"
+  | "void"
+  | "vec"
+  | "map"
+  | "address";
+
+export interface ParsedContractResult {
+  type: string;
+  value: unknown;
+}

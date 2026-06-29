@@ -1798,3 +1798,266 @@ describe("simulateContractSafe (#97)", () => {
     expect(Number(result.data.fee)).toBeGreaterThan(0);
   });
 });
+
+import { parseContractResult } from "../soroban/parseContractResult";
+
+describe("parseContractResult (#119)", () => {
+  it("parses bool true with type", () => {
+    const result = parseContractResult(xdr.ScVal.scvBool(true));
+    expect(result.type).toBe("bool");
+    expect(result.value).toBe(true);
+  });
+
+  it("parses bool false with type", () => {
+    const result = parseContractResult(xdr.ScVal.scvBool(false));
+    expect(result.type).toBe("bool");
+    expect(result.value).toBe(false);
+  });
+
+  it("parses u32", () => {
+    const result = parseContractResult(xdr.ScVal.scvU32(42));
+    expect(result.type).toBe("u32");
+    expect(result.value).toBe(42);
+  });
+
+  it("parses i32 negative", () => {
+    const result = parseContractResult(xdr.ScVal.scvI32(-7));
+    expect(result.type).toBe("i32");
+    expect(result.value).toBe(-7);
+  });
+
+  it("parses u64 as bigint", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvU64(new xdr.Uint64("100")),
+    );
+    expect(result.type).toBe("u64");
+    expect(result.value).toBe(100n);
+  });
+
+  it("parses i64 as bigint", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvI64(new xdr.Int64("-50")),
+    );
+    expect(result.type).toBe("i64");
+    expect(result.value).toBe(-50n);
+  });
+
+  it("parses u128 as bigint", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvU128(
+        new xdr.UInt128Parts({ hi: new xdr.Uint64("0"), lo: new xdr.Uint64("999") }),
+      ),
+    );
+    expect(result.type).toBe("u128");
+    expect(result.value).toBe(999n);
+  });
+
+  it("parses i128 as bigint (positive)", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvI128(
+        new xdr.Int128Parts({ hi: new xdr.Int64("0"), lo: new xdr.Uint64("1234") }),
+      ),
+    );
+    expect(result.type).toBe("i128");
+    expect(result.value).toBe(1234n);
+  });
+
+  it("parses string", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvString(Buffer.from("hello", "utf8")),
+    );
+    expect(result.type).toBe("string");
+    expect(result.value).toBe("hello");
+  });
+
+  it("parses symbol", () => {
+    const result = parseContractResult(xdr.ScVal.scvSymbol("tick"));
+    expect(result.type).toBe("symbol");
+    expect(result.value).toBe("tick");
+  });
+
+  it("parses bytes", () => {
+    const result = parseContractResult(xdr.ScVal.scvBytes(Buffer.from([1, 2, 3])));
+    expect(result.type).toBe("bytes");
+    expect(result.value).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("parses void as undefined", () => {
+    const result = parseContractResult(xdr.ScVal.scvVoid());
+    expect(result.type).toBe("void");
+    expect(result.value).toBeUndefined();
+  });
+
+  it("parses vec recursively", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvVec([xdr.ScVal.scvU32(1), xdr.ScVal.scvU32(2)]),
+    );
+    expect(result.type).toBe("vec");
+    expect(result.value).toEqual([1, 2]);
+  });
+
+  it("parses map to plain object", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvMap([
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvString(Buffer.from("a", "utf8")),
+          val: xdr.ScVal.scvU32(10),
+        }),
+      ]),
+    );
+    expect(result.type).toBe("map");
+    expect(result.value).toEqual({ a: 10 });
+  });
+
+  it("returns the expected type in result when validation passes", () => {
+    const result = parseContractResult(xdr.ScVal.scvU32(5), "u32");
+    expect(result.type).toBe("u32");
+    expect(result.value).toBe(5);
+  });
+
+  it("returns the expected type for bool validation", () => {
+    const result = parseContractResult(xdr.ScVal.scvBool(true), "bool");
+    expect(result.type).toBe("bool");
+    expect(result.value).toBe(true);
+  });
+
+  it("returns the expected type for string validation", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvString(Buffer.from("hi", "utf8")),
+      "string",
+    );
+    expect(result.type).toBe("string");
+    expect(result.value).toBe("hi");
+  });
+
+  it("returns the expected type for void validation", () => {
+    const result = parseContractResult(xdr.ScVal.scvVoid(), "void");
+    expect(result.type).toBe("void");
+    expect(result.value).toBeUndefined();
+  });
+
+  it("returns the expected type for vec validation", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvVec([xdr.ScVal.scvBool(true)]),
+      "vec",
+    );
+    expect(result.type).toBe("vec");
+  });
+
+  it("returns the expected type for map validation", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvMap([
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvString(Buffer.from("k", "utf8")),
+          val: xdr.ScVal.scvU32(1),
+        }),
+      ]),
+      "map",
+    );
+    expect(result.type).toBe("map");
+  });
+
+  it("throws TypeError when expected type does not match (u32 vs bool)", () => {
+    expect(() =>
+      parseContractResult(xdr.ScVal.scvBool(true), "u32"),
+    ).toThrow(TypeError);
+  });
+
+  it("throws TypeError when expected type does not match (string vs u32)", () => {
+    expect(() =>
+      parseContractResult(xdr.ScVal.scvU32(1), "string"),
+    ).toThrow(TypeError);
+  });
+
+  it("throws TypeError when expected type does not match (i32 vs void)", () => {
+    expect(() =>
+      parseContractResult(xdr.ScVal.scvVoid(), "i32"),
+    ).toThrow(TypeError);
+  });
+
+  it("throws with descriptive message on type mismatch", () => {
+    expect(() =>
+      parseContractResult(xdr.ScVal.scvBool(false), "u128"),
+    ).toThrow(/expected type "u128" but got "bool"/);
+  });
+
+  it("does not throw when expected type is omitted", () => {
+    expect(() => parseContractResult(xdr.ScVal.scvBool(true))).not.toThrow();
+  });
+
+  it("infers type from the ScVal when expected type is omitted", () => {
+    const result = parseContractResult(xdr.ScVal.scvI32(-1));
+    expect(result.type).toBe("i32");
+    expect(result.value).toBe(-1);
+  });
+
+  it("validates u64 expected type", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvU64(new xdr.Uint64("1")),
+      "u64",
+    );
+    expect(result.type).toBe("u64");
+    expect(result.value).toBe(1n);
+  });
+
+  it("validates i64 expected type", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvI64(new xdr.Int64("0")),
+      "i64",
+    );
+    expect(result.type).toBe("i64");
+    expect(result.value).toBe(0n);
+  });
+
+  it("validates u128 expected type", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvU128(
+        new xdr.UInt128Parts({ hi: new xdr.Uint64("0"), lo: new xdr.Uint64("7") }),
+      ),
+      "u128",
+    );
+    expect(result.type).toBe("u128");
+    expect(result.value).toBe(7n);
+  });
+
+  it("validates i128 expected type", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvI128(
+        new xdr.Int128Parts({ hi: new xdr.Int64("0"), lo: new xdr.Uint64("11") }),
+      ),
+      "i128",
+    );
+    expect(result.type).toBe("i128");
+    expect(result.value).toBe(11n);
+  });
+
+  it("validates symbol expected type", () => {
+    const result = parseContractResult(xdr.ScVal.scvSymbol("name"), "symbol");
+    expect(result.type).toBe("symbol");
+    expect(result.value).toBe("name");
+  });
+
+  it("validates bytes expected type", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvBytes(Buffer.from([0xff])),
+      "bytes",
+    );
+    expect(result.type).toBe("bytes");
+  });
+
+  it("validates address expected type", () => {
+    const addr = xdr.ScVal.scvAddress(
+      xdr.ScAddress.scAddressTypeAccount(
+        xdr.PublicKey.publicKeyTypeEd25519(Buffer.alloc(32)),
+      ),
+    );
+    const result = parseContractResult(addr, "address");
+    expect(result.type).toBe("address");
+  });
+
+  it("throws for mismatched address expected type", () => {
+    expect(() =>
+      parseContractResult(xdr.ScVal.scvU32(1), "address"),
+    ).toThrow(TypeError);
+  });
+});
