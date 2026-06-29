@@ -22,7 +22,9 @@ import {
   buildPaymentTransaction,
   buildCreateAccountTransaction,
   buildTrustlineTransaction,
+  buildAccountMerge,
 } from "../transaction/buildTransaction";
+import type { AccountMergeOptions } from "../transaction/buildTransaction";
 import { submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
 import { estimateFee } from "../transaction/estimateFee";
@@ -197,6 +199,12 @@ export interface SorokitClient {
     buildTrustline(
       sourcePublicKey: string,
       params: TrustlineParams,
+    ): Promise<SorokitResult<string>>;
+    /** Build an account merge transaction XDR (unsigned) */
+    buildAccountMerge(
+      sourcePublicKey: string,
+      destinationPublicKey: string,
+      options?: AccountMergeOptions,
     ): Promise<SorokitResult<string>>;
     /** Submit a signed transaction XDR */
     submit(signedXdr: string): Promise<SorokitResult<TransactionResult>>;
@@ -507,6 +515,21 @@ export function createSorokitClient(
               sourcePublicKey,
               params,
               client.trustedIssuers,
+            );
+          }
+        ).then(applyTx),
+      buildAccountMerge: (sourcePublicKey, destinationPublicKey, options) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.buildAccountMerge", params: { sourcePublicKey, destinationPublicKey, options } },
+          () => {
+            logger.debug("transaction.buildAccountMerge", { sourcePublicKey, destinationPublicKey });
+            return buildAccountMerge(
+              horizonUrl,
+              networkConfig,
+              sourcePublicKey,
+              destinationPublicKey,
+              options,
             );
           }
         ).then(applyTx),

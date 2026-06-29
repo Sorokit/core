@@ -7,7 +7,9 @@ export {
   buildReverseTransaction,
   buildPathPayment,
   buildAtomicSwap,
+  buildAccountMerge,
 } from "./buildTransaction";
+export type { AccountMergeOptions } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";

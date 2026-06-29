@@ -11,7 +11,7 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 
 import { validateIssuer } from "../shared/validateIssuer";
-import { isNetworkConnectivityError, isTimeoutError, isXdrInvalidError, toMessage } from "../shared";
+import { isNetworkConnectivityError, isTimeoutError, isXdrInvalidError, toMessage, isNotFoundError, retryWithBackoff } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type {
@@ -834,3 +834,104 @@ export async function buildAtomicSwap(
     );
   }
 }
+
+export interface AccountMergeOptions {
+  autoFetchSequence?: boolean;
+  checkExists?: boolean;
+  memo?: string;
+  memoType?: "text" | "id" | "hash" | "return";
+  requireMemo?: boolean;
+  memoValidator?: (memo: string) => SorokitResult<void>;
+}
+
+/**
+ * Build an unsigned account merge transaction XDR.
+ *
+ * Merges the source account into the destination account. The source account
+ * will be deleted from the ledger, and all its remaining XLM will be transferred
+ * to the destination account.
+ *
+ * @param horizonUrl - Base URL of the Horizon server.
+ * @param networkConfig - Resolved network configuration.
+ * @param sourcePublicKey - G-address of the account to be merged (deleted).
+ * @param destinationPublicKey - G-address of the account to receive the remaining XLM.
+ * @param options - Optional parameters: memo, autoFetchSequence, checkExists.
+ * @returns `ok(xdr)` — unsigned transaction XDR, or `error`.
+ */
+export async function buildAccountMerge(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourcePublicKey: string,
+  destinationPublicKey: string,
+  options?: AccountMergeOptions,
+): Promise<SorokitResult<string>> {
+  if (options?.checkExists) {
+    try {
+      const server = new Horizon.Server(horizonUrl);
+      await retryWithBackoff(() => server.loadAccount(destinationPublicKey));
+    } catch (cause) {
+      if (isNotFoundError(cause)) {
+        return err(
+          SorokitErrorCode.ACCOUNT_NOT_FOUND,
+          `Destination account ${destinationPublicKey} does not exist.`,
+          cause,
+        );
+      }
+      return err(
+        SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+        `Failed to verify destination account existence: ${toMessage(cause)}`,
+        cause,
+      );
+    }
+  }
+
+  const memoResult = options ? validateMemoParams(options) : ok(undefined);
+  if (memoResult.status === "error") return memoResult;
+
+  try {
+    const useCache = options?.autoFetchSequence === true;
+    let sourceAccount: Account | Awaited<ReturnType<Horizon.Server["loadAccount"]>>;
+
+    if (useCache) {
+      const cached = getSequenceCacheEntry(sourcePublicKey);
+      if (cached) {
+        sourceAccount = cached;
+      } else {
+        const server = new Horizon.Server(horizonUrl);
+        sourceAccount = await server.loadAccount(sourcePublicKey);
+      }
+    } else {
+      const server = new Horizon.Server(horizonUrl);
+      sourceAccount = await server.loadAccount(sourcePublicKey);
+    }
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    })
+      .addOperation(
+        Operation.accountMerge({
+          destination: destinationPublicKey,
+        }),
+      )
+      .setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
+
+    if (memoResult.data) {
+      builder.addMemo(memoResult.data);
+    }
+
+    const tx = builder.build();
+    if (useCache) {
+      updateSequenceCache(sourcePublicKey, sourceAccount.sequenceNumber());
+    }
+
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      describeTransactionBuildFailure("account merge", cause),
+      cause,
+    );
+  }
+}
+

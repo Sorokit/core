@@ -101,6 +101,8 @@ export {
   createTransactionContext,
 } from "./transaction/transactionContext";
 export type { TransactionBuilderContext } from "./transaction/transactionContext";
+export { buildAccountMerge } from "./transaction";
+export type { AccountMergeOptions } from "./transaction";
 export type {
   AccountCreateParams,
   AtomicSwapParams,
