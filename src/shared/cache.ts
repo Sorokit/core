@@ -29,14 +29,14 @@ export function createMemoryCache(): SorokitCache {
       return entry.value;
     },
     set(key: string, value: unknown, ttlMs?: number): void {
-      let expiresAt: number | undefined;
       if (ttlMs !== undefined) {
         if (typeof ttlMs !== 'number' || ttlMs <= 0 || !Number.isInteger(ttlMs)) {
           throw new Error('TTL must be a positive integer');
         }
-        expiresAt = Date.now() + ttlMs;
+        store.set(key, { value, expiresAt: Date.now() + ttlMs });
+      } else {
+        store.set(key, { value });
       }
-      store.set(key, { value, expiresAt });
     },
     invalidate(key: string): void {
       store.delete(key);

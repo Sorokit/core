@@ -68,6 +68,7 @@ export type {
   FeeEstimateOptions,
 } from "./transaction/estimateFee";
 export { streamTransactions } from "./transaction/streamTransactions";
+export { buildPathPayment } from "./transaction/index";
 export type {
   TransactionPage,
   TransactionStreamConfig,

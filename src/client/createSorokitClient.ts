@@ -22,6 +22,7 @@ import {
   buildPaymentTransaction,
   buildCreateAccountTransaction,
   buildTrustlineTransaction,
+  buildPathPayment,
 } from "../transaction/buildTransaction";
 import { submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
@@ -59,6 +60,7 @@ import type {
   TrustlineParams,
   AccountCreateParams,
   TransactionResult,
+  PathPaymentParams,
 } from "../transaction/types";
 import type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "../transaction/estimateFee";
 import type {
@@ -192,6 +194,11 @@ export interface SorokitClient {
     buildTrustline(
       sourcePublicKey: string,
       params: TrustlineParams,
+    ): Promise<SorokitResult<string>>;
+    /** Build a path payment transaction XDR (unsigned) */
+    buildPathPayment(
+      sourcePublicKey: string,
+      params: PathPaymentParams,
     ): Promise<SorokitResult<string>>;
     /** Submit a signed transaction XDR */
     submit(signedXdr: string): Promise<SorokitResult<TransactionResult>>;
@@ -490,6 +497,21 @@ export function createSorokitClient(
           () => {
             logger.debug("transaction.buildTrustline", { sourcePublicKey });
             return buildTrustlineTransaction(
+              horizonUrl,
+              networkConfig,
+              sourcePublicKey,
+              params,
+              client.trustedIssuers,
+            );
+          }
+        ).then(applyTx),
+      buildPathPayment: (sourcePublicKey, params) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.buildPathPayment", params: { sourcePublicKey, ...params } },
+          () => {
+            logger.debug("transaction.buildPathPayment", { sourcePublicKey });
+            return buildPathPayment(
               horizonUrl,
               networkConfig,
               sourcePublicKey,
