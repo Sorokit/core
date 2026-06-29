@@ -354,3 +354,94 @@ export async function predictNetworkFee(
   }
 }
 
+
+// ==========================================
+// --- EXPORT HISTORY ENGINE (ISSUE #133) ---
+// ==========================================
+
+export interface TransactionRecord {
+  id: string;
+  timestamp: number;
+  amount: number;
+  currency: string;
+  sender: string;
+  receiver: string;
+  status: 'success' | 'failed' | 'pending';
+}
+
+/**
+ * Exports transaction history into formatted CSV or JSON strings for auditing.
+ */
+export function exportTransactionHistory(
+  transactions: TransactionRecord[],
+  format: 'csv' | 'json'
+): string {
+  if (format === 'json') {
+    return JSON.stringify(transactions, null, 2);
+  }
+
+  if (format === 'csv') {
+    if (transactions.length === 0) {
+      return "id,timestamp,amount,currency,sender,receiver,status";
+    }
+
+    const headers = ['id', 'timestamp', 'amount', 'currency', 'sender', 'receiver', 'status'] as (keyof TransactionRecord)[];
+    const csvHeader = headers.join(',');
+
+    const csvRows = transactions.map(tx => {
+      return headers.map(header => {
+        const val = tx[header];
+        if (typeof val === 'string' && val.includes(',')) {
+          return `"${val}"`;
+        }
+        return val;
+      }).join(',');
+    });
+
+    return [csvHeader, ...csvRows].join('\n');
+  }
+
+  throw new Error(`Unsupported export format: ${format}`);
+}
+
+// --- AUTOMATED IN-SOURCE TEST MATRIX ---
+if (import.meta.vitest) {
+  const { describe, it, expect } = import.meta.vitest;
+
+  const mockTransactions: TransactionRecord[] = [
+    {
+      id: "tx_01",
+      timestamp: 1719677880,
+      amount: 250,
+      currency: "XLM",
+      sender: "G_SENDER_AAA",
+      receiver: "G_RECEIVER_BBB",
+      status: "success"
+    },
+    {
+      id: "tx_02",
+      timestamp: 1719677940,
+      amount: 15,
+      currency: "USD",
+      sender: "G_RECEIVER_BBB",
+      receiver: "G_SENDER_AAA",
+      status: "failed"
+    }
+  ];
+
+  describe("Issue #133 - Transaction Export Utility Tests", () => {
+    it("should correctly format transaction listings into structured JSON strings", () => {
+      const output = exportTransactionHistory(mockTransactions, 'json');
+      const parsed = JSON.parse(output);
+      expect(parsed).toHaveLength(2);
+      expect(parsed[0].id).toBe("tx_01");
+    });
+
+    it("should compile records into comma-separated CSV rows", () => {
+      const output = exportTransactionHistory(mockTransactions, 'csv');
+      const lines = output.split('\n');
+      expect(lines[0]).toBe("id,timestamp,amount,currency,sender,receiver,status");
+      expect(lines[1]).toBe("tx_01,1719677880,250,XLM,G_SENDER_AAA,G_RECEIVER_BBB,success");
+    });
+  });
+}
