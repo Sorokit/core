@@ -51,7 +51,7 @@ export interface PaymentParams extends MemoParams {
   assetCode?: string;
   assetIssuer?: string;
   memo?: string;
-  /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
+  /** When true, reuses a 30-second shared sequence cache to avoid repeated Horizon round trips */
   autoFetchSequence?: boolean;
 }
 
@@ -60,7 +60,7 @@ export interface TrustlineParams extends MemoParams {
   assetIssuer: string;
   /** Defaults to max limit */
   limit?: string;
-  /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
+  /** When true, reuses a 30-second shared sequence cache to avoid repeated Horizon round trips */
   autoFetchSequence?: boolean;
 }
 
@@ -68,7 +68,7 @@ export interface AccountCreateParams extends MemoParams {
   destination: string;
   /** Starting balance in XLM — minimum 1 XLM */
   startingBalance: string;
-  /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
+  /** When true, reuses a 30-second shared sequence cache to avoid repeated Horizon round trips */
   autoFetchSequence?: boolean;
 }
 
