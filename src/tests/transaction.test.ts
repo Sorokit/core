@@ -2864,3 +2864,141 @@ describe("validateDestination", () => {
     expect(res.data.error?.code).toBe("FETCH_FAILED");
   });
 });
+
+describe("transaction/streamTransactions operationTypes filter", () => {
+  const { applyTransactionFilters } = require("../transaction/streamTransactions");
+
+  function makeTx(operationTypes: string[], hash = "abc"): import("../transaction/types").TransactionResult {
+    return { hash, status: "success" as const, operationTypes };
+  }
+
+  it("passes all transactions when no operationTypes filter is set", () => {
+    const txs = [makeTx(["payment"]), makeTx(["changeTrust"]), makeTx(["createAccount"])];
+    const result = applyTransactionFilters(txs, { limit: 10 });
+    expect(result).toHaveLength(3);
+  });
+
+  it("filters to only transactions containing the specified operation type", () => {
+    const txs = [makeTx(["payment"], "tx1"), makeTx(["changeTrust"], "tx2"), makeTx(["payment", "changeTrust"], "tx3")];
+    const result = applyTransactionFilters(txs, { operationTypes: ["payment"], limit: 10 });
+    expect(result).toHaveLength(2);
+    expect(result.map((t) => t.hash)).toEqual(["tx1", "tx3"]);
+  });
+
+  it("matches transactions containing any of multiple specified types", () => {
+    const txs = [makeTx(["payment"], "tx1"), makeTx(["changeTrust"], "tx2"), makeTx(["createAccount"], "tx3")];
+    const result = applyTransactionFilters(txs, { operationTypes: ["payment", "changeTrust"], limit: 10 });
+    expect(result).toHaveLength(2);
+    expect(result.map((t) => t.hash)).toContain("tx1");
+    expect(result.map((t) => t.hash)).toContain("tx2");
+  });
+
+  it("returns empty array when no transactions match the filter", () => {
+    const txs = [makeTx(["changeTrust"]), makeTx(["createAccount"])];
+    const result = applyTransactionFilters(txs, { operationTypes: ["payment"], limit: 10 });
+    expect(result).toHaveLength(0);
+  });
+
+  it("treats empty operationTypes array as no filter", () => {
+    const txs = [makeTx(["payment"]), makeTx(["changeTrust"])];
+    const result = applyTransactionFilters(txs, { operationTypes: [], limit: 10 });
+    expect(result).toHaveLength(2);
+  });
+
+  it("handles transactions with no operationTypes field gracefully", () => {
+    const txs: import("../transaction/types").TransactionResult[] = [
+      { hash: "x", status: "success" as const },
+    ];
+    const result = applyTransactionFilters(txs, { operationTypes: ["payment"], limit: 10 });
+    expect(result).toHaveLength(0);
+  });
+});
+
+describe("transaction/buildPaymentTransaction preview mode", () => {
+  const mockSimulateTransaction = vi.fn();
+  const mockLoadAccount = vi.fn();
+
+  vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
+    return {
+      ...actual,
+      rpc: {
+        ...actual.rpc,
+        Server: class {
+          simulateTransaction = mockSimulateTransaction;
+        },
+      },
+      Horizon: {
+        ...actual.Horizon,
+        Server: class {
+          loadAccount = mockLoadAccount;
+          transactions() { return { forAccount: () => ({ limit: () => ({ order: () => ({ call: async () => ({ records: [] }) }) }) }) }; }
+        },
+      },
+    };
+  });
+
+  const { rpc: { Api } } = await import("@stellar/stellar-sdk");
+  const { buildPaymentTransaction } = await import("../transaction/buildTransaction");
+
+  const networkConfig = {
+    network: "testnet" as const,
+    networkPassphrase: "Test SDF Network ; September 2015",
+    horizonUrl: "https://horizon-testnet.stellar.org",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+  };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockLoadAccount.mockResolvedValue({
+      id: "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+      sequence: "0",
+      sequenceNumber: () => "0",
+      incrementSequenceNumber: () => {},
+    });
+    mockSimulateTransaction.mockResolvedValue({
+      result: { retval: null },
+      minResourceFee: "500",
+    });
+    vi.spyOn(Api, "isSimulationSuccess").mockReturnValue(true);
+    vi.spyOn(Api, "isSimulationError").mockReturnValue(false);
+  });
+
+  it("returns error when preview is true but rpcUrl is not provided", async () => {
+    const result = await buildPaymentTransaction(
+      "https://horizon.test",
+      networkConfig,
+      "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+      { destination: "GDEST...", amount: "10", preview: true },
+    );
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.message).toContain("rpcUrl");
+  });
+
+  it("returns a FeeEstimate object when preview is true and rpcUrl is set", async () => {
+    const result = await buildPaymentTransaction(
+      "https://horizon.test",
+      networkConfig,
+      "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+      { destination: "GDEST...", amount: "10", preview: true, rpcUrl: "https://soroban.test" },
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(typeof result.data).toBe("object");
+    expect((result.data as any).fee).toBeDefined();
+    expect(typeof (result.data as any).fee).toBe("string");
+  });
+
+  it("returns XDR string when preview is false (default behaviour)", async () => {
+    const result = await buildPaymentTransaction(
+      "https://horizon.test",
+      networkConfig,
+      "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+      { destination: "GDEST...", amount: "10" },
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(typeof result.data).toBe("string");
+  });
+});
