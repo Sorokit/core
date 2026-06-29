@@ -1,4 +1,5 @@
-import { Asset, Memo } from "@stellar/stellar-sdk";
+import { Asset, Memo, TransactionBuilder, Operation } from "@stellar/stellar-sdk";
+import { AssetBalance, SorokitResult } from "./types"; // Adjust relative pathways according to your local structure
 
 export type SorokitMemo =
   | ReturnType<typeof Memo.text>
@@ -23,6 +24,11 @@ export interface FeeHistoryAnalytics {
   median: number | null;
   stddev: number | null;
   percentiles: FeeHistoryPercentiles;
+}
+
+export interface TransactionImpact {
+  beforeBalances: AssetBalance[];
+  afterBalances: AssetBalance[];
 }
 
 const MAX_TEXT_MEMO_BYTES = 28;
@@ -111,9 +117,9 @@ export function analyzeFeeHistory(
       percentiles: {
         p10: null,
         p25: null,
-        p50: null,
         p75: null,
         p90: null,
+        p50: null,
       },
     };
   }
@@ -174,6 +180,110 @@ export function createHashMemo(hash: string | Buffer | Uint8Array): SorokitMemo 
 
 export function createReturnMemo(hash: string | Buffer | Uint8Array): SorokitMemo {
   return Memo.return(normalizeHash(hash) as any);
+}
+
+/**
+ * Simulates transaction balance impact per operation (Dry Run).
+ * Follows the Sorokit no-throw standard pattern.
+ * * @param publicKey Target account public key to track mutations for
+ * @param transactionXdr Base64 encoded built transaction XDR string
+ * @returns Predicted before and after balance states
+ */
+export async function simulateTransactionImpact(
+  this: any,
+  publicKey: string,
+  transactionXdr: string
+): Promise<SorokitResult<TransactionImpact>> {
+  try {
+    // 1. Fetch current balance configuration using client reference layout
+    const balanceResult = await this.getBalances(publicKey);
+    if (balanceResult.status === "error") {
+      return balanceResult;
+    }
+
+    const beforeBalances: AssetBalance[] = balanceResult.data;
+    // Deep clone array elements safely to simulate dry-run mutations
+    const afterBalances: AssetBalance[] = JSON.parse(JSON.stringify(beforeBalances));
+
+    // 2. Clear structural parsing via Stellar SDK
+    const tx = TransactionBuilder.fromXDR(transactionXdr, "placeholder_passphrase");
+    
+    // 3. Process changes step-by-step per operation
+    for (const op of tx.operations) {
+      switch (op.type) {
+        case "payment": {
+          const paymentOp = op as Operation.Payment;
+          const amount = parseFloat(paymentOp.amount);
+          const assetStr = paymentOp.asset.isNative() 
+            ? "native" 
+            : `${paymentOp.asset.getCode()}:${paymentOp.asset.getIssuer()}`;
+
+          // Subtraction context: Account pays
+          if (tx.source === publicKey || (!op.source && tx.source === publicKey)) {
+            mutateAssetBalance(afterBalances, assetStr, -amount);
+          }
+          
+          // Addition context: Account receives
+          if (paymentOp.destination === publicKey) {
+            mutateAssetBalance(afterBalances, assetStr, amount);
+          }
+          break;
+        }
+
+        case "createAccount": {
+          const createOp = op as Operation.CreateAccount;
+          const amount = parseFloat(createOp.startingBalance);
+
+          // Subtraction context: Account funds creation
+          if (tx.source === publicKey || (!op.source && tx.source === publicKey)) {
+            mutateAssetBalance(afterBalances, "native", -amount);
+          }
+          
+          // Addition context: Account is created
+          if (createOp.destination === publicKey) {
+            mutateAssetBalance(afterBalances, "native", amount);
+          }
+          break;
+        }
+
+        default:
+          break;
+      }
+    }
+
+    return {
+      status: "ok",
+      data: { beforeBalances, afterBalances },
+      error: null,
+    };
+  } catch (err: any) {
+    return {
+      status: "error",
+      data: null,
+      error: {
+        code: "SIMULATION_FAILED",
+        message: err?.message || "Failed to parse or simulate the transaction impact context.",
+      },
+    };
+  }
+}
+
+// Internal modifier utility to shift target assets
+function mutateAssetBalance(balances: AssetBalance[], assetStr: string, delta: number): void {
+  const match = balances.find(b => 
+    assetStr === "native" ? b.assetType === "native" : `${b.assetCode}:${b.assetIssuer}` === assetStr
+  );
+  if (match) {
+    match.balance = (parseFloat(match.balance) + delta).toString();
+  } else if (delta > 0 && assetStr !== "native") {
+    const [code, issuer] = assetStr.split(":");
+    balances.push({
+      assetType: "credit_alphanum4",
+      assetCode: code,
+      assetIssuer: issuer,
+      balance: delta.toString()
+    } as any);
+  }
 }
 
 export {
@@ -347,4 +457,3 @@ export async function predictNetworkFee(
     throw new Error(`Failed to predict network fee: ${cause instanceof Error ? cause.message : "unknown error"}`);
   }
 }
-
