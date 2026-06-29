@@ -913,8 +913,8 @@ export async function checkTrustlines(
     const trusted: string[] = [];
 
     for (const balance of account.balances) {
-      if (balance.asset_type !== "native") {
-        const code = (balance as Horizon.BalanceLineAsset).asset_code;
+      if ("asset_code" in balance) {
+        const code = balance.asset_code;
         if (codeSet.has(code)) {
           trusted.push(code);
         }
