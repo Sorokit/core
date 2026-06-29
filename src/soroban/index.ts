@@ -44,3 +44,5 @@ export type {
   BatchContractInvocation,
   BatchContractResult,
 } from "./types";
+export { describeStorageSlot } from "./storageSlot";
+export type { StorageSlotInfo, StorageSlotType } from "./storageSlot";
