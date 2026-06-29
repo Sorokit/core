@@ -7,6 +7,8 @@ export {
   buildReverseTransaction,
   buildPathPayment,
   buildAtomicSwap,
+  checkTrustlines,
+  buildBulkTrustlines,
 } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
