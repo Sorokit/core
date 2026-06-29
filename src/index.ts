@@ -14,11 +14,17 @@ export type {
 
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
 export {
+  addSignatureToEnvelope,
   collectMultiSignatures,
   detectInstalledWallets,
   diagnoseWalletConnection,
   prioritizeWallet,
   recommendWallets,
+  removeSignatureFromEnvelope,
+} from "./wallet";
+export type {
+  EnvelopeSignatureInput,
+  SignatureHintInput,
 } from "./wallet";
 export { FreighterAdapter } from "./wallet/adapters/freighter";
 export { LobstrAdapter } from "./wallet/adapters/lobstr";

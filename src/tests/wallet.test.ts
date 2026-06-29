@@ -1,11 +1,22 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  Account,
+  BASE_FEE,
+  Keypair,
+  Networks,
+  Operation,
+  TransactionBuilder,
+  xdr,
+} from "@stellar/stellar-sdk";
+import {
+  addSignatureToEnvelope,
   connectWallet,
   disconnectWallet,
   signTransaction,
   emptyWalletState,
   collectMultiSignatures,
   diagnoseWalletConnection,
+  removeSignatureFromEnvelope,
 } from "../wallet/index";
 import {
   InMemorySigningHistoryStore,
@@ -20,6 +31,44 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import { createSorokitClient } from "../client/createSorokitClient";
 import type { SorokitCache } from "../shared/cache";
 import type { WalletAdapter, SWKInstance } from "../wallet/types";
+
+function createUnsignedEnvelopeXdr(): string {
+  const source = Keypair.random();
+  const transaction = new TransactionBuilder(
+    new Account(source.publicKey(), "1"),
+    {
+      fee: BASE_FEE,
+      networkPassphrase: Networks.TESTNET,
+    },
+  )
+    .addOperation(Operation.manageData({ name: "issue-118", value: "ok" }))
+    .setTimeout(30)
+    .build();
+
+  return transaction.toXDR();
+}
+
+function createDecoratedSignature(
+  hint = Buffer.from([1, 2, 3, 4]),
+  signature = Buffer.alloc(64, 7),
+): xdr.DecoratedSignature {
+  return new xdr.DecoratedSignature({ hint, signature });
+}
+
+function envelopeSignatures(envelopeXdr: string): xdr.DecoratedSignature[] {
+  const envelope = xdr.TransactionEnvelope.fromXDR(envelopeXdr, "base64");
+
+  switch (envelope.switch()) {
+    case xdr.EnvelopeType.envelopeTypeTxV0():
+      return envelope.v0().signatures();
+    case xdr.EnvelopeType.envelopeTypeTx():
+      return envelope.v1().signatures();
+    case xdr.EnvelopeType.envelopeTypeTxFeeBump():
+      return envelope.feeBump().signatures();
+    default:
+      throw new Error("Unsupported transaction envelope type.");
+  }
+}
 
 function mockKit(overrides?: Partial<SWKInstance>): SWKInstance {
   return {
@@ -244,6 +293,82 @@ describe("collectMultiSignatures (#22)", () => {
     );
     expect(result.status).toBe("error");
     expect(signFn).toHaveBeenCalledOnce();
+  });
+});
+
+describe("envelope signature management (#118)", () => {
+  it("adds a decorated signature to an envelope without mutating the original XDR", () => {
+    const envelopeXdr = createUnsignedEnvelopeXdr();
+    const signature = createDecoratedSignature();
+
+    const updatedXdr = addSignatureToEnvelope(envelopeXdr, signature);
+
+    expect(updatedXdr).not.toBe(envelopeXdr);
+    expect(envelopeSignatures(envelopeXdr)).toHaveLength(0);
+    expect(envelopeSignatures(updatedXdr)).toHaveLength(1);
+    expect(envelopeSignatures(updatedXdr)[0].hint()).toEqual(signature.hint());
+  });
+
+  it("adds a base64 decorated signature XDR to an envelope", () => {
+    const envelopeXdr = createUnsignedEnvelopeXdr();
+    const signature = createDecoratedSignature(Buffer.from([4, 3, 2, 1]));
+    const signatureXdr = signature.toXDR("base64");
+
+    const updatedXdr = addSignatureToEnvelope(envelopeXdr, signatureXdr);
+
+    expect(envelopeSignatures(updatedXdr)).toHaveLength(1);
+    expect(envelopeSignatures(updatedXdr)[0].hint()).toEqual(signature.hint());
+  });
+
+  it("removes signatures that match a raw hint without mutating the original XDR", () => {
+    const envelopeXdr = createUnsignedEnvelopeXdr();
+    const firstSignature = createDecoratedSignature(Buffer.from([1, 1, 1, 1]));
+    const secondSignature = createDecoratedSignature(Buffer.from([2, 2, 2, 2]));
+    const signedXdr = addSignatureToEnvelope(
+      addSignatureToEnvelope(envelopeXdr, firstSignature),
+      secondSignature,
+    );
+
+    const updatedXdr = removeSignatureFromEnvelope(
+      signedXdr,
+      firstSignature.hint(),
+    );
+
+    expect(envelopeSignatures(signedXdr)).toHaveLength(2);
+    expect(envelopeSignatures(updatedXdr)).toHaveLength(1);
+    expect(envelopeSignatures(updatedXdr)[0].hint()).toEqual(secondSignature.hint());
+  });
+
+  it("removes signatures by 8-character hex hint", () => {
+    const envelopeXdr = createUnsignedEnvelopeXdr();
+    const signature = createDecoratedSignature(Buffer.from([10, 11, 12, 13]));
+    const signedXdr = addSignatureToEnvelope(envelopeXdr, signature);
+
+    const updatedXdr = removeSignatureFromEnvelope(signedXdr, "0a0b0c0d");
+
+    expect(envelopeSignatures(updatedXdr)).toHaveLength(0);
+  });
+
+  it("rejects invalid envelope XDR before adding or removing signatures", () => {
+    const signature = createDecoratedSignature();
+
+    expect(() => addSignatureToEnvelope("not-xdr", signature)).toThrow(
+      "Invalid transaction envelope XDR",
+    );
+    expect(() => removeSignatureFromEnvelope("not-xdr", signature.hint())).toThrow(
+      "Invalid transaction envelope XDR",
+    );
+  });
+
+  it("rejects invalid signatures and invalid hints", () => {
+    const envelopeXdr = createUnsignedEnvelopeXdr();
+
+    expect(() => addSignatureToEnvelope(envelopeXdr, "not-signature-xdr")).toThrow(
+      "Invalid decorated signature XDR",
+    );
+    expect(() => removeSignatureFromEnvelope(envelopeXdr, Buffer.alloc(3))).toThrow(
+      "Signature hint must be exactly 4 bytes",
+    );
   });
 });
 
