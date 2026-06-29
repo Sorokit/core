@@ -16,6 +16,7 @@ import { validateIssuer } from "../shared/validateIssuer";
 import { isNetworkConnectivityError, isTimeoutError, isXdrInvalidError, toMessage, isNotFoundError, retryWithBackoff } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
+import { getCachedSequence, cacheSequence, clearSequenceCache as clearSharedSequenceCache } from "../shared/sequenceCache";
 import type {
   MemoParams,
   PaymentParams,
@@ -28,31 +29,23 @@ import type {
   AtomicSwapParams,
 } from "./types";
 
-// ─── Sequence cache (shared across builders for autoFetchSequence) ────────────
-
-const SEQUENCE_CACHE_TTL_MS = 5_000;
-const _sequenceCache = new Map<string, { sequence: string; cachedAt: number }>();
+// ─── Sequence cache helpers (using shared 30s cache) ───────────────────────────
 
 function getSequenceCacheEntry(publicKey: string): Account | null {
-  const entry = _sequenceCache.get(publicKey);
-  if (!entry || Date.now() - entry.cachedAt > SEQUENCE_CACHE_TTL_MS) {
-    _sequenceCache.delete(publicKey);
+  const sequence = getCachedSequence(publicKey);
+  if (!sequence) {
     return null;
   }
-  return new Account(publicKey, entry.sequence);
+  return new Account(publicKey, sequence);
 }
 
 function updateSequenceCache(publicKey: string, postBuildSequence: string): void {
-  const existing = _sequenceCache.get(publicKey);
-  _sequenceCache.set(publicKey, {
-    sequence: postBuildSequence,
-    cachedAt: existing?.cachedAt ?? Date.now(),
-  });
+  cacheSequence(publicKey, postBuildSequence);
 }
 
-/** Clear the module-level sequence cache. Useful for test isolation. */
+/** Clear the shared sequence cache. Useful for test isolation. */
 export function clearSequenceCache(): void {
-  _sequenceCache.clear();
+  clearSharedSequenceCache();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
