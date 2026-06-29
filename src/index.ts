@@ -68,6 +68,12 @@ export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
 export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBalances";
 export { streamAccount } from "./account/streamAccount";
 export type { AccountStreamConfig } from "./account/streamAccount";
+export { watchWalletBalance } from "./account/watchWalletBalance";
+export type {
+  WalletBalanceChangeEvent,
+  WatchWalletBalanceCallback,
+  WatchWalletBalanceOptions,
+} from "./account/watchWalletBalance";
 export type {
   AccountInfo,
   AssetBalance,
