@@ -27,6 +27,11 @@ import { submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
 import { estimateFee } from "../transaction/estimateFee";
 import { streamTransactions } from "../transaction/streamTransactions";
+import { validateDestination } from "../transaction/validateDestination";
+import type {
+  DestinationValidationResult,
+  ValidateDestinationOptions,
+} from "../transaction/validateDestination";
 import { readContract } from "../soroban/readContract";
 import { prepareContractCall } from "../soroban/prepareCall";
 import { simulateTransaction } from "../soroban/simulateTransaction";
@@ -211,6 +216,13 @@ export interface SorokitClient {
       config?: TransactionStreamConfig,
       signal?: AbortSignal,
     ): AsyncGenerator<SorokitResult<TransactionPage>>;
+    /**
+     * Validate a destination address before building a transaction.
+     */
+    validateDestination(
+      publicKey: string,
+      options?: Omit<ValidateDestinationOptions, "horizonUrl">,
+    ): Promise<SorokitResult<DestinationValidationResult>>;
   };
 
   readonly soroban: {
@@ -538,6 +550,18 @@ export function createSorokitClient(
         logger.debug("transaction.stream", { publicKey });
         return streamTransactions(horizonUrl, publicKey, config, signal);
       },
+      validateDestination: (publicKey, options) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.validateDestination", params: { publicKey, options } },
+          () => {
+            logger.debug("transaction.validateDestination", { publicKey });
+            return validateDestination(publicKey, {
+              ...options,
+              horizonUrl: horizonUrl,
+            });
+          },
+        ).then(applyTx),
     },
 
     soroban: {

@@ -2305,3 +2305,97 @@ describe("validateTransactionXdr (#99)", () => {
     expect(result.data.errors.some((e) => e.code === "CUSTOM_FAIL")).toBe(true);
   });
 });
+
+describe("validateDestination", () => {
+  const VALID_DEST = "GBRPYHIL2CI3FNQ4BXLFMNDLFTECCNAIZ3JFRVKEAOJCHBR35CXY7Z5D";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+  });
+
+  it("validates valid public key format without existence check", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination(VALID_DEST);
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(true);
+    expect(res.data.formatValid).toBe(true);
+    expect(res.data.isSource).toBe(false);
+    expect(res.data.exists).toBeNull();
+  });
+
+  it("returns invalid format for malformed public key", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination("invalid-key");
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.formatValid).toBe(false);
+    expect(res.data.error?.code).toBe("INVALID_FORMAT");
+  });
+
+  it("returns isSource true when destination matches source", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination(VALID_DEST, { source: VALID_DEST });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.isSource).toBe(true);
+    expect(res.data.error?.code).toBe("SAME_AS_SOURCE");
+  });
+
+  it("fails if checkExists is true but horizonUrl is missing", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const res = await validateDestination(VALID_DEST, { checkExists: true });
+    expect(res.status).toBe("error");
+    if (res.status !== "error") return;
+    expect(res.error.message).toContain("horizonUrl is required");
+  });
+
+  it("returns exists true when account exists on-chain", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    mockLoadAccount.mockResolvedValue({ id: VALID_DEST });
+
+    const res = await validateDestination(VALID_DEST, {
+      checkExists: true,
+      horizonUrl: "https://horizon-testnet.stellar.org",
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(true);
+    expect(res.data.exists).toBe(true);
+    expect(mockLoadAccount).toHaveBeenCalledWith(VALID_DEST);
+  });
+
+  it("returns exists false when account is not found on-chain", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    const notFoundError = new Error("Request failed with status 404");
+    (notFoundError as any).response = { status: 404 };
+    mockLoadAccount.mockRejectedValue(notFoundError);
+
+    const res = await validateDestination(VALID_DEST, {
+      checkExists: true,
+      horizonUrl: "https://horizon-testnet.stellar.org",
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.exists).toBe(false);
+    expect(res.data.error?.code).toBe("ACCOUNT_NOT_FOUND");
+  });
+
+  it("returns FETCH_FAILED when Horizon check fails with other error", async () => {
+    const { validateDestination } = await import("../transaction/validateDestination");
+    mockLoadAccount.mockRejectedValue(new Error("Rate limit exceeded"));
+
+    const res = await validateDestination(VALID_DEST, {
+      checkExists: true,
+      horizonUrl: "https://horizon-testnet.stellar.org",
+    });
+    expect(res.status).toBe("ok");
+    if (res.status !== "ok") return;
+    expect(res.data.valid).toBe(false);
+    expect(res.data.exists).toBeNull();
+    expect(res.data.error?.code).toBe("FETCH_FAILED");
+  });
+});

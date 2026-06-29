@@ -42,3 +42,10 @@ export type {
   TransactionValidationReport,
   ValidationRules,
 } from "./validateTransactionXdr";
+
+export { validateDestination } from "./validateDestination";
+export type {
+  DestinationValidationResult,
+  ValidateDestinationOptions,
+} from "./validateDestination";
+
