@@ -2061,3 +2061,94 @@ describe("parseContractResult (#119)", () => {
     ).toThrow(TypeError);
   });
 });
+
+describe("detectContractStateChanges", () => {
+  it("detects added fields", async () => {
+    const { detectContractStateChanges } = await import("../soroban/index");
+    const oldState = { field1: "value1" };
+    const newState = { field1: "value1", field2: "value2" };
+    const result = detectContractStateChanges(oldState, newState);
+    expect(result.added).toEqual({ field2: "value2" });
+    expect(result.removed).toEqual({});
+    expect(result.modified).toEqual({});
+  });
+
+  it("detects removed fields", async () => {
+    const { detectContractStateChanges } = await import("../soroban/index");
+    const oldState = { field1: "value1", field2: "value2" };
+    const newState = { field1: "value1" };
+    const result = detectContractStateChanges(oldState, newState);
+    expect(result.added).toEqual({});
+    expect(result.removed).toEqual({ field2: "value2" });
+    expect(result.modified).toEqual({});
+  });
+
+  it("detects modified fields", async () => {
+    const { detectContractStateChanges } = await import("../soroban/index");
+    const oldState = { field1: "value1", field2: "value2" };
+    const newState = { field1: "value1", field2: "newValue2" };
+    const result = detectContractStateChanges(oldState, newState);
+    expect(result.added).toEqual({});
+    expect(result.removed).toEqual({});
+    expect(result.modified).toEqual({
+      field2: { oldValue: "value2", newValue: "newValue2" },
+    });
+  });
+
+  it("detects complex changes in objects", async () => {
+    const { detectContractStateChanges } = await import("../soroban/index");
+    const oldState = {
+      user: { name: "Alice", balance: 100 },
+      active: true,
+    };
+    const newState = {
+      user: { name: "Alice", balance: 150 },
+      active: true,
+      metadata: { created: "2025-01-01" },
+    };
+    const result = detectContractStateChanges(oldState, newState);
+    expect(result.added).toEqual({ metadata: { created: "2025-01-01" } });
+    expect(result.removed).toEqual({});
+    expect(result.modified.user).toBeDefined();
+  });
+
+  it("detects changes in arrays", async () => {
+    const { detectContractStateChanges } = await import("../soroban/index");
+    const oldState = { items: [1, 2, 3] };
+    const newState = { items: [1, 2, 3, 4] };
+    const result = detectContractStateChanges(oldState, newState);
+    expect(result.modified.items).toBeDefined();
+    expect(result.modified.items.oldValue).toEqual([1, 2, 3]);
+    expect(result.modified.items.newValue).toEqual([1, 2, 3, 4]);
+  });
+
+  it("handles empty old state", async () => {
+    const { detectContractStateChanges } = await import("../soroban/index");
+    const oldState = {};
+    const newState = { field1: "value1" };
+    const result = detectContractStateChanges(oldState, newState);
+    expect(result.added).toEqual({ field1: "value1" });
+    expect(result.removed).toEqual({});
+    expect(result.modified).toEqual({});
+  });
+
+  it("handles empty new state", async () => {
+    const { detectContractStateChanges } = await import("../soroban/index");
+    const oldState = { field1: "value1" };
+    const newState = {};
+    const result = detectContractStateChanges(oldState, newState);
+    expect(result.added).toEqual({});
+    expect(result.removed).toEqual({ field1: "value1" });
+    expect(result.modified).toEqual({});
+  });
+
+  it("handles identical states", async () => {
+    const { detectContractStateChanges } = await import("../soroban/index");
+    const oldState = { field1: "value1", field2: "value2" };
+    const newState = { field1: "value1", field2: "value2" };
+    const result = detectContractStateChanges(oldState, newState);
+    expect(result.added).toEqual({});
+    expect(result.removed).toEqual({});
+    expect(result.modified).toEqual({});
+  });
+});
