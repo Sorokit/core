@@ -6,6 +6,25 @@ export type SorokitMemo =
   | ReturnType<typeof Memo.hash>
   | ReturnType<typeof Memo.return>;
 
+export interface FeeHistoryPercentiles {
+  p10: number | null;
+  p25: number | null;
+  p50: number | null;
+  p75: number | null;
+  p90: number | null;
+}
+
+export interface FeeHistoryAnalytics {
+  windowSize: number;
+  count: number;
+  min: number | null;
+  max: number | null;
+  avg: number | null;
+  median: number | null;
+  stddev: number | null;
+  percentiles: FeeHistoryPercentiles;
+}
+
 const MAX_TEXT_MEMO_BYTES = 28;
 const UINT64_MAX = 18_446_744_073_709_551_615n;
 const HASH_HEX_PATTERN = /^[0-9a-fA-F]{64}$/;
@@ -27,6 +46,98 @@ function normalizeHash(hash: string | Buffer | Uint8Array): string | Buffer {
   }
 
   return Buffer.from(hash);
+}
+
+function parseTransactionFee(fee: string | number | undefined): number | null {
+  if (fee == null || fee === "") {
+    return null;
+  }
+
+  const parsed = typeof fee === "number" ? fee : Number.parseFloat(fee);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function calculatePercentiles(values: number[]): FeeHistoryPercentiles {
+  if (values.length === 0) {
+    return {
+      p10: null,
+      p25: null,
+      p50: null,
+      p75: null,
+      p90: null,
+    };
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const percentile = (ratio: number): number | null => {
+    if (sorted.length === 0) {
+      return null;
+    }
+
+    const index = Math.min(Math.floor(ratio * sorted.length), sorted.length - 1);
+    return sorted[index] ?? null;
+  };
+
+  return {
+    p10: percentile(0.1),
+    p25: percentile(0.25),
+    p50: percentile(0.5),
+    p75: percentile(0.75),
+    p90: percentile(0.9),
+  };
+}
+
+export function analyzeFeeHistory(
+  recentTransactions: Array<{ fee?: string | number }>,
+  windowSize: number,
+): FeeHistoryAnalytics {
+  const normalizedWindowSize = Number.isFinite(windowSize) && windowSize > 0 ? Math.floor(windowSize) : 0;
+  const window = normalizedWindowSize > 0
+    ? recentTransactions.slice(-normalizedWindowSize)
+    : recentTransactions;
+  const fees = window
+    .map((transaction) => parseTransactionFee(transaction.fee))
+    .filter((fee): fee is number => fee != null);
+
+  if (fees.length === 0) {
+    return {
+      windowSize: normalizedWindowSize,
+      count: 0,
+      min: null,
+      max: null,
+      avg: null,
+      median: null,
+      stddev: null,
+      percentiles: {
+        p10: null,
+        p25: null,
+        p50: null,
+        p75: null,
+        p90: null,
+      },
+    };
+  }
+
+  const sorted = [...fees].sort((a, b) => a - b);
+  const count = fees.length;
+  const sum = fees.reduce((acc, fee) => acc + fee, 0);
+  const avg = sum / count;
+  const median = count % 2 === 0
+    ? (sorted[count / 2 - 1]! + sorted[count / 2]!) / 2
+    : sorted[(count - 1) / 2]!;
+  const variance = fees.reduce((acc, fee) => acc + (fee - avg) ** 2, 0) / count;
+  const stddev = Math.sqrt(variance);
+
+  return {
+    windowSize: normalizedWindowSize,
+    count,
+    min: sorted[0] ?? null,
+    max: sorted[sorted.length - 1] ?? null,
+    avg,
+    median,
+    stddev,
+    percentiles: calculatePercentiles(fees),
+  };
 }
 
 export function createTextMemo(text: string): SorokitMemo {
@@ -123,4 +234,123 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./validateDestination";
+
+/**
+ * Export transaction history in CSV or JSON format.
+ * Includes all transaction fields in the export.
+ *
+ * @param transactions - Array of TransactionResult objects to export
+ * @param format - Export format: 'csv' or 'json'
+ * @returns Formatted string (CSV or JSON)
+ */
+export function exportTransactionHistory(
+  transactions: TransactionResult[],
+  format: "csv" | "json",
+): string {
+  if (format === "json") {
+    return JSON.stringify(transactions, null, 2);
+  }
+
+  if (format === "csv") {
+    if (transactions.length === 0) {
+      return "";
+    }
+
+    const headers = [
+      "hash",
+      "status",
+      "ledger",
+      "createdAt",
+      "fee",
+      "envelopeXdr",
+      "resultXdr",
+    ];
+    const rows = transactions.map((tx) => [
+      escapeCsvField(tx.hash),
+      escapeCsvField(tx.status),
+      tx.ledger?.toString() ?? "",
+      escapeCsvField(tx.createdAt ?? ""),
+      escapeCsvField(tx.fee ?? ""),
+      escapeCsvField(tx.envelopeXdr ?? ""),
+      escapeCsvField(tx.resultXdr ?? ""),
+    ]);
+
+    const headerRow = headers.join(",");
+    const dataRows = rows.map((row) => row.join(","));
+    return [headerRow, ...dataRows].join("\n");
+  }
+
+  throw new Error("Unsupported export format. Use 'csv' or 'json'.");
+}
+
+function escapeCsvField(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+/**
+ * Predict network fee based on recent transaction fee trends.
+ * Analyzes recent fees and predicts the fee minutesAhead in the future.
+ *
+ * @param horizonUrl - Horizon server URL to fetch recent transactions
+ * @param minutesAhead - Number of minutes to predict ahead (1-60)
+ * @returns Predicted fee in stroops
+ */
+export async function predictNetworkFee(
+  horizonUrl: string,
+  minutesAhead: number = 5,
+): Promise<string> {
+  if (minutesAhead < 1 || minutesAhead > 60) {
+    throw new Error("minutesAhead must be between 1 and 60.");
+  }
+
+  try {
+    const url = new URL(horizonUrl);
+    if (!url.pathname.endsWith("/")) {
+      url.pathname += "/";
+    }
+    url.pathname += "transactions";
+    url.searchParams.set("limit", "10");
+    url.searchParams.set("order", "desc");
+
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      throw new Error(`Failed to fetch transactions: HTTP ${response.status}`);
+    }
+
+    const data = (await response.json()) as {
+      _embedded?: { records?: Array<{ max_fee?: string }> };
+    };
+    const records = data._embedded?.records ?? [];
+
+    if (records.length === 0) {
+      return "100";
+    }
+
+    const fees = records
+      .map((r) => {
+        const fee = r.max_fee ?? "0";
+        return BigInt(fee);
+      })
+      .sort((a, b) => {
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return 0;
+      });
+
+    const median = fees[Math.floor(fees.length / 2)];
+    const max = fees[fees.length - 1];
+    const min = fees[0];
+    const avgTrend = (max - min) / BigInt(fees.length);
+
+    const minuteFraction = BigInt(minutesAhead) / BigInt(60);
+    const predictedFee = median + avgTrend * minuteFraction;
+
+    return predictedFee.toString();
+  } catch (cause) {
+    throw new Error(`Failed to predict network fee: ${cause instanceof Error ? cause.message : "unknown error"}`);
+  }
+}
 

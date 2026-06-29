@@ -774,3 +774,103 @@ describe("prioritizeWallet (#95)", () => {
     expect(result.every((a) => !a.isAvailable())).toBe(true);
   });
 });
+
+describe("WalletStateMachine", () => {
+  it("initializes in disconnected state", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    expect(machine.isDisconnected()).toBe(true);
+    expect(machine.getCurrentState()).toBe("disconnected");
+  });
+
+  it("transitions from disconnected to connecting", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    machine.transitionToConnecting();
+    expect(machine.isConnecting()).toBe(true);
+    expect(machine.isDisconnected()).toBe(false);
+  });
+
+  it("transitions from connecting to connected", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    machine.transitionToConnecting();
+    machine.transitionToConnected();
+    expect(machine.isConnected()).toBe(true);
+  });
+
+  it("transitions from connected to disconnecting", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    machine.transitionToConnecting();
+    machine.transitionToConnected();
+    machine.transitionToDisconnecting();
+    expect(machine.isDisconnecting()).toBe(true);
+  });
+
+  it("transitions from disconnecting to disconnected", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    machine.transitionToConnecting();
+    machine.transitionToConnected();
+    machine.transitionToDisconnecting();
+    machine.transitionToDisconnected();
+    expect(machine.isDisconnected()).toBe(true);
+  });
+
+  it("throws when transitioning to connecting from non-disconnected state", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    machine.transitionToConnecting();
+    expect(() => machine.transitionToConnecting()).toThrow(
+      "Invalid transition: cannot go from connecting to connecting",
+    );
+  });
+
+  it("throws when transitioning to connected from non-connecting state", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    expect(() => machine.transitionToConnected()).toThrow(
+      "Invalid transition: cannot go from disconnected to connected",
+    );
+  });
+
+  it("throws when transitioning to disconnecting from non-connected state", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    expect(() => machine.transitionToDisconnecting()).toThrow(
+      "Invalid transition: cannot go from disconnected to disconnecting",
+    );
+  });
+
+  it("throws when transitioning to disconnected from non-disconnecting state", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    expect(() => machine.transitionToDisconnected()).toThrow(
+      "Invalid transition: cannot go from disconnected to disconnected",
+    );
+  });
+
+  it("resets to disconnected state", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    machine.transitionToConnecting();
+    machine.transitionToConnected();
+    machine.reset();
+    expect(machine.isDisconnected()).toBe(true);
+  });
+
+  it("allows full cycle of transitions", () => {
+    const { WalletStateMachine } = await import("../wallet/index");
+    const machine = new WalletStateMachine();
+    expect(machine.isDisconnected()).toBe(true);
+    machine.transitionToConnecting();
+    expect(machine.isConnecting()).toBe(true);
+    machine.transitionToConnected();
+    expect(machine.isConnected()).toBe(true);
+    machine.transitionToDisconnecting();
+    expect(machine.isDisconnecting()).toBe(true);
+    machine.transitionToDisconnected();
+    expect(machine.isDisconnected()).toBe(true);
+  });
+});

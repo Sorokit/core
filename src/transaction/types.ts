@@ -14,6 +14,8 @@ export interface TransactionResult {
   envelopeXdr?: string;
   /** Result XDR */
   resultXdr?: string;
+  /** Operation types parsed from envelopeXdr, e.g. ["payment", "changeTrust"] */
+  operationTypes?: string[];
 }
 
 export type MemoType = "text" | "id" | "hash" | "return";
@@ -31,6 +33,15 @@ export interface MemoParams {
    * A returned error result surfaces as TX_BUILD_FAILED and aborts the build.
    */
   memoValidator?: (memo: string) => import("../shared/response").SorokitResult<void>;
+  /**
+   * When true, simulate the transaction and return a fee estimate instead of
+   * the final signed XDR. Requires `rpcUrl` to be provided.
+   */
+  preview?: boolean;
+  /**
+   * Soroban RPC URL used for simulation when `preview` is true.
+   */
+  rpcUrl?: string;
 }
 
 export interface PaymentParams extends MemoParams {
@@ -40,7 +51,7 @@ export interface PaymentParams extends MemoParams {
   assetCode?: string;
   assetIssuer?: string;
   memo?: string;
-  /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
+  /** When true, reuses a 30-second shared sequence cache to avoid repeated Horizon round trips */
   autoFetchSequence?: boolean;
 }
 
@@ -49,7 +60,7 @@ export interface TrustlineParams extends MemoParams {
   assetIssuer: string;
   /** Defaults to max limit */
   limit?: string;
-  /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
+  /** When true, reuses a 30-second shared sequence cache to avoid repeated Horizon round trips */
   autoFetchSequence?: boolean;
 }
 
@@ -57,7 +68,7 @@ export interface AccountCreateParams extends MemoParams {
   destination: string;
   /** Starting balance in XLM — minimum 1 XLM */
   startingBalance: string;
-  /** When true, reuses a 5-second module-level sequence cache to avoid repeated Horizon round trips */
+  /** When true, reuses a 30-second shared sequence cache to avoid repeated Horizon round trips */
   autoFetchSequence?: boolean;
 }
 

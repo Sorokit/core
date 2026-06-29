@@ -8,7 +8,7 @@ export { NETWORK_DEFAULTS } from "./types";
 export { getNetwork } from "./getNetwork";
 export { setNetwork } from "./setNetwork";
 
-import { ok } from "../shared/response";
+import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 
 export type NetworkHealthStatus = "healthy" | "degraded" | "down";
@@ -126,4 +126,98 @@ export async function checkNetworkHealth(
   }
 
   return ok({ status, horizon, rpc, issues, recommendations });
+}
+
+export type FeeStatsWindow = "hour" | "day" | "week";
+
+export interface FeeStats {
+  min: string;
+  max: string;
+  avg: string;
+  median: string;
+  mode: string;
+  sampleSize: number;
+  window: FeeStatsWindow;
+}
+
+const WINDOW_LIMITS: Record<FeeStatsWindow, number> = {
+  hour: 50,
+  day: 100,
+  week: 200,
+};
+
+function computeFeeStats(fees: number[], window: FeeStatsWindow): FeeStats {
+  if (fees.length === 0) {
+    return { min: "0", max: "0", avg: "0", median: "0", mode: "0", sampleSize: 0, window };
+  }
+  const sorted = [...fees].sort((a, b) => a - b);
+  const min = sorted[0]!;
+  const max = sorted[sorted.length - 1]!;
+  const avg = Math.round(fees.reduce((s, f) => s + f, 0) / fees.length);
+  const mid = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length % 2 === 0
+      ? Math.round(((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2)
+      : (sorted[mid] ?? 0);
+
+  const freq = new Map<number, number>();
+  for (const f of fees) freq.set(f, (freq.get(f) ?? 0) + 1);
+  let mode = fees[0]!;
+  let modeCount = 0;
+  for (const [val, count] of freq) {
+    if (count > modeCount) { mode = val; modeCount = count; }
+  }
+
+  return {
+    min: String(min),
+    max: String(max),
+    avg: String(avg),
+    median: String(median),
+    mode: String(mode),
+    sampleSize: fees.length,
+    window,
+  };
+}
+
+export async function getNetworkFeeStats(
+  horizonUrl: string,
+  window: FeeStatsWindow = "hour",
+  fetchFn?: typeof fetch,
+): Promise<SorokitResult<FeeStats>> {
+  const limit = WINDOW_LIMITS[window];
+  const url = `${horizonUrl.replace(/\/$/, "")}/transactions?order=desc&limit=${limit}`;
+
+  try {
+    const fetchImpl = fetchFn ?? (typeof fetch !== "undefined" ? fetch : undefined);
+    if (!fetchImpl) {
+      return err(
+        SorokitErrorCode.NETWORK_ERROR,
+        "No fetch implementation available. Provide fetchFn when running outside a browser.",
+      ) as SorokitResult<FeeStats>;
+    }
+
+    const res = await fetchImpl(url);
+    if (!res.ok) {
+      return err(
+        SorokitErrorCode.NETWORK_ERROR,
+        `Horizon responded with HTTP ${res.status} while fetching transactions for fee stats.`,
+      ) as SorokitResult<FeeStats>;
+    }
+
+    const json = (await res.json()) as {
+      _embedded?: { records?: Array<{ fee_charged?: string }> };
+    };
+    const records = json._embedded?.records ?? [];
+    const fees = records
+      .map((r) => parseInt(r.fee_charged ?? "", 10))
+      .filter((f) => Number.isFinite(f) && f > 0);
+
+    return ok(computeFeeStats(fees, window));
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.NETWORK_ERROR,
+      `Failed to fetch fee statistics from Horizon: ${cause instanceof Error ? cause.message : String(cause)}`,
+      cause,
+    ) as SorokitResult<FeeStats>;
+  }
 }
