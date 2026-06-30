@@ -196,12 +196,22 @@ export {
   assertOk,
   attachTraceId,
   err,
+  isAccountNotFound,
+  isContractError,
   isErr,
   isErrorCode,
   isOk,
+  isTxFailed,
   ok,
 } from "./shared/response";
-export type { SorokitError, SorokitResult } from "./shared/response";
+export type {
+  AccountNotFoundErrorCode,
+  ContractErrorCode,
+  SorokitError,
+  SorokitErrorResult,
+  SorokitResult,
+  TxFailedErrorCode,
+} from "./shared/response";
 export { generateTraceId } from "./shared/utils";
 
 // ─── Metrics ──────────────────────────────────────────────────────────────────

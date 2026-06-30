@@ -26,6 +26,25 @@ export interface SorokitError {
   traceId?: string;
 }
 
+export type SorokitErrorResult<C extends SorokitErrorCode = SorokitErrorCode> = {
+  status: "error";
+  data: null;
+  error: SorokitError & { code: C };
+};
+
+export type AccountNotFoundErrorCode = SorokitErrorCode.ACCOUNT_NOT_FOUND;
+
+export type TxFailedErrorCode =
+  | SorokitErrorCode.TX_BUILD_FAILED
+  | SorokitErrorCode.TX_SIMULATE_FAILED
+  | SorokitErrorCode.TX_SUBMIT_FAILED;
+
+export type ContractErrorCode =
+  | SorokitErrorCode.CONTRACT_INVOKE_FAILED
+  | SorokitErrorCode.CONTRACT_READ_FAILED
+  | SorokitErrorCode.CONTRACT_PREPARE_FAILED
+  | SorokitErrorCode.CONTRACT_SIMULATE_FAILED;
+
 export enum SorokitErrorCode {
   // Wallet
   WALLET_NOT_FOUND = "WALLET_NOT_FOUND",
@@ -117,8 +136,40 @@ export function isErr<T>(
 export function isErrorCode<T, C extends SorokitErrorCode>(
   result: SorokitResult<T>,
   code: C,
-): result is { status: "error"; data: null; error: SorokitError & { code: C } } {
+): result is SorokitErrorResult<C> {
   return result.status === "error" && result.error.code === code;
+}
+
+/** Type guard — narrows to ACCOUNT_NOT_FOUND error results. */
+export function isAccountNotFound<T>(
+  result: SorokitResult<T>,
+): result is SorokitErrorResult<AccountNotFoundErrorCode> {
+  return isErrorCode(result, SorokitErrorCode.ACCOUNT_NOT_FOUND);
+}
+
+/** Type guard — narrows to transaction failure error results. */
+export function isTxFailed<T>(
+  result: SorokitResult<T>,
+): result is SorokitErrorResult<TxFailedErrorCode> {
+  return (
+    result.status === "error" &&
+    (result.error.code === SorokitErrorCode.TX_BUILD_FAILED ||
+      result.error.code === SorokitErrorCode.TX_SIMULATE_FAILED ||
+      result.error.code === SorokitErrorCode.TX_SUBMIT_FAILED)
+  );
+}
+
+/** Type guard — narrows to contract-related error results. */
+export function isContractError<T>(
+  result: SorokitResult<T>,
+): result is SorokitErrorResult<ContractErrorCode> {
+  return (
+    result.status === "error" &&
+    (result.error.code === SorokitErrorCode.CONTRACT_INVOKE_FAILED ||
+      result.error.code === SorokitErrorCode.CONTRACT_READ_FAILED ||
+      result.error.code === SorokitErrorCode.CONTRACT_PREPARE_FAILED ||
+      result.error.code === SorokitErrorCode.CONTRACT_SIMULATE_FAILED)
+  );
 }
 
 /**
