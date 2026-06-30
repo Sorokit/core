@@ -157,3 +157,30 @@ export function subscribeContractEvents(
     }
   };
 }
+
+export async function queryContractEvents(
+  contractId: string,
+  filter?: ContractEventFilter,
+  options?: ContractEventSubscriptionOptions,
+): Promise<ContractEvent[]> {
+  const requestFetch = options?.fetch ?? globalThis.fetch;
+
+  try {
+    const endpoint = new URL(`${options.horizonUrl.replace(/\/$/, "")}/events`);
+    endpoint.searchParams.set("contractId", contractId);
+    endpoint.searchParams.set("order", "desc");
+
+    const response = await requestFetch(endpoint.toString());
+    if (!response.ok) {
+      return [];
+    }
+
+    const payload = await response.json();
+    const events = readRecords(payload)
+      .filter((event) => matchesFilter(event, filter));
+
+    return events;
+  } catch {
+    return [];
+  }
+}
