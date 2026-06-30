@@ -10,7 +10,7 @@ export type {
 export { executeContract } from "./executeContract";
 export { invokeContract } from "./invokeContract";
 export { invokeBatchContracts } from "./invokeBatchContracts";
-export { subscribeContractEvents } from "./subscribeContractEvents";
+export { subscribeContractEvents, queryContractEvents } from "./subscribeContractEvents";
 export { getContractMethods } from "./contractMetadata";
 export { validateContractAbi } from "./validateContractAbi";
 export { buildContractDeploy } from "./deployContract";

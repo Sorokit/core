@@ -15,7 +15,10 @@ import { prepareContractCall } from "../soroban/prepareCall";
 import { readContract } from "../soroban/readContract";
 import { simulateContractSafe } from "../soroban/simulateContractSafe";
 import { simulateTransaction } from "../soroban/simulateTransaction";
-import { subscribeContractEvents } from "../soroban/subscribeContractEvents";
+import {
+  subscribeContractEvents,
+  queryContractEvents,
+} from "../soroban/subscribeContractEvents";
 import type { ContractAbi } from "../soroban/types";
 
 const {
@@ -521,6 +524,220 @@ describe("soroban contract event subscriptions", () => {
     await vi.advanceTimersByTimeAsync(5);
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("queryContractEvents", () => {
+  it("fetches historical events for a contract", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-1",
+              contractId: "C123",
+              name: "transfer",
+              topics: ["alice", "bob"],
+              value: { amount: 10 },
+            },
+            {
+              id: "evt-2",
+              contractId: "C123",
+              name: "mint",
+              topics: ["admin", "bob"],
+              value: { amount: 5 },
+            },
+          ],
+        },
+      }),
+    });
+
+    const result = await queryContractEvents(
+      "C123",
+      undefined,
+      { horizonUrl: "https://horizon.test", fetch: fetchMock },
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[0].id).toBe("evt-1");
+    expect(result[1].id).toBe("evt-2");
+  });
+
+  it("filters events by event name", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-1",
+              contractId: "C123",
+              name: "transfer",
+              topics: ["alice", "bob"],
+              value: { amount: 10 },
+            },
+            {
+              id: "evt-2",
+              contractId: "C123",
+              name: "mint",
+              topics: ["admin", "bob"],
+              value: { amount: 5 },
+            },
+          ],
+        },
+      }),
+    });
+
+    const result = await queryContractEvents(
+      "C123",
+      { name: "transfer" },
+      { horizonUrl: "https://horizon.test", fetch: fetchMock },
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe("transfer");
+  });
+
+  it("filters events by contractId", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-1",
+              contractId: "C123",
+              name: "transfer",
+              topics: ["alice", "bob"],
+              value: { amount: 10 },
+            },
+            {
+              id: "evt-2",
+              contractId: "C456",
+              name: "mint",
+              topics: ["admin", "bob"],
+              value: { amount: 5 },
+            },
+          ],
+        },
+      }),
+    });
+
+    const result = await queryContractEvents(
+      "C123",
+      { contractId: "C123" },
+      { horizonUrl: "https://horizon.test", fetch: fetchMock },
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].contractId).toBe("C123");
+  });
+
+  it("filters events by topic patterns", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-1",
+              contractId: "C123",
+              name: "transfer",
+              topics: ["alice", "bob"],
+              value: { amount: 10 },
+            },
+            {
+              id: "evt-2",
+              contractId: "C123",
+              name: "mint",
+              topics: ["admin", "bob"],
+              value: { amount: 5 },
+            },
+          ],
+        },
+      }),
+    });
+
+    const result = await queryContractEvents(
+      "C123",
+      { topicPatterns: ["bob"] },
+      { horizonUrl: "https://horizon.test", fetch: fetchMock },
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[0].topics).toContain("bob");
+    expect(result[1].topics).toContain("bob");
+  });
+
+  it("filters events by regex topic patterns", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [
+            {
+              id: "evt-1",
+              contractId: "C123",
+              name: "transfer",
+              topics: ["alice", "bob"],
+              value: { amount: 10 },
+            },
+            {
+              id: "evt-2",
+              contractId: "C123",
+              name: "mint",
+              topics: ["admin", "bob"],
+              value: { amount: 5 },
+            },
+            {
+              id: "evt-3",
+              contractId: "C123",
+              name: "burn",
+              topics: ["charlie"],
+              value: { amount: 3 },
+            },
+          ],
+        },
+      }),
+    });
+
+    const result = await queryContractEvents(
+      "C123",
+      { topicPatterns: [/^b/, /^c/] },
+      { horizonUrl: "https://horizon.test", fetch: fetchMock },
+    );
+
+    expect(result).toHaveLength(3);
+    expect(result.some((e) => e.name === "transfer")).toBe(true);
+    expect(result.some((e) => e.name === "mint")).toBe(true);
+    expect(result.some((e) => e.name === "burn")).toBe(true);
+  });
+
+  it("returns empty array when API request fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+    });
+
+    const result = await queryContractEvents(
+      "C123",
+      undefined,
+      { horizonUrl: "https://horizon.test", fetch: fetchMock },
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  it("handles fetch errors gracefully", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("Network error"));
+
+    const result = await queryContractEvents(
+      "C123",
+      undefined,
+      { horizonUrl: "https://horizon.test", fetch: fetchMock },
+    );
+
+    expect(result).toEqual([]);
   });
 });
 
