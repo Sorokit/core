@@ -196,6 +196,78 @@ client.soroban.invoke(params, (xdr) =>
 )
 ```
 
+#### Contract State History
+
+Track contract state changes over time with `trackContractStateHistory` and `getStateHistory`. Both functions are pure utilities importable directly — no client instance needed.
+
+```ts
+import {
+  trackContractStateHistory,
+  getStateHistory,
+  clearContractStateHistory,
+  InMemoryContractStateHistoryStore,
+} from "sorokit-core";
+
+// Record a state snapshot whenever state changes
+trackContractStateHistory(contractId, { counter: 1 });
+trackContractStateHistory(contractId, { counter: 2 }); // new snapshot
+trackContractStateHistory(contractId, { counter: 2 }); // identical — skipped
+
+// Retrieve full chronological history
+const result = getStateHistory(contractId);
+if (result.status === "ok") {
+  console.log(result.data); // ContractStateSnapshot[]
+}
+```
+
+**Snapshot structure**
+
+```ts
+interface ContractStateSnapshot {
+  contractId: string;               // contract being tracked
+  timestamp: string;                // ISO-8601 capture time
+  state: Record<string, unknown>;   // complete state at capture
+  metadata?: Record<string, unknown>; // optional metadata
+}
+```
+
+Pass metadata as the third argument:
+
+```ts
+trackContractStateHistory(contractId, { counter: 3 }, { source: "poll" });
+```
+
+**Persistent storage**
+
+By default history is stored in memory per process. Supply a `ContractStateHistoryStore` to persist across restarts:
+
+```ts
+import type { ContractStateHistoryStore, ContractStateSnapshot } from "sorokit-core";
+
+const myStore: ContractStateHistoryStore = {
+  append(snapshot) { /* write to DB */ },
+  getAll(contractId) { /* read from DB */ return []; },
+  clear(contractId?) { /* delete from DB */ },
+};
+
+trackContractStateHistory(contractId, state, undefined, myStore);
+const result = getStateHistory(contractId, myStore);
+```
+
+`InMemoryContractStateHistoryStore` is the built-in implementation and is exported for use in tests or as a base reference.
+
+**Deduplication**
+
+A snapshot is only appended when the serialised state differs from the most recent entry. Identical consecutive states are silently dropped and the function returns `{ status: "ok", data: null }`.
+
+**Test isolation**
+
+```ts
+import { clearContractStateHistory } from "sorokit-core";
+
+beforeEach(() => clearContractStateHistory());
+```
+
 ---
 
 ## Result Type
