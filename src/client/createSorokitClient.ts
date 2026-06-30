@@ -14,6 +14,7 @@ import { disconnectWallet } from "../wallet/disconnect";
 import { signTransaction } from "../wallet/signTransaction";
 import { emptyWalletState } from "../wallet/index";
 import { getAccount } from "../account/getAccount";
+import { getAccountsBatch } from "../account/getAccountsBatch";
 import { getBalances } from "../account/getBalances";
 import { getAssetBalances } from "../account/getAssetBalances";
 import { streamAccount } from "../account/streamAccount";
@@ -21,6 +22,7 @@ import {
   buildPaymentTransaction,
   buildCreateAccountTransaction,
   buildTrustlineTransaction,
+  buildPathPayment,
 } from "../transaction/buildTransaction";
 import { submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
@@ -37,6 +39,7 @@ import { formatAddress, generateTraceId } from "../shared/utils";
 import { ok } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
+import { wrapCache } from "../shared/cache";
 import type { SorokitCache } from "../shared/cache";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ErrorHandler, ErrorContext } from "../shared/errors";
@@ -57,6 +60,7 @@ import type {
   TrustlineParams,
   AccountCreateParams,
   TransactionResult,
+  PathPaymentParams,
 } from "../transaction/types";
 import type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "../transaction/estimateFee";
 import type {
@@ -145,6 +149,10 @@ export interface SorokitClient {
   readonly account: {
     /** Fetch full account info including all balances */
     get(publicKey: string): Promise<SorokitResult<AccountInfo>>;
+    /** Fetch full account info for multiple accounts in parallel */
+    getAccountsBatch(
+      publicKeys: string[],
+    ): Promise<SorokitResult<SorokitResult<AccountInfo>[]>>;
     /** Fetch balances only */
     getBalances(publicKey: string): Promise<SorokitResult<AssetBalance[]>>;
     /**
@@ -186,6 +194,11 @@ export interface SorokitClient {
     buildTrustline(
       sourcePublicKey: string,
       params: TrustlineParams,
+    ): Promise<SorokitResult<string>>;
+    /** Build a path payment transaction XDR (unsigned) */
+    buildPathPayment(
+      sourcePublicKey: string,
+      params: PathPaymentParams,
     ): Promise<SorokitResult<string>>;
     /** Submit a signed transaction XDR */
     submit(signedXdr: string): Promise<SorokitResult<TransactionResult>>;
@@ -299,8 +312,9 @@ export function createSorokitClient(
   const logger = createTracedLogger(baseLogger, traceId);
   const defaultPollConfig = config.sorobanPoll;
   const errorHandler = config.errorHandler;
+  const cache = config.cache ? wrapCache(config.cache) : undefined;
   const feeEstimateOptions: FeeEstimateOptions = {
-    ...(config.cache !== undefined ? { cache: config.cache } : {}),
+    ...(cache !== undefined ? { cache } : {}),
     ...(config.onFeeSurge !== undefined
       ? { onFeeSurge: config.onFeeSurge }
       : {}),
@@ -322,29 +336,87 @@ export function createSorokitClient(
     rpcUrl,
   });
 
+  // Client creation checks cache for recovered state
+  if (cache) {
+    const cachedVal = cache.get("wallet:state");
+    logger.debug("client.create: checked cache for recovered wallet state", {
+      hasCachedState: !!cachedVal,
+    });
+  }
+
   const client: SorokitClient = {
     networkConfig,
     trustedIssuers: config.trustedIssuers ?? null,
     traceId,
 
     wallet: {
-      connect: (adapter) =>
-        withLogging(logger, "wallet.connect", { walletType: adapter.walletType }, () =>
-          connectWallet(adapter),
-        ).then(applyTx),
+      connect: (adapter) => {
+        const action = () => {
+          if (cache) {
+            const cachedVal = cache.get("wallet:state");
+            let cached: WalletState | null = null;
+            if (cachedVal) {
+              if (typeof cachedVal === "string") {
+                try {
+                  cached = JSON.parse(cachedVal);
+                } catch {
+                  // ignore
+                }
+              } else if (typeof cachedVal === "object") {
+                cached = cachedVal as WalletState;
+              }
+            }
+
+            if (cached && cached.connected && cached.walletType === adapter.walletType) {
+              if (adapter.isAvailable()) {
+                logger.info("wallet.connect.recover", { walletType: adapter.walletType, status: "ok" });
+                return Promise.resolve(applyTx(ok(cached)));
+              } else {
+                logger.warn("wallet.connect.recover.validation_failed", { walletType: adapter.walletType });
+                cache.invalidate("wallet:state");
+                return Promise.resolve(applyTx(ok({
+                  connected: false,
+                  publicKey: null,
+                  walletType: null,
+                })));
+              }
+            }
+          }
+
+          return withLogging(logger, "wallet.connect", { walletType: adapter.walletType }, () =>
+            connectWallet(adapter, cache),
+          );
+        };
+        return withErrorHandling(
+          errorHandler,
+          { functionName: "wallet.connect", params: { walletType: adapter.walletType } },
+          action
+        ).then(applyTx);
+      },
       disconnect: (adapter) =>
-        withLogging(logger, "wallet.disconnect", { walletType: adapter.walletType }, () =>
-          disconnectWallet(adapter),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "wallet.disconnect", params: { walletType: adapter.walletType } },
+          () =>
+            withLogging(logger, "wallet.disconnect", { walletType: adapter.walletType }, () =>
+              disconnectWallet(adapter, cache),
+            ),
         ).then(applyTx),
       signTransaction: (adapter, input) =>
-        withLogging(
-          logger,
-          "wallet.signTransaction",
-          { walletType: adapter.walletType },
-          () => signTransaction(adapter, input),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "wallet.signTransaction", params: { walletType: adapter.walletType } },
+          () =>
+            withLogging(
+              logger,
+              "wallet.signTransaction",
+              { walletType: adapter.walletType },
+              () => signTransaction(adapter, input),
+            ),
         ).then(applyTx),
       emptyState: () => emptyWalletState(),
     },
+
 
     account: {
       get: (publicKey) =>
@@ -354,6 +426,15 @@ export function createSorokitClient(
           () =>
             withLogging(logger, "account.get", { publicKey }, () =>
               getAccount(horizonUrl, publicKey),
+            ),
+        ).then(applyTx),
+      getAccountsBatch: (publicKeys) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "account.getAccountsBatch", params: { publicKeys } },
+          () =>
+            withLogging(logger, "account.getAccountsBatch", { publicKeys }, () =>
+              getAccountsBatch(horizonUrl, publicKeys),
             ),
         ).then(applyTx),
       getBalances: (publicKey) =>
@@ -380,48 +461,101 @@ export function createSorokitClient(
     },
 
     transaction: {
-      buildPayment: (sourcePublicKey, params) => {
-        logger.debug("transaction.buildPayment", { sourcePublicKey });
-        return buildPaymentTransaction(
-          horizonUrl,
-          networkConfig,
-          sourcePublicKey,
-          params,
-          client.trustedIssuers,
-        ).then(applyTx);
-      },
-      buildCreateAccount: (sourcePublicKey, params) => {
-        logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
-        return buildCreateAccountTransaction(
-          horizonUrl,
-          networkConfig,
-          sourcePublicKey,
-          params,
-        ).then(applyTx);
-      },
-      buildTrustline: (sourcePublicKey, params) => {
-        logger.debug("transaction.buildTrustline", { sourcePublicKey });
-        return buildTrustlineTransaction(
-          horizonUrl,
-          networkConfig,
-          sourcePublicKey,
-          params,
-          client.trustedIssuers,
-        ).then(applyTx);
-      },
-      submit: async (signedXdr) => {
-        logger.debug("transaction.submit");
-        if (rateLimiter) await rateLimiter.acquire();
-        return submitTransaction(horizonUrl, networkPassphrase, signedXdr, config.cache).then(applyTx);
-      },
-      getStatus: (hash) => {
-        logger.debug("transaction.getStatus", { hash });
-        return getTransactionStatus(horizonUrl, hash).then(applyTx);
-      },
-      estimateFee: (input) => {
-        logger.debug("transaction.estimateFee");
-        return estimateFee(rpcUrl, horizonUrl, networkConfig, input, config.cache).then(applyTx);
-      },
+      buildPayment: (sourcePublicKey, params) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.buildPayment", params: { sourcePublicKey, ...params } },
+          () => {
+            logger.debug("transaction.buildPayment", { sourcePublicKey });
+            return buildPaymentTransaction(
+              horizonUrl,
+              networkConfig,
+              sourcePublicKey,
+              params,
+              client.trustedIssuers,
+            );
+          }
+        ).then(applyTx),
+      buildCreateAccount: (sourcePublicKey, params) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.buildCreateAccount", params: { sourcePublicKey, ...params } },
+          () => {
+            logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
+            return buildCreateAccountTransaction(
+              horizonUrl,
+              networkConfig,
+              sourcePublicKey,
+              params,
+            );
+          }
+        ).then(applyTx),
+      buildTrustline: (sourcePublicKey, params) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.buildTrustline", params: { sourcePublicKey, ...params } },
+          () => {
+            logger.debug("transaction.buildTrustline", { sourcePublicKey });
+            return buildTrustlineTransaction(
+              horizonUrl,
+              networkConfig,
+              sourcePublicKey,
+              params,
+              client.trustedIssuers,
+            );
+          }
+        ).then(applyTx),
+      buildPathPayment: (sourcePublicKey, params) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.buildPathPayment", params: { sourcePublicKey, ...params } },
+          () => {
+            logger.debug("transaction.buildPathPayment", { sourcePublicKey });
+            return buildPathPayment(
+              horizonUrl,
+              networkConfig,
+              sourcePublicKey,
+              params,
+              client.trustedIssuers,
+            );
+          }
+        ).then(applyTx),
+      submit: async (signedXdr) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.submit" },
+          async () => {
+            logger.debug("transaction.submit");
+            if (rateLimiter) await rateLimiter.acquire();
+            return submitTransaction(horizonUrl, networkPassphrase, signedXdr, cache);
+          }
+        ).then(applyTx),
+      getStatus: (hash) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.getStatus", params: { hash } },
+          () => {
+            logger.debug("transaction.getStatus", { hash });
+            return getTransactionStatus(horizonUrl, hash);
+          }
+        ).then(applyTx),
+      estimateFee: (input) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.estimateFee", params: { ...input } },
+          () => {
+            logger.debug("transaction.estimateFee");
+            return estimateFee(
+              rpcUrl,
+              horizonUrl,
+              networkConfig,
+              input,
+              cache,
+              undefined,
+              feeEstimateOptions,
+            );
+          }
+        ).then(applyTx),
       stream: (publicKey, config, signal) => {
         logger.debug("transaction.stream", { publicKey });
         return streamTransactions(horizonUrl, publicKey, config, signal);
@@ -430,15 +564,20 @@ export function createSorokitClient(
 
     soroban: {
       getContractMethods: (contractId, ttlMs) =>
-        withLogging(
-          logger,
-          "soroban.getContractMethods",
-          { contractId },
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.getContractMethods", params: { contractId } },
           () =>
-            getContractMethods(rpcUrl, contractId, {
-              ...(config.cache && { cache: config.cache }),
-              ...(ttlMs !== undefined && { ttlMs }),
-            }),
+            withLogging(
+              logger,
+              "soroban.getContractMethods",
+              { contractId },
+              () =>
+                getContractMethods(rpcUrl, contractId, {
+                  ...(cache && { cache }),
+                  ...(ttlMs !== undefined && { ttlMs }),
+                }),
+            ),
         ).then(applyTx),
       simulate: (transactionXdr) =>
         withErrorHandling(

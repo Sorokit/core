@@ -14,19 +14,239 @@ export type {
   DiagnosticCheck,
   WalletDiagnosticReport,
   WalletDiagnosticOptions,
+  DetectedWallet,
+  RecommendationCriteria,
+  WalletFeature,
 } from "./types";
 export { WalletType as WalletTypeEnum } from "./types";
+export {
+  getSigningHistory,
+  exportSigningHistory,
+  InMemorySigningHistoryStore,
+} from "./signingHistory";
+export type {
+  SigningRecord,
+  SigningHistoryFilter,
+  SigningHistoryStore,
+} from "./signingHistory";
 
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { toMessage } from "../shared/errors";
+import { xdr } from "@stellar/stellar-sdk";
 import type {
   WalletState,
   WalletAdapter,
   DiagnosticCheck,
   WalletDiagnosticReport,
   WalletDiagnosticOptions,
+  DetectedWallet,
+  RecommendationCriteria,
+  WalletFeature,
 } from "./types";
+import { WalletType } from "./types";
+
+const WALLET_FEATURE_MAP: Record<WalletType, WalletFeature[]> = {
+  [WalletType.FREIGHTER]: ["multisig"],
+  [WalletType.XBULL]: ["multisig", "hardware"],
+  [WalletType.LOBSTR]: ["multisig"],
+  [WalletType.HANA]: [],
+  [WalletType.RABET]: [],
+};
+
+export type EnvelopeSignatureInput = string | xdr.DecoratedSignature;
+export type SignatureHintInput = string | Buffer | Uint8Array;
+
+function parseEnvelope(envelopeXdr: string): xdr.TransactionEnvelope {
+  if (typeof envelopeXdr !== "string" || envelopeXdr.trim().length === 0) {
+    throw new Error("Transaction envelope XDR must be a non-empty base64 string.");
+  }
+
+  try {
+    return xdr.TransactionEnvelope.fromXDR(envelopeXdr, "base64");
+  } catch {
+    throw new Error("Invalid transaction envelope XDR.");
+  }
+}
+
+function parseSignature(signature: EnvelopeSignatureInput): xdr.DecoratedSignature {
+  let decoratedSignature: xdr.DecoratedSignature;
+
+  if (typeof signature === "string") {
+    if (signature.trim().length === 0) {
+      throw new Error("Signature XDR must be a non-empty base64 string.");
+    }
+
+    try {
+      decoratedSignature = xdr.DecoratedSignature.fromXDR(signature, "base64");
+    } catch {
+      throw new Error("Invalid decorated signature XDR.");
+    }
+  } else {
+    decoratedSignature = signature;
+  }
+
+  if (decoratedSignature.hint().length !== 4) {
+    throw new Error("Signature hint must be exactly 4 bytes.");
+  }
+
+  if (decoratedSignature.signature().length === 0) {
+    throw new Error("Signature bytes must not be empty.");
+  }
+
+  return decoratedSignature;
+}
+
+function normalizeSignatureHint(hint: SignatureHintInput): Buffer {
+  const bytes =
+    typeof hint === "string"
+      ? /^[0-9a-fA-F]{8}$/.test(hint)
+        ? Buffer.from(hint, "hex")
+        : Buffer.from(hint, "base64")
+      : Buffer.from(hint);
+
+  if (bytes.length !== 4) {
+    throw new Error("Signature hint must be exactly 4 bytes.");
+  }
+
+  return bytes;
+}
+
+function bufferEquals(left: Buffer | Uint8Array, right: Buffer | Uint8Array): boolean {
+  return Buffer.from(left).equals(Buffer.from(right));
+}
+
+function getEnvelopeSignatures(envelope: xdr.TransactionEnvelope): xdr.DecoratedSignature[] {
+  switch (envelope.switch()) {
+    case xdr.EnvelopeType.envelopeTypeTxV0():
+      return envelope.v0().signatures();
+    case xdr.EnvelopeType.envelopeTypeTx():
+      return envelope.v1().signatures();
+    case xdr.EnvelopeType.envelopeTypeTxFeeBump():
+      return envelope.feeBump().signatures();
+    default:
+      throw new Error("Unsupported transaction envelope type.");
+  }
+}
+
+function setEnvelopeSignatures(
+  envelope: xdr.TransactionEnvelope,
+  signatures: xdr.DecoratedSignature[],
+): void {
+  switch (envelope.switch()) {
+    case xdr.EnvelopeType.envelopeTypeTxV0():
+      envelope.v0().signatures(signatures);
+      return;
+    case xdr.EnvelopeType.envelopeTypeTx():
+      envelope.v1().signatures(signatures);
+      return;
+    case xdr.EnvelopeType.envelopeTypeTxFeeBump():
+      envelope.feeBump().signatures(signatures);
+      return;
+    default:
+      throw new Error("Unsupported transaction envelope type.");
+  }
+}
+
+/**
+ * Add a decorated signature to a transaction envelope XDR.
+ *
+ * The input envelope is parsed and re-serialized; the original XDR string is not
+ * modified. `signature` may be a base64-encoded DecoratedSignature XDR or an SDK
+ * DecoratedSignature instance.
+ */
+export function addSignatureToEnvelope(
+  envelopeXdr: string,
+  signature: EnvelopeSignatureInput,
+): string {
+  const envelope = parseEnvelope(envelopeXdr);
+  const decoratedSignature = parseSignature(signature);
+  setEnvelopeSignatures(envelope, [
+    ...getEnvelopeSignatures(envelope),
+    decoratedSignature,
+  ]);
+  return envelope.toXDR("base64");
+}
+
+/**
+ * Remove decorated signatures with the provided 4-byte hint from an envelope XDR.
+ *
+ * `hint` may be raw bytes, an 8-character hex string, or a base64-encoded
+ * 4-byte signature hint. The returned XDR is a fresh serialized envelope.
+ */
+export function removeSignatureFromEnvelope(
+  envelopeXdr: string,
+  hint: SignatureHintInput,
+): string {
+  const envelope = parseEnvelope(envelopeXdr);
+  const normalizedHint = normalizeSignatureHint(hint);
+  const retainedSignatures = getEnvelopeSignatures(envelope)
+    .filter((signature) => !bufferEquals(signature.hint(), normalizedHint));
+
+  setEnvelopeSignatures(envelope, retainedSignatures);
+  return envelope.toXDR("base64");
+}
+
+/**
+ * Detect which wallet adapters are currently installed and available.
+ * Only works in a browser environment — returns available: false for all in Node.
+ */
+export function detectInstalledWallets(adapters: WalletAdapter[]): DetectedWallet[] {
+  return adapters.map((adapter) => ({
+    walletType: adapter.walletType,
+    available: adapter.isAvailable(),
+    features: WALLET_FEATURE_MAP[adapter.walletType] ?? [],
+  }));
+}
+
+/**
+ * Reorder wallet adapters by availability and an optional preferred type.
+ *
+ * Order: preferred (when available) → other available wallets (input order)
+ * → unavailable wallets (input order). If the preferred wallet is present
+ * but unavailable, it falls to the unavailable bucket and the first
+ * available adapter leads.
+ */
+export function prioritizeWallet(
+  adapters: WalletAdapter[],
+  preferred?: WalletType,
+): WalletAdapter[] {
+  const preferredAvailable: WalletAdapter[] = [];
+  const otherAvailable: WalletAdapter[] = [];
+  const unavailable: WalletAdapter[] = [];
+
+  for (const adapter of adapters) {
+    const available = adapter.isAvailable();
+    if (!available) {
+      unavailable.push(adapter);
+      continue;
+    }
+    if (preferred !== undefined && adapter.walletType === preferred) {
+      preferredAvailable.push(adapter);
+    } else {
+      otherAvailable.push(adapter);
+    }
+  }
+
+  return [...preferredAvailable, ...otherAvailable, ...unavailable];
+}
+
+/**
+ * Recommend wallets from a list of adapters based on optional feature criteria.
+ * Returns all available wallets when no criteria are provided.
+ * Requires a browser environment — adapters report unavailable in Node.
+ */
+export function recommendWallets(
+  adapters: WalletAdapter[],
+  criteria?: RecommendationCriteria,
+): DetectedWallet[] {
+  const detected = detectInstalledWallets(adapters);
+  const available = detected.filter((w) => w.available);
+  if (!criteria?.features?.length) return available;
+  return available.filter((w) =>
+    criteria.features!.every((f) => w.features.includes(f)),
+  );
+}
 
 /**
  * Return a canonical disconnected WalletState wrapped in SorokitResult.

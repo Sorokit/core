@@ -1,16 +1,74 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  Account,
+  BASE_FEE,
+  Keypair,
+  Networks,
+  Operation,
+  TransactionBuilder,
+  xdr,
+} from "@stellar/stellar-sdk";
+import {
+  addSignatureToEnvelope,
   connectWallet,
   disconnectWallet,
   signTransaction,
   emptyWalletState,
+  collectMultiSignatures,
+  diagnoseWalletConnection,
+  removeSignatureFromEnvelope,
 } from "../wallet/index";
+import {
+  InMemorySigningHistoryStore,
+  getSigningHistory,
+  exportSigningHistory,
+} from "../wallet/signingHistory";
 import { FreighterAdapter } from "../wallet/adapters/freighter";
 import { XBullAdapter } from "../wallet/adapters/xbull";
 import { LobstrAdapter } from "../wallet/adapters/lobstr";
 import { WalletType } from "../wallet/types";
-import { SorokitErrorCode } from "../shared/response";
-import type { SWKInstance } from "../wallet/types";
+import { ok, err, SorokitErrorCode } from "../shared/response";
+import { createSorokitClient } from "../client/createSorokitClient";
+import type { SorokitCache } from "../shared/cache";
+import type { WalletAdapter, SWKInstance } from "../wallet/types";
+
+function createUnsignedEnvelopeXdr(): string {
+  const source = Keypair.random();
+  const transaction = new TransactionBuilder(
+    new Account(source.publicKey(), "1"),
+    {
+      fee: BASE_FEE,
+      networkPassphrase: Networks.TESTNET,
+    },
+  )
+    .addOperation(Operation.manageData({ name: "issue-118", value: "ok" }))
+    .setTimeout(30)
+    .build();
+
+  return transaction.toXDR();
+}
+
+function createDecoratedSignature(
+  hint = Buffer.from([1, 2, 3, 4]),
+  signature = Buffer.alloc(64, 7),
+): xdr.DecoratedSignature {
+  return new xdr.DecoratedSignature({ hint, signature });
+}
+
+function envelopeSignatures(envelopeXdr: string): xdr.DecoratedSignature[] {
+  const envelope = xdr.TransactionEnvelope.fromXDR(envelopeXdr, "base64");
+
+  switch (envelope.switch()) {
+    case xdr.EnvelopeType.envelopeTypeTxV0():
+      return envelope.v0().signatures();
+    case xdr.EnvelopeType.envelopeTypeTx():
+      return envelope.v1().signatures();
+    case xdr.EnvelopeType.envelopeTypeTxFeeBump():
+      return envelope.feeBump().signatures();
+    default:
+      throw new Error("Unsupported transaction envelope type.");
+  }
+}
 
 function mockKit(overrides?: Partial<SWKInstance>): SWKInstance {
   return {
@@ -130,7 +188,7 @@ describe("wallet module functions", () => {
   });
 
   it("signTransaction() returns WALLET_SIGN_REJECTED when adapter throws a rejection error", async () => {
-    const rejectingAdapter: import("../wallet/types").WalletAdapter = {
+    const rejectingAdapter: WalletAdapter = {
       walletType: WalletType.FREIGHTER,
       isAvailable: () => true,
       connect: vi.fn(),
@@ -148,7 +206,7 @@ describe("wallet module functions", () => {
   });
 
   it("signTransaction() returns WALLET_SIGN_FAILED when adapter throws a non-rejection error", async () => {
-    const failingAdapter: import("../wallet/types").WalletAdapter = {
+    const failingAdapter: WalletAdapter = {
       walletType: WalletType.FREIGHTER,
       isAvailable: () => true,
       connect: vi.fn(),
@@ -165,9 +223,6 @@ describe("wallet module functions", () => {
     }
   });
 });
-
-import { collectMultiSignatures } from "../wallet/index";
-import { ok, err, SorokitErrorCode } from "../shared/response";
 
 describe("collectMultiSignatures (#22)", () => {
   it("returns WALLET_SIGN_FAILED when signers list is empty", async () => {
@@ -204,7 +259,6 @@ describe("collectMultiSignatures (#22)", () => {
     if (result.status === "ok") {
       expect(result.data).toBe("xdr-after-bob");
     }
-    // Each call receives the output of the previous
     expect(signFn).toHaveBeenNthCalledWith(1, "xdr-0", "alice");
     expect(signFn).toHaveBeenNthCalledWith(2, "xdr-after-alice", "bob");
   });
@@ -224,7 +278,6 @@ describe("collectMultiSignatures (#22)", () => {
     if (result.status === "error") {
       expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
     }
-    // carol should never have been called
     expect(signFn).toHaveBeenCalledTimes(2);
   });
 
@@ -243,8 +296,88 @@ describe("collectMultiSignatures (#22)", () => {
   });
 });
 
-import { diagnoseWalletConnection } from "../wallet/index";
-import type { WalletAdapter } from "../wallet/types";
+describe("envelope signature management (#118)", () => {
+  it("adds a decorated signature to an envelope without mutating the original XDR", () => {
+    const envelopeXdr = createUnsignedEnvelopeXdr();
+    const signature = createDecoratedSignature();
+
+    const updatedXdr = addSignatureToEnvelope(envelopeXdr, signature);
+
+    expect(updatedXdr).not.toBe(envelopeXdr);
+    expect(envelopeSignatures(envelopeXdr)).toHaveLength(0);
+    expect(envelopeSignatures(updatedXdr)).toHaveLength(1);
+    expect(envelopeSignatures(updatedXdr)[0].hint()).toEqual(signature.hint());
+  });
+
+  it("adds a base64 decorated signature XDR to an envelope", () => {
+    const envelopeXdr = createUnsignedEnvelopeXdr();
+    const signature = createDecoratedSignature(Buffer.from([4, 3, 2, 1]));
+    const signatureXdr = signature.toXDR("base64");
+
+    const updatedXdr = addSignatureToEnvelope(envelopeXdr, signatureXdr);
+
+    expect(envelopeSignatures(updatedXdr)).toHaveLength(1);
+    expect(envelopeSignatures(updatedXdr)[0].hint()).toEqual(signature.hint());
+  });
+
+  it("removes signatures that match a raw hint without mutating the original XDR", () => {
+    const envelopeXdr = createUnsignedEnvelopeXdr();
+    const firstSignature = createDecoratedSignature(Buffer.from([1, 1, 1, 1]));
+    const secondSignature = createDecoratedSignature(Buffer.from([2, 2, 2, 2]));
+    const signedXdr = addSignatureToEnvelope(
+      addSignatureToEnvelope(envelopeXdr, firstSignature),
+      secondSignature,
+    );
+
+    const updatedXdr = removeSignatureFromEnvelope(
+      signedXdr,
+      firstSignature.hint(),
+    );
+
+    expect(envelopeSignatures(signedXdr)).toHaveLength(2);
+    expect(envelopeSignatures(updatedXdr)).toHaveLength(1);
+    expect(envelopeSignatures(updatedXdr)[0].hint()).toEqual(secondSignature.hint());
+  });
+
+  it("removes signatures by 8-character hex hint", () => {
+    const envelopeXdr = createUnsignedEnvelopeXdr();
+    const signature = createDecoratedSignature(Buffer.from([10, 11, 12, 13]));
+    const signedXdr = addSignatureToEnvelope(envelopeXdr, signature);
+
+    const updatedXdr = removeSignatureFromEnvelope(signedXdr, "0a0b0c0d");
+
+    expect(envelopeSignatures(updatedXdr)).toHaveLength(0);
+  });
+
+  it("rejects invalid envelope XDR before adding or removing signatures", () => {
+    const signature = createDecoratedSignature();
+
+    expect(() => addSignatureToEnvelope("not-xdr", signature)).toThrow(
+      "Invalid transaction envelope XDR",
+    );
+    expect(() => removeSignatureFromEnvelope("not-xdr", signature.hint())).toThrow(
+      "Invalid transaction envelope XDR",
+    );
+  });
+
+  it("rejects invalid signatures and invalid hints", () => {
+    const envelopeXdr = createUnsignedEnvelopeXdr();
+
+    expect(() => addSignatureToEnvelope(envelopeXdr, "not-signature-xdr")).toThrow(
+      "Invalid decorated signature XDR",
+    );
+    expect(() => removeSignatureFromEnvelope(envelopeXdr, Buffer.alloc(3))).toThrow(
+      "Signature hint must be exactly 4 bytes",
+    );
+  });
+});
+
+import {
+  diagnoseWalletConnection,
+  detectInstalledWallets,
+  prioritizeWallet,
+  recommendWallets,
+} from "../wallet/index";
 
 function fakeAdapter(overrides?: Partial<WalletAdapter>): WalletAdapter {
   return {
@@ -336,7 +469,7 @@ describe("diagnoseWalletConnection (#34)", () => {
   });
 
   it("skips the connection probe when probeConnection is false", async () => {
-    const connect = vi.fn(async () => ok("G..."));
+    const connect = vi.fn().mockResolvedValue(ok("G..."));
     const result = await diagnoseWalletConnection(
       fakeAdapter({ connect }),
       { probeConnection: false },
@@ -344,5 +477,300 @@ describe("diagnoseWalletConnection (#34)", () => {
     if (result.status !== "ok") throw new Error("expected ok");
     expect(find(result.data, "extension_responsive")?.status).toBe("skipped");
     expect(connect).not.toHaveBeenCalled();
+  });
+});
+
+class SimpleCache implements SorokitCache {
+  private store = new Map<string, unknown>();
+
+  get(key: string): unknown {
+    return this.store.get(key);
+  }
+
+  set(key: string, value: unknown, ttlMs?: number): void {
+    this.store.set(key, value);
+  }
+
+  invalidate(key: string): void {
+    this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+}
+
+describe("wallet connection persistence and recovery", () => {
+  it("connectWallet() persists state to cache after success", async () => {
+    const cache = new SimpleCache();
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: async () => ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
+    });
+
+    const result = await connectWallet(adapter, cache);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.connected).toBe(true);
+      expect(result.data.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      expect(result.data.walletType).toBe(WalletType.FREIGHTER);
+    }
+
+    const cachedState = cache.get("wallet:state") as any;
+    expect(cachedState).toBeDefined();
+    expect(cachedState.connected).toBe(true);
+    expect(cachedState.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+    expect(cachedState.walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("client creation checks cache and recovers connection state when valid", async () => {
+    const cache = new SimpleCache();
+    const initialWalletState = {
+      connected: true,
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      walletType: WalletType.FREIGHTER,
+    };
+    cache.set("wallet:state", initialWalletState);
+
+    const clientResult = createSorokitClient({ network: "testnet", cache });
+    expect(clientResult.status).toBe("ok");
+    if (clientResult.status !== "ok") return;
+    const client = clientResult.data;
+
+    const connectSpy = vi.fn().mockResolvedValue(ok("G..."));
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: connectSpy,
+    });
+
+    const connResult = await client.wallet.connect(adapter);
+    expect(connResult.status).toBe("ok");
+    if (connResult.status === "ok") {
+      expect(connResult.data.connected).toBe(true);
+      expect(connResult.data.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      expect(connResult.data.walletType).toBe(WalletType.FREIGHTER);
+    }
+
+    expect(connectSpy).not.toHaveBeenCalled();
+  });
+
+  it("client validation fails when adapter is not available, returns disconnected state gracefully and clears cache", async () => {
+    const cache = new SimpleCache();
+    const initialWalletState = {
+      connected: true,
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      walletType: WalletType.FREIGHTER,
+    };
+    cache.set("wallet:state", initialWalletState);
+
+    const clientResult = createSorokitClient({ network: "testnet", cache });
+    expect(clientResult.status).toBe("ok");
+    if (clientResult.status !== "ok") return;
+    const client = clientResult.data;
+
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => false,
+    });
+
+    const connResult = await client.wallet.connect(adapter);
+    expect(connResult.status).toBe("ok");
+    if (connResult.status === "ok") {
+      expect(connResult.data.connected).toBe(false);
+      expect(connResult.data.publicKey).toBeNull();
+      expect(connResult.data.walletType).toBeNull();
+    }
+
+    expect(cache.get("wallet:state")).toBeUndefined();
+  });
+
+  it("behaves as before when no cache is provided (backward compatibility)", async () => {
+    const clientResult = createSorokitClient({ network: "testnet" });
+    expect(clientResult.status).toBe("ok");
+    if (clientResult.status !== "ok") return;
+    const client = clientResult.data;
+
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: async () => ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
+    });
+
+    const connResult = await client.wallet.connect(adapter);
+    expect(connResult.status).toBe("ok");
+    if (connResult.status === "ok") {
+      expect(connResult.data.connected).toBe(true);
+      expect(connResult.data.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      expect(connResult.data.walletType).toBe(WalletType.FREIGHTER);
+    }
+  });
+
+  it("disconnectWallet() invalidates state in cache", async () => {
+    const cache = new SimpleCache();
+    const initialWalletState = {
+      connected: true,
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      walletType: WalletType.FREIGHTER,
+    };
+    cache.set("wallet:state", initialWalletState);
+
+    const adapter = fakeAdapter({
+      walletType: WalletType.FREIGHTER,
+      disconnect: async () => ok(undefined),
+    });
+
+    const result = await disconnectWallet(adapter, cache);
+    expect(result.status).toBe("ok");
+    expect(cache.get("wallet:state")).toBeUndefined();
+  });
+});
+
+describe("detectInstalledWallets (#44)", () => {
+  it("returns available:true for adapters where isAvailable() is true", () => {
+    const adapter = fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER });
+    const results = detectInstalledWallets([adapter]);
+    expect(results).toHaveLength(1);
+    expect(results[0].available).toBe(true);
+    expect(results[0].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("returns available:false for adapters where isAvailable() is false", () => {
+    const adapter = fakeAdapter({ isAvailable: () => false, walletType: WalletType.XBULL });
+    const results = detectInstalledWallets([adapter]);
+    expect(results[0].available).toBe(false);
+  });
+
+  it("returns features for known wallet types", () => {
+    const adapter = fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL });
+    const results = detectInstalledWallets([adapter]);
+    expect(results[0].features).toContain("multisig");
+    expect(results[0].features).toContain("hardware");
+  });
+
+  it("handles empty adapter list", () => {
+    expect(detectInstalledWallets([])).toEqual([]);
+  });
+
+  it("handles multiple adapters mixed availability", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.LOBSTR }),
+    ];
+    const results = detectInstalledWallets(adapters);
+    expect(results).toHaveLength(2);
+    expect(results.find((r) => r.walletType === WalletType.FREIGHTER)?.available).toBe(true);
+    expect(results.find((r) => r.walletType === WalletType.LOBSTR)?.available).toBe(false);
+  });
+});
+
+describe("recommendWallets (#44)", () => {
+  it("returns only available wallets when no criteria provided", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.LOBSTR }),
+    ];
+    const results = recommendWallets(adapters);
+    expect(results).toHaveLength(1);
+    expect(results[0].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("filters by required features", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
+    ];
+    const results = recommendWallets(adapters, { features: ["hardware"] });
+    expect(results).toHaveLength(1);
+    expect(results[0].walletType).toBe(WalletType.XBULL);
+  });
+
+  it("returns empty when no available wallets match criteria", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+    ];
+    const results = recommendWallets(adapters, { features: ["hardware"] });
+    expect(results).toHaveLength(0);
+  });
+
+  it("returns all available wallets when criteria.features is empty", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
+    ];
+    const results = recommendWallets(adapters, { features: [] });
+    expect(results).toHaveLength(2);
+  });
+});
+
+describe("prioritizeWallet (#95)", () => {
+  it("returns single wallet unchanged", () => {
+    const adapter = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.FREIGHTER,
+    });
+    const result = prioritizeWallet([adapter]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBe(adapter);
+  });
+
+  it("returns empty list when no adapters supplied", () => {
+    expect(prioritizeWallet([])).toEqual([]);
+  });
+
+  it("places preferred wallet first when available", () => {
+    const freighter = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.FREIGHTER,
+    });
+    const xbull = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.XBULL,
+    });
+    const result = prioritizeWallet([freighter, xbull], WalletType.XBULL);
+    expect(result[0].walletType).toBe(WalletType.XBULL);
+    expect(result[1].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("places available wallets before unavailable ones", () => {
+    const unavailable = fakeAdapter({
+      isAvailable: () => false,
+      walletType: WalletType.FREIGHTER,
+    });
+    const available = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.XBULL,
+    });
+    const result = prioritizeWallet([unavailable, available]);
+    expect(result[0].walletType).toBe(WalletType.XBULL);
+    expect(result[1].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("demotes preferred wallet when it is not installed", () => {
+    const freighterUnavailable = fakeAdapter({
+      isAvailable: () => false,
+      walletType: WalletType.FREIGHTER,
+    });
+    const xbullAvailable = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.XBULL,
+    });
+    const result = prioritizeWallet(
+      [freighterUnavailable, xbullAvailable],
+      WalletType.FREIGHTER,
+    );
+    expect(result[0].walletType).toBe(WalletType.XBULL);
+    expect(result[1].walletType).toBe(WalletType.FREIGHTER);
+  });
+
+  it("handles list where no wallets are available", () => {
+    const adapters = [
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({ isAvailable: () => false, walletType: WalletType.XBULL }),
+    ];
+    const result = prioritizeWallet(adapters, WalletType.FREIGHTER);
+    expect(result).toHaveLength(2);
+    expect(result.every((a) => !a.isAvailable())).toBe(true);
   });
 });

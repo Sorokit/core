@@ -1,12 +1,26 @@
 export { readContract } from "./readContract";
+export { decodeContractValue, encodeContractArgs } from "./contractEncoding";
 export { prepareContractCall } from "./prepareCall";
 export { simulateTransaction } from "./simulateTransaction";
+export { simulateContractSafe } from "./simulateContractSafe";
+export type {
+  SimulateContractSafeOptions,
+  SafeSimulationResult,
+} from "./simulateContractSafe";
 export { executeContract } from "./executeContract";
 export { invokeContract } from "./invokeContract";
+export { invokeBatchContracts } from "./invokeBatchContracts";
 export { subscribeContractEvents } from "./subscribeContractEvents";
 export { getContractMethods } from "./contractMetadata";
 export { validateContractAbi } from "./validateContractAbi";
 export { buildContractDeploy } from "./deployContract";
+export {
+  snapshotContractState,
+  compareSnapshots,
+  listSnapshots,
+  clearSnapshots,
+} from "./contractSnapshot";
+export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
 export type { BuildContractDeployOptions } from "./deployContract";
 export type {
   ContractEvent,
@@ -24,4 +38,6 @@ export type {
   PreparedContractCall,
   SorobanPollConfig,
   SimulateTransactionResult,
+  BatchContractInvocation,
+  BatchContractResult,
 } from "./types";

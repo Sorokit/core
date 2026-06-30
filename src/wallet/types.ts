@@ -113,3 +113,19 @@ export interface SWKInstance {
     opts: { networkPassphrase: string; address?: string },
   ): Promise<{ signedTxXdr: string }>;
 }
+
+/** Known wallet capability flags used for recommendation filtering. */
+export type WalletFeature = "multisig" | "hardware" | "ledger" | "trezor" | "qr";
+
+/** A wallet adapter with its availability status and feature set. */
+export interface DetectedWallet {
+  walletType: WalletType;
+  available: boolean;
+  features: WalletFeature[];
+}
+
+/** Criteria for {@link recommendWallets} — omit to return all available wallets. */
+export interface RecommendationCriteria {
+  /** Return only wallets that support ALL of the listed features. */
+  features?: WalletFeature[];
+}

@@ -13,92 +13,193 @@ export type {
 } from "./client/createSorokitClient";
 
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
+export {
+  addSignatureToEnvelope,
+  collectMultiSignatures,
+  detectInstalledWallets,
+  diagnoseWalletConnection,
+  prioritizeWallet,
+  recommendWallets,
+  removeSignatureFromEnvelope,
+} from "./wallet";
+export type {
+  EnvelopeSignatureInput,
+  SignatureHintInput,
+} from "./wallet";
 export { FreighterAdapter } from "./wallet/adapters/freighter";
-export { XBullAdapter } from "./wallet/adapters/xbull";
 export { LobstrAdapter } from "./wallet/adapters/lobstr";
-export { collectMultiSignatures, diagnoseWalletConnection } from "./wallet";
+export { XBullAdapter } from "./wallet/adapters/xbull";
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
-export type {
-  WalletAdapter,
-  WalletState,
-  SignTransactionInput,
-  SWKInstance,
-  DiagnosticStatus,
-  DiagnosticCheck,
-  WalletDiagnosticReport,
-  WalletDiagnosticOptions,
-} from "./wallet/types";
 export { WalletType } from "./wallet/types";
+export type {
+  DetectedWallet,
+  DiagnosticCheck,
+  DiagnosticStatus,
+  RecommendationCriteria,
+  SWKInstance,
+  SignTransactionInput,
+  WalletAdapter,
+  WalletDiagnosticOptions,
+  WalletDiagnosticReport,
+  WalletFeature,
+  WalletState,
+} from "./wallet/types";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
+export { NETWORK_DEFAULTS } from "./network/config";
+export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
-export type { NetworkType } from "./network/config";
-export { NETWORK_DEFAULTS } from "./network/config";
 export type { ResolvedNetworkConfig } from "./shared/types";
+export { checkNetworkHealth } from "./network";
+export type {
+  CheckNetworkHealthOptions,
+  NetworkEndpointHealth,
+  NetworkHealthReport,
+  NetworkHealthStatus,
+} from "./network";
 
 // ─── Account types ────────────────────────────────────────────────────────────
+export { evaluateBalanceAlerts } from "./account/balanceAlerts";
+export type { AssetBalanceFilter } from "./account/getAssetBalances";
+export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
+export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBalances";
+export { streamAccount } from "./account/streamAccount";
+export type { AccountStreamConfig } from "./account/streamAccount";
 export type {
   AccountInfo,
   AssetBalance,
   BalanceAlert,
-  BalanceAlertRule,
   BalanceAlertCondition,
+  BalanceAlertRule,
 } from "./account/types";
-export { evaluateBalanceAlerts } from "./account/balanceAlerts";
-export type { AssetBalanceFilter } from "./account/getAssetBalances";
-export type { AccountStreamConfig } from "./account/streamAccount";
+
+// ─── Transaction validation ───────────────────────────────────────────────────
+export {
+  createHashMemo,
+  createIdMemo,
+  createReturnMemo,
+  createTextMemo,
+  DEFAULT_VALIDATION_RULES,
+  validateTransactionXdr,
+  USDC_MAINNET_ISSUER,
+  USDC_TESTNET_ISSUER,
+  USDT_MAINNET_ISSUER,
+  EURC_MAINNET_ISSUER,
+  EURC_TESTNET_ISSUER,
+  nativeAsset,
+  usdcAsset,
+  usdtAsset,
+  usdt_assetAsset,
+  eurcAsset,
+  ativeAsset,
+} from "./transaction";
+export type { SorokitMemo } from "./transaction";
+export type {
+  TransactionValidationFinding,
+  TransactionValidationReport,
+  ValidationRules,
+} from "./transaction/validateTransactionXdr";
 
 // ─── Transaction types ────────────────────────────────────────────────────────
 export type {
+  FeeEstimate,
+  FeeEstimateInput,
+  FeeEstimateOptions,
+} from "./transaction/estimateFee";
+export { streamTransactions } from "./transaction/streamTransactions";
+export { buildPathPayment, checkTrustlines, buildBulkTrustlines } from "./transaction/index";
+export type {
+  TransactionPage,
+  TransactionStreamConfig,
+} from "./transaction/streamTransactions";
+export {
+  TRANSACTION_CONTEXT_TTL_MS,
+  createTransactionContext,
+} from "./transaction/transactionContext";
+export type { TransactionBuilderContext } from "./transaction/transactionContext";
+export type {
+  AccountCreateParams,
+  AtomicSwapParams,
+  PathPaymentMode,
+  PathPaymentParams,
+  PaymentParams,
+  ReverseTransactionParams,
   TransactionResult,
   TransactionStatus,
-  PaymentParams,
   TrustlineParams,
-  AccountCreateParams,
 } from "./transaction/types";
-export type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "./transaction/estimateFee";
-export type {
-  TransactionStreamConfig,
-  TransactionPage,
-} from "./transaction/streamTransactions";
 export { validateTransaction } from "./transaction/validateTransaction";
 export type {
   ValidationIssue,
-  ValidationRules,
-  TransactionValidationReport,
   TransactionValidationContext,
   CustomValidationRule,
   ParsedOperation,
 } from "./transaction/validateTransaction";
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
+export { simulateContractSafe } from "./soroban/simulateContractSafe";
 export type {
-  ContractMethod,
-  ContractMethodInput,
-  ContractAbi,
-  ContractAbiMethod,
-  ContractInvokeParams,
-  ContractReadParams,
-  ContractCallResult,
-  PreparedContractCall,
-  SorobanPollConfig,
-  SimulateTransactionResult,
-} from "./soroban/types";
-export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
+  SafeSimulationResult,
+  SimulateContractSafeOptions,
+} from "./soroban/simulateContractSafe";
+export {
+  decodeContractValue,
+  encodeContractArgs,
+} from "./soroban/contractEncoding";
+export { getContractMethods } from "./soroban/contractMetadata";
 export { buildContractDeploy } from "./soroban/deployContract";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
+export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
+export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
 export type {
   ContractEvent,
   ContractEventFilter,
   ContractEventSubscriptionOptions,
 } from "./soroban/subscribeContractEvents";
+export type {
+  BatchContractInvocation,
+  BatchContractResult,
+  ContractAbi,
+  ContractAbiMethod,
+  ContractCallResult,
+  ContractInvokeParams,
+  ContractMethod,
+  ContractMethodInput,
+  ContractReadParams,
+  PreparedContractCall,
+  SimulateTransactionResult,
+  SorobanPollConfig,
+} from "./soroban/types";
 
 // ─── Response system ──────────────────────────────────────────────────────────
-export type { SorokitResult, SorokitError } from "./shared/response";
-export { SorokitErrorCode, ok, err, isOk, isErr, isErrorCode, assertOk, attachTraceId } from "./shared/response";
-export { generateTraceId } from "./shared/utils";
-export type { SorokitLogger, LogLevel, LoggerConfig } from "./shared/logger";
-export { createTracedLogger } from "./shared/logger";
 export type { SorokitCache } from "./shared/cache";
+export { createTracedLogger } from "./shared/logger";
+export type { LogLevel, LoggerConfig, SorokitLogger } from "./shared/logger";
+export {
+  SorokitErrorCode,
+  assertOk,
+  attachTraceId,
+  err,
+  isErr,
+  isErrorCode,
+  isOk,
+  ok,
+} from "./shared/response";
+export type { SorokitError, SorokitResult } from "./shared/response";
+export { generateTraceId } from "./shared/utils";
+
+// ─── Metrics ──────────────────────────────────────────────────────────────────
+export {
+  clearMetrics,
+  getMetrics,
+  metricsCollector,
+  recordMetric,
+  withMetrics,
+} from "./shared/metrics";
+export type {
+  MetricEntry,
+  MetricSummary,
+  MetricsFilter,
+} from "./shared/metrics";
