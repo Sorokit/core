@@ -10,6 +10,7 @@ import {
   listSnapshots,
   snapshotContractState,
 } from "../soroban/contractSnapshot";
+import { buildContractUpgrade } from "../soroban";
 import { buildContractDeploy } from "../soroban/deployContract";
 import { prepareContractCall } from "../soroban/prepareCall";
 import { readContract } from "../soroban/readContract";
@@ -1340,6 +1341,85 @@ describe("buildContractDeploy", () => {
     if (result.status === "ok") {
       expect(result.data.transactionXdr).toBeDefined();
     }
+  });
+});
+
+describe("buildContractUpgrade", () => {
+  const validWasm = Buffer.from([
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+  ]);
+
+  it("builds an upgrade invoke operation XDR with the new WASM hash", () => {
+    const id = contractId();
+    const result = buildContractUpgrade(id, validWasm);
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+
+    const operation = xdr.Operation.fromXDR(result.data, "base64");
+    const hostFunction = operation.body().invokeHostFunctionOp().hostFunction();
+    const invocation = hostFunction.invokeContract();
+    const [wasmHash] = invocation.args();
+
+    expect(invocation.contractAddress().contractId()).toEqual(
+      StrKey.decodeContract(id),
+    );
+    expect(Buffer.from(invocation.functionName()).toString("utf8")).toBe(
+      "upgrade",
+    );
+    expect(wasmHash).toBeDefined();
+    if (!wasmHash) return;
+    expect(Buffer.from(wasmHash.bytes())).toEqual(
+      Buffer.from(
+        "93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476",
+        "hex",
+      ),
+    );
+  });
+
+  it("returns TX_BUILD_FAILED when upgrade WASM is empty", () => {
+    const result = buildContractUpgrade(contractId(), Buffer.alloc(0));
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+    expect(result.error.message).toContain("cannot be empty");
+  });
+
+  it("returns TX_BUILD_FAILED when upgrade WASM exceeds maximum size", () => {
+    const result = buildContractUpgrade(
+      contractId(),
+      Buffer.alloc(256 * 1024 + 1, 0),
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+    expect(result.error.message).toContain("exceeds max size");
+  });
+
+  it("returns TX_BUILD_FAILED when upgrade WASM magic bytes are missing", () => {
+    const result = buildContractUpgrade(
+      contractId(),
+      Buffer.from([0x01, 0x02, 0x03, 0x04]),
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+    expect(result.error.message).toContain("missing magic bytes");
+  });
+
+  it("returns TX_BUILD_FAILED when upgrade WASM version is unsupported", () => {
+    const result = buildContractUpgrade(
+      contractId(),
+      Buffer.from([0x00, 0x61, 0x73, 0x6d, 0x02, 0x00, 0x00, 0x00]),
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+    expect(result.error.message).toContain("unsupported WASM version");
   });
 });
 

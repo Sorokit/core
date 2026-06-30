@@ -162,6 +162,7 @@ export {
 export { parseContractResult } from "./soroban/parseContractResult";
 export { getContractMethods } from "./soroban/contractMetadata";
 export { buildContractDeploy } from "./soroban/deployContract";
+export { buildContractUpgrade } from "./soroban";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
 export { subscribeContractEvents } from "./soroban/subscribeContractEvents";
