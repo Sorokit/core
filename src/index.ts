@@ -85,10 +85,14 @@ export type {
 // ─── Transaction validation ───────────────────────────────────────────────────
 export {
   analyzeFeeHistory,
+  createChangetrustOp,
+  createChangeTrustOp,
   createHashMemo,
   createIdMemo,
+  createPaymentOp,
   createReturnMemo,
   createTextMemo,
+  createTrustOp,
   DEFAULT_VALIDATION_RULES,
   validateTransactionXdr,
   USDC_MAINNET_ISSUER,
@@ -103,7 +107,15 @@ export {
   eurcAsset,
   ativeAsset,
 } from "./transaction";
-export type { FeeHistoryAnalytics, FeeHistoryPercentiles, SorokitMemo } from "./transaction";
+export type {
+  FeeHistoryAnalytics,
+  FeeHistoryPercentiles,
+  PaymentOperation,
+  PaymentOperationParams,
+  SorokitMemo,
+  TrustOperation,
+  TrustOperationParams,
+} from "./transaction";
 export type {
   TransactionValidationFinding,
   TransactionValidationReport,
