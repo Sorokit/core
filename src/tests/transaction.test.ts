@@ -41,10 +41,14 @@ import {
 } from "../transaction/transactionContext";
 import {
   analyzeFeeHistory,
+  createChangetrustOp,
+  createChangeTrustOp,
   createHashMemo,
   createIdMemo,
+  createPaymentOp,
   createReturnMemo,
   createTextMemo,
+  createTrustOp,
   nativeAsset,
   usdcAsset,
   usdtAsset,
@@ -361,6 +365,127 @@ describe("memo builders (#114)", () => {
     expect(() => createHashMemo("abc")).toThrow("32-byte hex");
     expect(() => createHashMemo("z".repeat(64))).toThrow("32-byte hex");
     expect(() => createReturnMemo(Buffer.alloc(31))).toThrow("32 bytes");
+  });
+});
+
+describe("operation builders (#115)", () => {
+  const source = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const destination = "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+  const issuer = source;
+
+  afterEach(() => {
+    (Operation.payment as any).mockRestore?.();
+    (Operation.changeTrust as any).mockRestore?.();
+  });
+
+  it("creates native payment operations", () => {
+    const operation = { type: "payment" };
+    const paymentSpy = vi.spyOn(Operation, "payment").mockReturnValue(operation as any);
+
+    const op = createPaymentOp({
+      destination,
+      amount: "12.5000000",
+      source,
+    });
+
+    expect(op).toBe(operation);
+    expect(paymentSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        destination,
+        amount: "12.5000000",
+        source,
+        asset: expect.objectContaining({
+          isNative: expect.any(Function),
+        }),
+      }),
+    );
+    expect(paymentSpy.mock.calls[0][0].asset.isNative()).toBe(true);
+  });
+
+  it("creates credit asset payment operations", () => {
+    const operation = { type: "payment" };
+    const paymentSpy = vi.spyOn(Operation, "payment").mockReturnValue(operation as any);
+
+    const op = createPaymentOp({
+      destination,
+      amount: "25",
+      assetCode: "USDC",
+      assetIssuer: issuer,
+    });
+
+    expect(op).toBe(operation);
+    expect(paymentSpy.mock.calls[0][0].asset.getCode()).toBe("USDC");
+    expect(paymentSpy.mock.calls[0][0].asset.getIssuer()).toBe(issuer);
+  });
+
+  it("validates payment operation parameters", () => {
+    expect(() => createPaymentOp({ destination: "bad", amount: "1" })).toThrow(
+      "Destination must be a valid Stellar public key",
+    );
+    expect(() => createPaymentOp({ destination, amount: "0" })).toThrow(
+      "Payment amount must be positive",
+    );
+    expect(() =>
+      createPaymentOp({ destination, amount: "1", assetCode: "USDC" }),
+    ).toThrow("Asset issuer must be a valid Stellar public key");
+  });
+
+  it("creates trust operations", () => {
+    const operation = { type: "changeTrust" };
+    const changeTrustSpy = vi.spyOn(Operation, "changeTrust").mockReturnValue(operation as any);
+
+    const op = createTrustOp({
+      assetCode: "USDC",
+      assetIssuer: issuer,
+      limit: "1000.1234567",
+      source,
+    });
+
+    expect(op).toBe(operation);
+    expect(changeTrustSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        limit: "1000.1234567",
+        source,
+      }),
+    );
+    expect(changeTrustSpy.mock.calls[0][0].asset.getCode()).toBe("USDC");
+    expect(changeTrustSpy.mock.calls[0][0].asset.getIssuer()).toBe(issuer);
+  });
+
+  it("creates change trust operations through both aliases", () => {
+    vi.spyOn(Operation, "changeTrust")
+      .mockReturnValueOnce({ type: "changeTrust", alias: "lower" } as any)
+      .mockReturnValueOnce({ type: "changeTrust", alias: "canonical" } as any);
+
+    const lowerCaseAlias = createChangetrustOp({
+      assetCode: "EURC",
+      assetIssuer: issuer,
+    });
+    const canonicalAlias = createChangeTrustOp({
+      assetCode: "EURC",
+      assetIssuer: issuer,
+      limit: "0",
+    });
+
+    expect(lowerCaseAlias.type).toBe("changeTrust");
+    expect((lowerCaseAlias as any).alias).toBe("lower");
+    expect(canonicalAlias.type).toBe("changeTrust");
+    expect((canonicalAlias as any).alias).toBe("canonical");
+  });
+
+  it("validates trust operation parameters", () => {
+    expect(() => createTrustOp({ assetCode: "", assetIssuer: issuer })).toThrow(
+      "Asset code is required",
+    );
+    expect(() => createTrustOp({ assetCode: "XLM", assetIssuer: issuer })).toThrow(
+      "non-native asset",
+    );
+    expect(() => createTrustOp({ assetCode: "USDC", assetIssuer: "bad" })).toThrow(
+      "Asset issuer must be a valid Stellar public key",
+    );
+    expect(() =>
+      createTrustOp({ assetCode: "USDC", assetIssuer: issuer, limit: "-1" }),
+    ).toThrow("Trustline limit must be a numeric string");
   });
 });
 

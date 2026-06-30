@@ -1,11 +1,12 @@
-import { Asset, Horizon, Memo } from "@stellar/stellar-sdk";
+import { Asset, Horizon, Memo, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { isNotFoundError, isValidPublicKey, retryWithBackoff, toMessage } from "../shared";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import { MIN_ACCOUNT_BALANCE_XLM } from "../shared/constants";
 import { buildCreateAccountTransaction } from "./buildTransaction";
-import type { MemoParams } from "./types";
+import type { AssetBalance } from "../account/types";
+import type { MemoParams, TransactionResult } from "./types";
 
 export type SorokitMemo =
   | ReturnType<typeof Memo.text>
@@ -37,9 +38,28 @@ export interface TransactionImpact {
   afterBalances: AssetBalance[];
 }
 
+export interface PaymentOperationParams {
+  destination: string;
+  amount: string;
+  assetCode?: string;
+  assetIssuer?: string;
+  source?: string;
+}
+
+export interface TrustOperationParams {
+  assetCode: string;
+  assetIssuer: string;
+  limit?: string;
+  source?: string;
+}
+
+export type PaymentOperation = ReturnType<typeof Operation.payment>;
+export type TrustOperation = ReturnType<typeof Operation.changeTrust>;
+
 const MAX_TEXT_MEMO_BYTES = 28;
 const UINT64_MAX = 18_446_744_073_709_551_615n;
 const HASH_HEX_PATTERN = /^[0-9a-fA-F]{64}$/;
+const AMOUNT_PATTERN = /^\d+(?:\.\d{1,7})?$/;
 
 function byteLength(value: string): number {
   return Buffer.byteLength(value, "utf8");
@@ -624,7 +644,7 @@ export interface TransactionRecord {
 /**
  * Exports transaction history into formatted CSV or JSON strings for auditing.
  */
-export function exportTransactionHistory(
+export function exportTransactionRecordHistory(
   transactions: TransactionRecord[],
   format: 'csv' | 'json'
 ): string {
@@ -683,17 +703,96 @@ if (import.meta.vitest) {
 
   describe("Issue #133 - Transaction Export Utility Tests", () => {
     it("should correctly format transaction listings into structured JSON strings", () => {
-      const output = exportTransactionHistory(mockTransactions, 'json');
+      const output = exportTransactionRecordHistory(mockTransactions, 'json');
       const parsed = JSON.parse(output);
       expect(parsed).toHaveLength(2);
       expect(parsed[0].id).toBe("tx_01");
     });
 
     it("should compile records into comma-separated CSV rows", () => {
-      const output = exportTransactionHistory(mockTransactions, 'csv');
+      const output = exportTransactionRecordHistory(mockTransactions, 'csv');
       const lines = output.split('\n');
       expect(lines[0]).toBe("id,timestamp,amount,currency,sender,receiver,status");
       expect(lines[1]).toBe("tx_01,1719677880,250,XLM,G_SENDER_AAA,G_RECEIVER_BBB,success");
     });
   });
 }
+
+function assertValidPublicKey(publicKey: string, label: string): void {
+  if (!isValidPublicKey(publicKey)) {
+    throw new Error(`${label} must be a valid Stellar public key.`);
+  }
+}
+
+function assertValidAmount(amount: string, label: string, allowZero = false): void {
+  if (typeof amount !== "string" || amount.trim() === "") {
+    throw new Error(`${label} is required.`);
+  }
+
+  if (!AMOUNT_PATTERN.test(amount)) {
+    throw new Error(`${label} must be a numeric string with up to 7 decimal places.`);
+  }
+
+  const value = Number(amount);
+  if (!Number.isFinite(value) || (allowZero ? value < 0 : value <= 0)) {
+    throw new Error(`${label} must be ${allowZero ? "non-negative" : "positive"}.`);
+  }
+}
+
+function resolvePaymentAsset(assetCode?: string, assetIssuer?: string): Asset {
+  if (!assetCode || assetCode.toUpperCase() === "XLM") {
+    return Asset.native();
+  }
+
+  assertValidPublicKey(assetIssuer ?? "", "Asset issuer");
+  return new Asset(assetCode, assetIssuer);
+}
+
+function resolveTrustAsset(assetCode: string, assetIssuer: string): Asset {
+  if (typeof assetCode !== "string" || assetCode.trim() === "") {
+    throw new Error("Asset code is required for trust operations.");
+  }
+
+  if (assetCode.toUpperCase() === "XLM") {
+    throw new Error("Trust operations require a non-native asset.");
+  }
+
+  assertValidPublicKey(assetIssuer, "Asset issuer");
+  return new Asset(assetCode, assetIssuer);
+}
+
+export function createPaymentOp(params: PaymentOperationParams): PaymentOperation {
+  assertValidPublicKey(params.destination, "Destination");
+  if (params.source) {
+    assertValidPublicKey(params.source, "Source");
+  }
+  assertValidAmount(params.amount, "Payment amount");
+
+  return Operation.payment({
+    destination: params.destination,
+    asset: resolvePaymentAsset(params.assetCode, params.assetIssuer),
+    amount: params.amount,
+    ...(params.source ? { source: params.source } : {}),
+  });
+}
+
+export function createTrustOp(params: TrustOperationParams): TrustOperation {
+  if (params.source) {
+    assertValidPublicKey(params.source, "Source");
+  }
+  if (params.limit != null) {
+    assertValidAmount(params.limit, "Trustline limit", true);
+  }
+
+  return Operation.changeTrust({
+    asset: resolveTrustAsset(params.assetCode, params.assetIssuer),
+    ...(params.limit != null ? { limit: params.limit } : {}),
+    ...(params.source ? { source: params.source } : {}),
+  });
+}
+
+export function createChangetrustOp(params: TrustOperationParams): TrustOperation {
+  return createTrustOp(params);
+}
+
+export const createChangeTrustOp = createChangetrustOp;
