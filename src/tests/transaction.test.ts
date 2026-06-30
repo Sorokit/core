@@ -2536,6 +2536,18 @@ describe("estimateFee — fee tiers", () => {
       undefined,
       undefined,
       { includeTiers: true },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.tiers).toBeDefined();
+      expect(result.data.tiers?.economy).toBe("100");
+      expect(result.data.tiers?.standard).toBe("500");
+      expect(result.data.tiers?.fast).toBe("900");
+    }
+  });
+});
+
 describe("checkTrustlines", () => {
   const horizonUrl = "https://horizon-testnet.stellar.org";
   const sourcePublicKey = "GAS4V4O2B7DW5T7IQRPEEVCRXMDZESKISR7DVIGKZQYYV3OSQ5SH5LPE";
@@ -2629,15 +2641,22 @@ describe("buildBulkTrustlines", () => {
   });
 
   it("omits tiers when includeTiers is not set", async () => {
-    mockTransactionsCall.mockResolvedValueOnce({
-      records: Array(10).fill({ fee_charged: "400" }),
+    mockLoadAccount.mockResolvedValueOnce({
+      id: sourcePublicKey,
+      sequence: "12345",
+      sequenceNumber: () => "12345",
+      balances: [],
     });
 
-    const result = await estimateFee(
-      networkConfig.rpcUrl,
+    const result = await buildBulkTrustlines(
       networkConfig.horizonUrl,
       networkConfig,
-      { kind: "xdr", transactionXdr: MOCK_XDR },
+      sourcePublicKey,
+      [new Asset("USD", issuerPublicKey), new Asset("EUR", issuerPublicKey)]
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
       expect(result.data).toBe(MOCK_XDR);
     }
     expect(mockAddOperation).toHaveBeenCalledTimes(2);
@@ -2690,9 +2709,24 @@ describe("buildBulkTrustlines", () => {
     expect(cachedKey).toBeDefined();
   });
 });
-      expect(result.data).toBe(MOCK_XDR);
-    }
-    expect(mockAddOperation).toHaveBeenCalledTimes(1);
+
+describe("buildBulkTrustlines — sequence caching", () => {
+  const bulkNetworkConfig: ResolvedNetworkConfig = {
+    horizonUrl: "https://horizon-testnet.stellar.org",
+    networkPassphrase: "Test SDF Network ; September 2015",
+    network: "testnet",
+    rpcUrl: "https://soroban-testnet.stellar.org",
+  };
+  const sourcePublicKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const issuerPublicKey = "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    clearSequenceCache();
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
   });
 
   it("reuses the cached sequence when autoFetchSequence is enabled", async () => {
@@ -2925,6 +2959,1084 @@ describe("validateDestination", () => {
     expect(res.data.valid).toBe(false);
     expect(res.data.exists).toBeNull();
     expect(res.data.error?.code).toBe("FETCH_FAILED");
+  });
+});
+
+// ─── Issue #113 — prepareAccountCreation ─────────────────────────────────────
+
+import { prepareAccountCreation } from "../transaction/index";
+
+describe("prepareAccountCreation (#113)", () => {
+  // Valid Stellar G-addresses used across all tests
+  const SOURCE = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const DEST   = "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+
+  function mockSourceAccount() {
+    return {
+      accountId: () => SOURCE,
+      sequenceNumber: () => "1",
+      incrementSequenceNumber: () => {},
+    };
+  }
+
+  beforeEach(() => {
+    mockLoadAccount.mockReset();
+    transactionBuilderInstances.length = 0;
+    // Default: source account loads OK; destination does NOT exist (404)
+    const notFound = new Error("Request failed with status 404");
+    (notFound as any).response = { status: 404 };
+
+    mockLoadAccount.mockImplementation((key: string) => {
+      if (key === SOURCE) return Promise.resolve(mockSourceAccount());
+      return Promise.reject(notFound);
+    });
+  });
+
+  afterEach(() => {
+    clearSequenceCache();
+  });
+
+  // ── Happy path ─────────────────────────────────────────────────────────────
+
+  it("returns ok with XDR when source, destination, and balance are valid", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(typeof result.data).toBe("string");
+      expect(result.data).toBe(MOCK_XDR);
+    }
+  });
+
+  it("defaults startingBalance to 1 XLM when omitted", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+    // The builder should have been constructed exactly once
+    expect(transactionBuilderInstances).toHaveLength(1);
+  });
+
+  it("accepts exactly 1 XLM as the minimum valid balance", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "1",
+    );
+
+    expect(result.status).toBe("ok");
+  });
+
+  it("accepts a large starting balance", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "10000",
+    );
+
+    expect(result.status).toBe("ok");
+  });
+
+  // ── Minimum balance enforcement ────────────────────────────────────────────
+
+  it("returns INVALID_BALANCE when startingBalance is below 1 XLM", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "0.5",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_BALANCE);
+      expect(result.error.message).toContain("1 XLM");
+      expect(result.error.message).toContain("0.5");
+    }
+    // No transaction builder should have been created
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("returns INVALID_BALANCE when startingBalance is 0", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "0",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_BALANCE);
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("returns INVALID_BALANCE when startingBalance is negative", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "-5",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_BALANCE);
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("returns INVALID_BALANCE when startingBalance is not a number", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "abc",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_BALANCE);
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  // ── Public key format validation ───────────────────────────────────────────
+
+  it("returns TX_BUILD_FAILED when sourceKey is not a valid Stellar public key", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "not-a-valid-key",
+      DEST,
+      "2",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("Source key");
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("returns TX_BUILD_FAILED when destinationKey is not a valid Stellar public key", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      "INVALID_DEST",
+      "2",
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("Destination key");
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  // ── Destination-exists check ───────────────────────────────────────────────
+
+  it("returns TX_BUILD_FAILED when destination already exists and checkDestinationExists is true", async () => {
+    // Override: both source AND destination load successfully (destination exists)
+    mockLoadAccount.mockResolvedValue(mockSourceAccount());
+
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { checkDestinationExists: true },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("already exists");
+      expect(result.error.message).toContain(DEST);
+    }
+    // Transaction must not be built when the destination already exists
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("proceeds normally when destination does not exist and checkDestinationExists is true", async () => {
+    // Source loads OK; destination 404 (does not exist) — default mock setup
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { checkDestinationExists: true },
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data).toBe(MOCK_XDR);
+    }
+  });
+
+  it("returns ACCOUNT_FETCH_FAILED when existence check throws an unexpected error", async () => {
+    mockLoadAccount.mockImplementation((key: string) => {
+      if (key === SOURCE) return Promise.resolve(mockSourceAccount());
+      return Promise.reject(new Error("Rate limit exceeded"));
+    });
+
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { checkDestinationExists: true },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.ACCOUNT_FETCH_FAILED);
+      expect(result.error.message).toContain("verify destination account existence");
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("skips existence check by default (no checkDestinationExists option)", async () => {
+    // Even if destination existed, we should not fail without the flag
+    mockLoadAccount.mockResolvedValue(mockSourceAccount());
+
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+    );
+
+    // No existence check → should succeed and build the XDR
+    expect(result.status).toBe("ok");
+  });
+
+  // ── Memo handling ──────────────────────────────────────────────────────────
+
+  it("attaches a text memo when provided via options", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { memo: "welcome", memoType: "text" },
+    );
+
+    expect(result.status).toBe("ok");
+    expect(transactionBuilderInstances).toHaveLength(1);
+    expect((transactionBuilderInstances[0]?.memo as any)?.type).toBe("text");
+    expect((transactionBuilderInstances[0]?.memo as any)?.value).toBe("welcome");
+  });
+
+  it("returns TX_BUILD_FAILED when requireMemo is true but no memo is supplied", async () => {
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { requireMemo: true },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("Memo is required");
+    }
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  it("runs memoValidator before building and surfaces validator errors", async () => {
+    const validator = vi.fn().mockReturnValue({
+      status: "error",
+      data: null,
+      error: {
+        code: SorokitErrorCode.TX_BUILD_FAILED,
+        message: "Memo blocked by policy",
+      },
+    } as SorokitResult<void>);
+
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "2",
+      { memo: "INV-999", memoValidator: validator },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toBe("Memo blocked by policy");
+    }
+    expect(validator).toHaveBeenCalledWith("INV-999");
+    expect(transactionBuilderInstances).toHaveLength(0);
+  });
+
+  // ── Validation ordering ────────────────────────────────────────────────────
+
+  it("validates public key format before checking minimum balance", async () => {
+    // Bad source key — should fail on format, not balance
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      "BADKEY",
+      DEST,
+      "0", // would also fail balance check
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      expect(result.error.message).toContain("Source key");
+    }
+  });
+
+  it("validates minimum balance before checking destination existence", async () => {
+    // Low balance should fail before any Horizon call for existence check
+    const result = await prepareAccountCreation(
+      networkConfig.horizonUrl,
+      networkConfig,
+      SOURCE,
+      DEST,
+      "0.001",
+      { checkDestinationExists: true },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.INVALID_BALANCE);
+    }
+    // loadAccount must NOT have been called for the existence check
+    expect(mockLoadAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("liquidity pool operations", () => {
+  const sourcePublicKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const assetAIssuer = "GAPUEDT4TZGUN64L4SAN4YE5JDGIYTEDQZXLJMYS4VTHOAT5OBLNCIFK";
+  const assetBIssuer = "GB2O5PBQJDAFCNM2U2DMXXITWJZ7XPQ3OQKM2UK2PGFMKVHF4Z3DV3RA";
+  const poolId = "dd7b1ab831c273310ddbec6f97870aa83c2fbd78ce22aded37ecbf4f3380fac7";
+
+  beforeEach(() => {
+    mockLoadAccount.mockResolvedValue({
+      accountId: () => sourcePublicKey,
+      sequenceNumber: () => "1",
+      incrementSequenceNumber: () => {},
+    });
+    transactionBuilderInstances.length = 0;
+    mockAddOperation.mockClear();
+    mockAddMemo.mockClear();
+  });
+
+  describe("buildCreateLiquidityPool", () => {
+    it("builds a create liquidity pool transaction with valid assets", async () => {
+      const { buildCreateLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildCreateLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetA: { assetCode: "USDC", assetIssuer: assetAIssuer },
+          assetB: { assetCode: "XLM" },
+          fee: 30,
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe(MOCK_XDR);
+      }
+      expect(mockAddOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "changeTrust",
+        }),
+      );
+    });
+
+    it("builds a liquidity pool with two non-native assets", async () => {
+      const { buildCreateLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildCreateLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetA: { assetCode: "USDC", assetIssuer: assetAIssuer },
+          assetB: { assetCode: "EURC", assetIssuer: assetBIssuer },
+          fee: 30,
+        },
+      );
+
+      expect(result.status).toBe("ok");
+    });
+
+    it("validates fee is within valid range", async () => {
+      const { buildCreateLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const resultNegative = await buildCreateLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetA: { assetCode: "USDC", assetIssuer: assetAIssuer },
+          assetB: { assetCode: "XLM" },
+          fee: -1,
+        },
+      );
+
+      expect(resultNegative.status).toBe("error");
+      if (resultNegative.status === "error") {
+        expect(resultNegative.error.message).toContain("fee must be an integer between 0 and 10000");
+      }
+
+      const resultTooHigh = await buildCreateLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetA: { assetCode: "USDC", assetIssuer: assetAIssuer },
+          assetB: { assetCode: "XLM" },
+          fee: 10001,
+        },
+      );
+
+      expect(resultTooHigh.status).toBe("error");
+    });
+
+    it("validates fee is an integer", async () => {
+      const { buildCreateLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildCreateLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetA: { assetCode: "USDC", assetIssuer: assetAIssuer },
+          assetB: { assetCode: "XLM" },
+          fee: 30.5,
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.message).toContain("fee must be an integer");
+      }
+    });
+
+    it("fails when asset A is invalid", async () => {
+      const { buildCreateLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildCreateLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetA: { assetCode: "USDC" }, // Missing issuer
+          assetB: { assetCode: "XLM" },
+          fee: 30,
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+        expect(result.error.message).toContain("Asset issuer is required");
+      }
+    });
+
+    it("validates trusted issuers when provided", async () => {
+      const { buildCreateLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildCreateLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetA: { assetCode: "USDC", assetIssuer: assetAIssuer },
+          assetB: { assetCode: "XLM" },
+          fee: 30,
+        },
+        ["GB2O5PBQJDAFCNM2U2DMXXITWJZ7XPQ3OQKM2UK2PGFMKVHF4Z3DV3RA"], // Different issuer
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+      }
+    });
+
+    it("supports memo in liquidity pool creation", async () => {
+      const { buildCreateLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildCreateLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetA: { assetCode: "USDC", assetIssuer: assetAIssuer },
+          assetB: { assetCode: "XLM" },
+          fee: 30,
+          memo: "pool-setup",
+          memoType: "text",
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      expect(mockAddMemo).toHaveBeenCalled();
+      expect(transactionBuilderInstances[0].memo).toBeDefined();
+    });
+
+    it("supports autoFetchSequence", async () => {
+      const { buildCreateLiquidityPool, clearSequenceCache } = await import("../transaction/buildTransaction");
+      clearSequenceCache();
+
+      mockLoadAccount.mockResolvedValueOnce({
+        accountId: () => sourcePublicKey,
+        sequenceNumber: () => "100",
+        incrementSequenceNumber: () => {},
+      });
+
+      await buildCreateLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetA: { assetCode: "USDC", assetIssuer: assetAIssuer },
+          assetB: { assetCode: "XLM" },
+          fee: 30,
+          autoFetchSequence: true,
+        },
+      );
+
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+
+      // Second call should use cache
+      await buildCreateLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          assetA: { assetCode: "USDC", assetIssuer: assetAIssuer },
+          assetB: { assetCode: "XLM" },
+          fee: 30,
+          autoFetchSequence: true,
+        },
+      );
+
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("buildDepositLiquidityPool", () => {
+    it("builds a deposit liquidity pool transaction with valid parameters", async () => {
+      const { buildDepositLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "100",
+          maxAmountB: "200",
+          minPrice: "0.45",
+          maxPrice: "0.55",
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe(MOCK_XDR);
+      }
+      expect(mockAddOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "liquidityPoolDeposit",
+          liquidityPoolId: poolId,
+          maxAmountA: "100",
+          maxAmountB: "200",
+          minPrice: "0.45",
+          maxPrice: "0.55",
+        }),
+      );
+    });
+
+    it("fails when maxAmountA is missing", async () => {
+      const { buildDepositLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "",
+          maxAmountB: "200",
+          minPrice: "0.45",
+          maxPrice: "0.55",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.message).toContain("maxAmountA and maxAmountB are required");
+      }
+    });
+
+    it("fails when maxAmountB is missing", async () => {
+      const { buildDepositLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "100",
+          maxAmountB: "",
+          minPrice: "0.45",
+          maxPrice: "0.55",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.message).toContain("maxAmountA and maxAmountB are required");
+      }
+    });
+
+    it("validates amounts are positive", async () => {
+      const { buildDepositLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const resultNegativeA = await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "-10",
+          maxAmountB: "200",
+          minPrice: "0.45",
+          maxPrice: "0.55",
+        },
+      );
+
+      expect(resultNegativeA.status).toBe("error");
+      if (resultNegativeA.status === "error") {
+        expect(resultNegativeA.error.message).toContain("must be positive");
+      }
+
+      const resultZeroB = await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "100",
+          maxAmountB: "0",
+          minPrice: "0.45",
+          maxPrice: "0.55",
+        },
+      );
+
+      expect(resultZeroB.status).toBe("error");
+    });
+
+    it("validates price bounds are provided", async () => {
+      const { buildDepositLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const resultNoMin = await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "100",
+          maxAmountB: "200",
+          minPrice: "",
+          maxPrice: "0.55",
+        },
+      );
+
+      expect(resultNoMin.status).toBe("error");
+      if (resultNoMin.status === "error") {
+        expect(resultNoMin.error.message).toContain("minPrice and maxPrice are required");
+      }
+    });
+
+    it("validates price bounds are positive", async () => {
+      const { buildDepositLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "100",
+          maxAmountB: "200",
+          minPrice: "-0.45",
+          maxPrice: "0.55",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.message).toContain("must be positive");
+      }
+    });
+
+    it("validates minPrice is less than or equal to maxPrice", async () => {
+      const { buildDepositLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "100",
+          maxAmountB: "200",
+          minPrice: "0.60",
+          maxPrice: "0.55",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.message).toContain("minPrice must be less than or equal to maxPrice");
+      }
+    });
+
+    it("supports memo in liquidity pool deposit", async () => {
+      const { buildDepositLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "100",
+          maxAmountB: "200",
+          minPrice: "0.45",
+          maxPrice: "0.55",
+          memo: "deposit-lp",
+          memoType: "text",
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      expect(mockAddMemo).toHaveBeenCalled();
+    });
+
+    it("supports autoFetchSequence", async () => {
+      const { buildDepositLiquidityPool, clearSequenceCache } = await import("../transaction/buildTransaction");
+      clearSequenceCache();
+
+      mockLoadAccount.mockResolvedValueOnce({
+        accountId: () => sourcePublicKey,
+        sequenceNumber: () => "200",
+        incrementSequenceNumber: () => {},
+      });
+
+      await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "100",
+          maxAmountB: "200",
+          minPrice: "0.45",
+          maxPrice: "0.55",
+          autoFetchSequence: true,
+        },
+      );
+
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+
+      // Second call should use cache
+      await buildDepositLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          maxAmountA: "100",
+          maxAmountB: "200",
+          minPrice: "0.45",
+          maxPrice: "0.55",
+          autoFetchSequence: true,
+        },
+      );
+
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("buildWithdrawLiquidityPool", () => {
+    it("builds a withdraw liquidity pool transaction with valid parameters", async () => {
+      const { buildWithdrawLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "50",
+          minAmountA: "45",
+          minAmountB: "90",
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe(MOCK_XDR);
+      }
+      expect(mockAddOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "liquidityPoolWithdraw",
+          liquidityPoolId: poolId,
+          amount: "50",
+          minAmountA: "45",
+          minAmountB: "90",
+        }),
+      );
+    });
+
+    it("fails when amount is missing", async () => {
+      const { buildWithdrawLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "",
+          minAmountA: "45",
+          minAmountB: "90",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.message).toContain("Amount of pool shares to withdraw is required");
+      }
+    });
+
+    it("validates amount is positive", async () => {
+      const { buildWithdrawLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const resultNegative = await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "-50",
+          minAmountA: "45",
+          minAmountB: "90",
+        },
+      );
+
+      expect(resultNegative.status).toBe("error");
+      if (resultNegative.status === "error") {
+        expect(resultNegative.error.message).toContain("must be a positive number");
+      }
+
+      const resultZero = await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "0",
+          minAmountA: "45",
+          minAmountB: "90",
+        },
+      );
+
+      expect(resultZero.status).toBe("error");
+    });
+
+    it("fails when minAmountA is missing", async () => {
+      const { buildWithdrawLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "50",
+          minAmountA: "",
+          minAmountB: "90",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.message).toContain("minAmountA and minAmountB are required");
+      }
+    });
+
+    it("fails when minAmountB is missing", async () => {
+      const { buildWithdrawLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "50",
+          minAmountA: "45",
+          minAmountB: "",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.message).toContain("minAmountA and minAmountB are required");
+      }
+    });
+
+    it("validates minimum amounts are non-negative", async () => {
+      const { buildWithdrawLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "50",
+          minAmountA: "-45",
+          minAmountB: "90",
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.message).toContain("must be non-negative");
+      }
+    });
+
+    it("allows zero minimum amounts", async () => {
+      const { buildWithdrawLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "50",
+          minAmountA: "0",
+          minAmountB: "0",
+        },
+      );
+
+      expect(result.status).toBe("ok");
+    });
+
+    it("supports memo in liquidity pool withdrawal", async () => {
+      const { buildWithdrawLiquidityPool } = await import("../transaction/buildTransaction");
+
+      const result = await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "50",
+          minAmountA: "45",
+          minAmountB: "90",
+          memo: "withdraw-lp",
+          memoType: "text",
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      expect(mockAddMemo).toHaveBeenCalled();
+    });
+
+    it("supports autoFetchSequence", async () => {
+      const { buildWithdrawLiquidityPool, clearSequenceCache } = await import("../transaction/buildTransaction");
+      clearSequenceCache();
+
+      mockLoadAccount.mockResolvedValueOnce({
+        accountId: () => sourcePublicKey,
+        sequenceNumber: () => "300",
+        incrementSequenceNumber: () => {},
+      });
+
+      await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "50",
+          minAmountA: "45",
+          minAmountB: "90",
+          autoFetchSequence: true,
+        },
+      );
+
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+
+      // Second call should use cache
+      await buildWithdrawLiquidityPool(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          liquidityPoolId: poolId,
+          amount: "50",
+          minAmountA: "45",
+          minAmountB: "90",
+          autoFetchSequence: true,
+        },
+      );
+
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

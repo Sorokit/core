@@ -117,4 +117,40 @@ export interface AtomicSwapParams extends MemoParams {
   legB: PathPaymentParams;
 }
 
+export interface CreateLiquidityPoolParams extends MemoParams {
+  /** Asset A in the liquidity pool (first asset) */
+  assetA: { assetCode?: string; assetIssuer?: string };
+  /** Asset B in the liquidity pool (second asset) */
+  assetB: { assetCode?: string; assetIssuer?: string };
+  /** Fee basis points (e.g., 30 for 0.3% fee) */
+  fee: number;
+  autoFetchSequence?: boolean;
+}
+
+export interface DepositLiquidityPoolParams extends MemoParams {
+  /** Liquidity pool ID */
+  liquidityPoolId: string;
+  /** Maximum amount of asset A to deposit */
+  maxAmountA: string;
+  /** Maximum amount of asset B to deposit */
+  maxAmountB: string;
+  /** Minimum price (depositA/depositB) */
+  minPrice: string;
+  /** Maximum price (depositA/depositB) */
+  maxPrice: string;
+  autoFetchSequence?: boolean;
+}
+
+export interface WithdrawLiquidityPoolParams extends MemoParams {
+  /** Liquidity pool ID */
+  liquidityPoolId: string;
+  /** Amount of pool shares to withdraw */
+  amount: string;
+  /** Minimum amount of asset A to receive */
+  minAmountA: string;
+  /** Minimum amount of asset B to receive */
+  minAmountB: string;
+  autoFetchSequence?: boolean;
+}
+
 export type { FeeEstimate, FeeEstimateOptions } from "./estimateFee";

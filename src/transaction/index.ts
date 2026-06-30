@@ -1,5 +1,11 @@
-import { Asset, Memo, TransactionBuilder, Operation } from "@stellar/stellar-sdk";
-import { AssetBalance, SorokitResult } from "./types"; // Adjust relative pathways according to your local structure
+import { Asset, Horizon, Memo } from "@stellar/stellar-sdk";
+import { ok, err, SorokitErrorCode } from "../shared/response";
+import type { SorokitResult } from "../shared/response";
+import { isNotFoundError, isValidPublicKey, retryWithBackoff, toMessage } from "../shared";
+import type { ResolvedNetworkConfig } from "../shared/types";
+import { MIN_ACCOUNT_BALANCE_XLM } from "../shared/constants";
+import { buildCreateAccountTransaction } from "./buildTransaction";
+import type { MemoParams } from "./types";
 
 export type SorokitMemo =
   | ReturnType<typeof Memo.text>
@@ -296,6 +302,9 @@ export {
   buildPathPayment,
   buildAtomicSwap,
   buildAccountMerge,
+  buildCreateLiquidityPool,
+  buildDepositLiquidityPool,
+  buildWithdrawLiquidityPool,
 } from "./buildTransaction";
 export type { AccountMergeOptions } from "./buildTransaction";
 export { submitTransaction } from "./submitTransaction";
@@ -316,6 +325,9 @@ export type {
   PathPaymentParams,
   PathPaymentMode,
   AtomicSwapParams,
+  CreateLiquidityPoolParams,
+  DepositLiquidityPoolParams,
+  WithdrawLiquidityPoolParams,
 } from "./types";
 export type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "./estimateFee";
 export type {
@@ -338,6 +350,140 @@ export type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "./validateDestination";
+
+// ─── Options for prepareAccountCreation ──────────────────────────────────────
+
+export interface PrepareAccountCreationOptions extends MemoParams {
+  /**
+   * When true, verifies that the destination account does NOT already exist
+   * on-chain before building the transaction. Requires `horizonUrl` to be
+   * passed via the network config.
+   * @default false
+   */
+  checkDestinationExists?: boolean;
+
+  /**
+   * When true, reuses a 5-second module-level sequence cache to avoid
+   * repeated Horizon round trips (forwarded to the underlying builder).
+   */
+  autoFetchSequence?: boolean;
+}
+
+// ─── prepareAccountCreation (#113) ───────────────────────────────────────────
+
+/**
+ * Prepare an unsigned create-account transaction XDR with explicit
+ * Stellar-specific validation.
+ *
+ * Validation steps performed before building:
+ * 1. **Minimum balance** — `startingBalance` must be >= 1 XLM.
+ * 2. **Public key format** — both `sourceKey` and `destinationKey` must be
+ *    valid G-addresses.
+ * 3. **Destination exists check** (opt-in) — when `options.checkDestinationExists`
+ *    is `true`, queries Horizon to ensure the destination account does NOT
+ *    already exist (creating an account that already exists is an error on-chain).
+ * 4. **Memo handling** — forwards memo parameters to the underlying builder.
+ *
+ * @param horizonUrl    - Horizon base URL (from `networkConfig.horizonUrl`).
+ * @param networkConfig - Resolved network configuration.
+ * @param sourceKey     - G-address of the funding (source) account.
+ * @param destinationKey - G-address of the account to be created.
+ * @param startingBalance - Starting balance in XLM. Defaults to `"1"` (minimum).
+ * @param options       - Optional memo params and destination-existence check flag.
+ * @returns `ok(xdr)` — unsigned transaction XDR ready for signing,
+ *          `error(INVALID_BALANCE)` when balance is below 1 XLM,
+ *          `error(TX_BUILD_FAILED)` on key-format or memo errors,
+ *          `error(ACCOUNT_FETCH_FAILED)` when the destination-exists check fails.
+ *
+ * @example
+ * const result = await prepareAccountCreation(
+ *   networkConfig.horizonUrl,
+ *   networkConfig,
+ *   "GSOURCE...",
+ *   "GDEST...",
+ *   "2",
+ *   { checkDestinationExists: true },
+ * );
+ * if (result.status === "ok") {
+ *   // sign result.data and submit
+ * }
+ */
+export async function prepareAccountCreation(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  sourceKey: string,
+  destinationKey: string,
+  startingBalance: string = MIN_ACCOUNT_BALANCE_XLM,
+  options?: PrepareAccountCreationOptions,
+): Promise<SorokitResult<string>> {
+  // 1. Validate source key format
+  if (!isValidPublicKey(sourceKey)) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Source key is not a valid Stellar public key: ${sourceKey}`,
+    );
+  }
+
+  // 2. Validate destination key format
+  if (!isValidPublicKey(destinationKey)) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Destination key is not a valid Stellar public key: ${destinationKey}`,
+    );
+  }
+
+  // 3. Minimum balance check — must be >= 1 XLM
+  const balanceNum = parseFloat(startingBalance);
+  if (
+    isNaN(balanceNum) ||
+    balanceNum < parseFloat(MIN_ACCOUNT_BALANCE_XLM)
+  ) {
+    return err(
+      SorokitErrorCode.INVALID_BALANCE,
+      `Starting balance must be at least ${MIN_ACCOUNT_BALANCE_XLM} XLM. Received: ${startingBalance}`,
+    );
+  }
+
+  // 4. Optional destination-existence check
+  //    For account creation, the destination must NOT already exist.
+  if (options?.checkDestinationExists) {
+    try {
+      await retryWithBackoff(async () => {
+        const server = new Horizon.Server(horizonUrl);
+        return await server.loadAccount(destinationKey);
+      });
+
+      // loadAccount succeeded → account already exists → creation would fail
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        `Destination account ${destinationKey} already exists on-chain. Cannot create an account that already exists.`,
+      );
+    } catch (cause) {
+      if (isNotFoundError(cause)) {
+        // 404 → account does not exist → safe to proceed
+      } else {
+        return err(
+          SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+          `Failed to verify destination account existence: ${toMessage(cause)}`,
+          cause,
+        );
+      }
+    }
+  }
+
+  // 5. Delegate to the existing builder (handles memo, sequence, XDR output)
+  return buildCreateAccountTransaction(horizonUrl, networkConfig, sourceKey, {
+    destination: destinationKey,
+    startingBalance,
+    memo: options?.memo,
+    memoType: options?.memoType,
+    requireMemo: options?.requireMemo,
+    memoValidator: options?.memoValidator,
+    autoFetchSequence: options?.autoFetchSequence,
+  });
+}
+
+// ─── exportTransactionHistory ─────────────────────────────────────────────────
 
 /**
  * Export transaction history in CSV or JSON format.
@@ -394,6 +540,8 @@ function escapeCsvField(value: string): string {
   return value;
 }
 
+// ─── predictNetworkFee ────────────────────────────────────────────────────────
+
 /**
  * Predict network fee based on recent transaction fee trends.
  * Analyzes recent fees and predicts the fee minutesAhead in the future.
@@ -447,13 +595,105 @@ export async function predictNetworkFee(
     const median = fees[Math.floor(fees.length / 2)];
     const max = fees[fees.length - 1];
     const min = fees[0];
-    const avgTrend = (max - min) / BigInt(fees.length);
+    const avgTrend = (max! - min!) / BigInt(fees.length);
 
     const minuteFraction = BigInt(minutesAhead) / BigInt(60);
-    const predictedFee = median + avgTrend * minuteFraction;
+    const predictedFee = median! + avgTrend * minuteFraction;
 
     return predictedFee.toString();
   } catch (cause) {
     throw new Error(`Failed to predict network fee: ${cause instanceof Error ? cause.message : "unknown error"}`);
   }
+}
+
+
+// ==========================================
+// --- EXPORT HISTORY ENGINE (ISSUE #133) ---
+// ==========================================
+
+export interface TransactionRecord {
+  id: string;
+  timestamp: number;
+  amount: number;
+  currency: string;
+  sender: string;
+  receiver: string;
+  status: 'success' | 'failed' | 'pending';
+}
+
+/**
+ * Exports transaction history into formatted CSV or JSON strings for auditing.
+ */
+export function exportTransactionHistory(
+  transactions: TransactionRecord[],
+  format: 'csv' | 'json'
+): string {
+  if (format === 'json') {
+    return JSON.stringify(transactions, null, 2);
+  }
+
+  if (format === 'csv') {
+    if (transactions.length === 0) {
+      return "id,timestamp,amount,currency,sender,receiver,status";
+    }
+
+    const headers = ['id', 'timestamp', 'amount', 'currency', 'sender', 'receiver', 'status'] as (keyof TransactionRecord)[];
+    const csvHeader = headers.join(',');
+
+    const csvRows = transactions.map(tx => {
+      return headers.map(header => {
+        const val = tx[header];
+        if (typeof val === 'string' && val.includes(',')) {
+          return `"${val}"`;
+        }
+        return val;
+      }).join(',');
+    });
+
+    return [csvHeader, ...csvRows].join('\n');
+  }
+
+  throw new Error(`Unsupported export format: ${format}`);
+}
+
+// --- AUTOMATED IN-SOURCE TEST MATRIX ---
+if (import.meta.vitest) {
+  const { describe, it, expect } = import.meta.vitest;
+
+  const mockTransactions: TransactionRecord[] = [
+    {
+      id: "tx_01",
+      timestamp: 1719677880,
+      amount: 250,
+      currency: "XLM",
+      sender: "G_SENDER_AAA",
+      receiver: "G_RECEIVER_BBB",
+      status: "success"
+    },
+    {
+      id: "tx_02",
+      timestamp: 1719677940,
+      amount: 15,
+      currency: "USD",
+      sender: "G_RECEIVER_BBB",
+      receiver: "G_SENDER_AAA",
+      status: "failed"
+    }
+  ];
+
+  describe("Issue #133 - Transaction Export Utility Tests", () => {
+    it("should correctly format transaction listings into structured JSON strings", () => {
+      const output = exportTransactionHistory(mockTransactions, 'json');
+      const parsed = JSON.parse(output);
+      expect(parsed).toHaveLength(2);
+      expect(parsed[0].id).toBe("tx_01");
+    });
+
+    it("should compile records into comma-separated CSV rows", () => {
+      const output = exportTransactionHistory(mockTransactions, 'csv');
+      const lines = output.split('\n');
+      expect(lines[0]).toBe("id,timestamp,amount,currency,sender,receiver,status");
+      expect(lines[1]).toBe("tx_01,1719677880,250,XLM,G_SENDER_AAA,G_RECEIVER_BBB,success");
+    });
+  });
 }
