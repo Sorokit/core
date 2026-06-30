@@ -130,6 +130,13 @@ export type {
   TransactionStatus,
   TrustlineParams,
 } from "./transaction/types";
+export { validateTransaction } from "./transaction/validateTransaction";
+export type {
+  ValidationIssue,
+  TransactionValidationContext,
+  CustomValidationRule,
+  ParsedOperation,
+} from "./transaction/validateTransaction";
 
 // ─── Soroban types ────────────────────────────────────────────────────────────
 export { simulateContractSafe } from "./soroban/simulateContractSafe";
