@@ -4217,3 +4217,95 @@ describe("predictNetworkFee", () => {
     expect(callUrl).toContain("order=desc");
   });
 });
+
+describe("simulateTransactionImpact — Dry Run Simulator", () => {
+  const sourcePublicKey = "GBTABBLFJWSIJKGRVJMOV477L42GXCHFHGDUOCDMC7MXWASTPZKQNB25";
+  const destinationPublicKey = "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("successfully simulates balance deductions when an account sends native payment", async () => {
+    const baselineBalances = [{ assetType: "native", balance: "500.0000000" }];
+    const context = {
+      getBalances: vi.fn().mockResolvedValue({ status: "ok", data: baselineBalances, error: null }),
+    };
+
+    // Mock internal parsing step for Operation.Payment execution path
+    mocks.fromXDR.mockReturnValue({
+      source: sourcePublicKey,
+      operations: [
+        {
+          type: "payment",
+          amount: "150.5",
+          asset: { isNative: () => true },
+          destination: destinationPublicKey,
+          source: undefined,
+        },
+      ],
+    });
+
+    const { simulateTransactionImpact } = await import("../transaction");
+    const result = await simulateTransactionImpact.call(context, sourcePublicKey, MOCK_XDR);
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.beforeBalances[0].balance).toBe("500.0000000");
+      expect(result.data.afterBalances[0].balance).toBe("349.5");
+    }
+  });
+
+  it("successfully simulates balance influx when an account receives a credit asset payment", async () => {
+    const baselineBalances = [
+      { assetType: "credit_alphanum4", assetCode: "USDC", assetIssuer: USDC_MAINNET_ISSUER, balance: "20.0" }
+    ];
+    const context = {
+      getBalances: vi.fn().mockResolvedValue({ status: "ok", data: baselineBalances, error: null }),
+    };
+
+    mocks.fromXDR.mockReturnValue({
+      source: "GBOTHERACCOUNT...", // Another account is sending to us
+      operations: [
+        {
+          type: "payment",
+          amount: "30.5",
+          asset: {
+            isNative: () => false,
+            getCode: () => "USDC",
+            getIssuer: () => USDC_MAINNET_ISSUER,
+          },
+          destination: sourcePublicKey,
+        },
+      ],
+    });
+
+    const { simulateTransactionImpact } = await import("../transaction");
+    const result = await simulateTransactionImpact.call(context, sourcePublicKey, MOCK_XDR);
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.afterBalances[0].balance).toBe("50.5");
+    }
+  });
+
+  it("returns error safely matching the no-throw result layout if XDR conversion throws", async () => {
+    const context = {
+      getBalances: vi.fn().mockResolvedValue({ status: "ok", data: [], error: null }),
+    };
+
+    mocks.fromXDR.mockImplementation(() => {
+      throw new Error("Malformed transaction layout syntax.");
+    });
+
+    const { simulateTransactionImpact } = await import("../transaction");
+    const result = await simulateTransactionImpact.call(context, sourcePublicKey, "malformed-xdr-string");
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.data).toBeNull();
+      expect(result.error.code).toBe("SIMULATION_FAILED");
+      expect(result.error.message).toContain("Malformed transaction layout syntax.");
+    }
+  });
+});
