@@ -1,13 +1,23 @@
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { sleep, toMessage, isValidPublicKey } from "../shared";
+import { sleep, toMessage } from "../shared";
 import type { SorokitLogger } from "../shared/logger";
-import type { AccountInfo } from "./types";
+import type { AccountInfo, BalanceAlert, BalanceAlertRule } from "./types";
 import { getAccount } from "./getAccount";
+import { evaluateBalanceAlerts } from "./balanceAlerts";
 
 const MIN_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const ADAPTIVE_INTERVAL_STEP_MS = 1_000;
+
+function sameSnapshot(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Configuration for account streaming.
@@ -43,25 +53,56 @@ export interface AccountStreamConfig {
    * Default: true.
    */
   emitOnStart?: boolean;
+  /**
+   * Optional callback fired when a specific asset balance changes between polls.
+   * Receives the asset code, the previous balance string, and the new balance string.
+   * Only fires when the balance actually changes — unchanged balances are silent.
+   */
+  onBalanceChange?: (assetCode: string, oldBalance: string, newBalance: string) => void;
+  /**
+   * Optional balance alert rules evaluated on every successful poll.
+   * Each rule fires an alert via {@link onAlert} when its threshold is crossed.
+   * Requires {@link onAlert} to be set — rules without a callback are ignored.
+   */
+  alertRules?: BalanceAlertRule[];
+  /**
+   * Optional callback fired for each {@link BalanceAlert} produced by {@link alertRules}.
+   * Fired after `onBalanceChange` for the same poll.
+   */
+  onAlert?: (alert: BalanceAlert) => void;
 }
 
 /**
  * Stream account state by polling Horizon at a configurable interval.
  *
- * Yields SorokitResult<AccountInfo> on every poll. Errors mid-stream are
- * yielded as error results — the stream does not stop on a single failure.
+ * Yields `SorokitResult<AccountInfo>` on every poll. Network errors mid-stream
+ * are yielded as error results rather than stopping the generator, allowing
+ * consumers to decide whether to retry or abort.
  *
- * Use `for await...of` to consume:
+ * Adaptive polling automatically increases the interval when consecutive polls
+ * return the same account state, and resets to the base interval on change.
+ * Balance-alert rules and `onBalanceChange` hooks are evaluated after each
+ * successful poll.
+ *
+ * @param horizonUrl - Base URL of the Horizon server.
+ * @param publicKey  - Stellar G-address of the account to monitor.
+ * @param config     - Optional streaming and polling configuration.
+ * @param signal     - Optional `AbortSignal` to stop the stream externally.
+ * @param logger     - Optional logger for diagnostic output.
+ * @yields `SorokitResult<AccountInfo>` on each poll cycle.
+ *
  * @example
  * for await (const result of streamAccount(horizonUrl, publicKey)) {
- *   if (result.status === 'ok') console.log(result.data.balances);
+ *   if (result.status === "ok") console.log(result.data.balances);
  * }
  *
- * To stop early, `break` out of the loop or use an AbortSignal:
  * @example
+ * // Stop after 30 s via AbortController
  * const ac = new AbortController();
- * for await (const result of streamAccount(horizonUrl, publicKey, {}, ac.signal)) { ... }
- * ac.abort();
+ * setTimeout(() => ac.abort(), 30_000);
+ * for await (const result of streamAccount(horizonUrl, publicKey, {}, ac.signal)) {
+ *   if (result.status === "ok") console.log(result.data.balances);
+ * }
  */
 export async function* streamAccount(
   horizonUrl: string,
@@ -104,8 +145,6 @@ export async function* streamAccount(
     maxIntervalMs,
   );
   let unchangedPolls = 0;
-  let lastSnapshot: string | null = null;
-
   const adjustInterval = (changed: boolean): void => {
     if (!adaptiveEnabled) return;
 
@@ -133,7 +172,7 @@ export async function* streamAccount(
     operation: "account.stream",
     status: "start",
     publicKey,
-    intervalMs,
+    intervalMs: currentIntervalMs,
     maxPolls,
   });
 
@@ -179,6 +218,33 @@ export async function* streamAccount(
           publicKey,
           poll: polls + 1,
         });
+
+        // Fire onBalanceChange for any balance that changed since the last successful poll.
+        if (lastEmitted && config?.onBalanceChange) {
+          for (const newBal of result.data.balances) {
+            const key = `${newBal.assetCode}:${newBal.assetIssuer ?? ""}`;
+            const oldBal = lastEmitted.balances.find(
+              (b) => `${b.assetCode}:${b.assetIssuer ?? ""}` === key,
+            );
+            if (oldBal && oldBal.balance !== newBal.balance) {
+              config.onBalanceChange(newBal.assetCode, oldBal.balance, newBal.balance);
+            }
+          }
+        }
+
+        // Evaluate balance alert rules against the transition from the last
+        // successful poll. The initial poll uses an empty baseline, so an
+        // account already past a below/above threshold alerts once on start.
+        if (config?.alertRules && config.alertRules.length > 0 && config.onAlert) {
+          const oldBalances = lastEmitted?.balances ?? [];
+          const alerts = evaluateBalanceAlerts(
+            config.alertRules,
+            oldBalances,
+            result.data.balances,
+          );
+          for (const alert of alerts) config.onAlert(alert);
+        }
+
       } else {
         logger?.warn("account.stream.poll", {
           operation: "account.stream.poll",
@@ -190,7 +256,19 @@ export async function* streamAccount(
         });
       }
 
-      yield result;
+      if (result.status === "ok") {
+        const hasBaseline = lastEmitted !== undefined;
+        const changed = !hasBaseline || !sameSnapshot(lastEmitted, result.data);
+        if (hasBaseline) adjustInterval(changed);
+
+        if (changed) {
+          lastEmitted = result.data;
+          yield result;
+        }
+      } else {
+        adjustInterval(false);
+        yield result;
+      }
     } catch (cause) {
       const message = `Account stream poll failed: ${toMessage(cause)}`;
       logger?.warn("account.stream.poll", {

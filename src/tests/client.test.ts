@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createSorokitClient } from "../client/createSorokitClient";
 import { SorokitErrorCode } from "../shared/response";
 
@@ -16,7 +16,9 @@ describe("createSorokitClient", () => {
       expect(typeof client.wallet.emptyState).toBe("function");
       // account namespace
       expect(typeof client.account.get).toBe("function");
+      expect(typeof client.account.getAccountsBatch).toBe("function");
       expect(typeof client.account.getBalances).toBe("function");
+      expect(typeof client.account.stream).toBe("function"); // #85
       expect(typeof client.account.formatAddress).toBe("function");
       // transaction namespace
       expect(typeof client.transaction.buildPayment).toBe("function");
@@ -24,7 +26,9 @@ describe("createSorokitClient", () => {
       expect(typeof client.transaction.buildTrustline).toBe("function");
       expect(typeof client.transaction.submit).toBe("function");
       expect(typeof client.transaction.getStatus).toBe("function");
+      expect(typeof client.transaction.stream).toBe("function"); // #86
       // soroban namespace
+      expect(typeof client.soroban.getContractMethods).toBe("function");
       expect(typeof client.soroban.simulate).toBe("function");
       expect(typeof client.soroban.prepare).toBe("function");
       expect(typeof client.soroban.execute).toBe("function");
@@ -123,9 +127,20 @@ describe("createSorokitClient", () => {
   it("soroban exposes the full prepare → execute pipeline", () => {
     const result = createSorokitClient({ network: "testnet" });
     if (result.status === "ok") {
+      expect(typeof result.data.soroban.getContractMethods).toBe("function");
       expect(typeof result.data.soroban.prepare).toBe("function");
       expect(typeof result.data.soroban.execute).toBe("function");
       expect(typeof result.data.soroban.invoke).toBe("function");
+    }
+  });
+
+  it("account.stream returns an async generator", async () => {
+    const result = createSorokitClient({ network: "testnet" });
+    if (result.status === "ok") {
+      const stream = result.data.account.stream("GTEST...", { maxPolls: 1 });
+      expect(typeof stream[Symbol.asyncIterator]).toBe("function");
+      // Consume one iteration to verify it's a working generator
+      await stream.next();
     }
   });
 });

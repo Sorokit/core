@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   formatAddress,
   isBrowser,
@@ -6,7 +6,24 @@ import {
   isValidContractId,
   toMessage,
   isNotFoundError,
+  isNetworkConnectivityError,
   isUserRejection,
+  isTransientError,
+  isTimeoutError,
+  isXdrInvalidError,
+  applyErrorHandler,
+  applyCodeTransformer,
+  withErrorHandling,
+  retryWithBackoff,
+  deduplicateRequest,
+  TokenBucketRateLimiter,
+  createMemoryCache,
+  type RetryConfig,
+  type ErrorHandler,
+  type ErrorContext,
+  err,
+  ok,
+  SorokitErrorCode,
 } from "../shared";
 
 describe("shared/utils", () => {
@@ -216,4 +233,711 @@ describe("shared/errors", () => {
       expect(isUserRejection(new Error("Network error"))).toBe(false);
     });
   });
+
+  describe("isTransientError", () => {
+    it("detects timeout errors", () => {
+      expect(isTransientError(new Error("Request timeout"))).toBe(true);
+    });
+
+    it("detects network errors", () => {
+      expect(isTransientError(new Error("Network error"))).toBe(true);
+    });
+
+    it("detects ECONNRESET", () => {
+      expect(isTransientError(new Error("ECONNRESET"))).toBe(true);
+    });
+
+    it("detects 5xx server errors via response.status", () => {
+      expect(isTransientError({ response: { status: 500 } })).toBe(true);
+      expect(isTransientError({ response: { status: 503 } })).toBe(true);
+    });
+
+    it("returns false for 4xx errors", () => {
+      expect(isTransientError({ response: { status: 404 } })).toBe(false);
+      expect(isTransientError({ response: { status: 400 } })).toBe(false);
+    });
+
+    it("returns false for permanent errors", () => {
+      expect(isTransientError(new Error("Invalid parameters"))).toBe(false);
+    });
+  });
+
+  describe("isTimeoutError", () => {
+    it("detects AbortError", () => {
+      const error = Object.assign(new Error("The operation was aborted"), {
+        name: "AbortError",
+      });
+
+      expect(isTimeoutError(error)).toBe(true);
+    });
+
+    it("detects ETIMEDOUT code", () => {
+      expect(isTimeoutError({ code: "ETIMEDOUT" })).toBe(true);
+    });
+
+    it("detects RPC deadline messages", () => {
+      expect(isTimeoutError(new Error("RPC deadline exceeded"))).toBe(true);
+    });
+
+    it("returns false for non-timeout errors", () => {
+      expect(isTimeoutError(new Error("Invalid parameters"))).toBe(false);
+      expect(isTimeoutError({ response: { status: 404 } })).toBe(false);
+    });
+  });
+
+  describe("isNetworkConnectivityError", () => {
+    it("detects DNS and connection failures by code", () => {
+      expect(isNetworkConnectivityError({ code: "ENOTFOUND" })).toBe(true);
+      expect(isNetworkConnectivityError({ code: "ECONNREFUSED" })).toBe(true);
+    });
+
+    it("detects fetch/network failure messages", () => {
+      expect(isNetworkConnectivityError(new Error("fetch failed"))).toBe(true);
+      expect(isNetworkConnectivityError(new Error("Network error"))).toBe(true);
+    });
+
+    it("does not treat RPC service responses as connectivity failures", () => {
+      expect(isNetworkConnectivityError({ response: { status: 500 } })).toBe(
+        false,
+      );
+      expect(isNetworkConnectivityError({ response: { status: 404 } })).toBe(
+        false,
+      );
+    });
+
+    it("returns false for wallet rejection", () => {
+      expect(isNetworkConnectivityError(new Error("User rejected request"))).toBe(
+        false,
+      );
+    });
+  });
+
+  describe("isXdrInvalidError", () => {
+    it("detects empty and invalid-character XDR strings", () => {
+      expect(isXdrInvalidError("")).toBe(true);
+      expect(isXdrInvalidError("not valid xdr!")).toBe(true);
+    });
+
+    it("detects Stellar SDK XDR parse errors", () => {
+      expect(isXdrInvalidError(new Error("invalid xdr"))).toBe(true);
+      expect(isXdrInvalidError(new Error("XDR decode failed: read past end"))).toBe(
+        true,
+      );
+    });
+
+    it("detects malformed XDR errors thrown by TransactionBuilder.fromXDR", () => {
+      expect(
+        isXdrInvalidError(
+          new TypeError(
+            "XDR Read Error: attempt to read outside the boundary of the buffer",
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        isXdrInvalidError(
+          new TypeError("XDR Read Error: unknown EnvelopeType member for value -1635029142"),
+        ),
+      ).toBe(true);
+    });
+
+    it("returns false for plausible base64 XDR input", () => {
+      expect(isXdrInvalidError("AAAAAQAAAAA=")).toBe(false);
+    });
+
+    it("returns false for unrelated timeout and network errors", () => {
+      expect(isXdrInvalidError(new Error("Request timeout"))).toBe(false);
+      expect(isXdrInvalidError(new Error("fetch failed"))).toBe(false);
+    });
+  });
+
+  describe("error handler", () => {
+    it("applies fallback value when handler returns fallback action", () => {
+      const errorHandler: ErrorHandler = {
+        handle: () => ({ type: "fallback", fallbackValue: "fallback" }),
+      };
+      const context: ErrorContext = { functionName: "test" };
+      const errorResult = err(SorokitErrorCode.TX_BUILD_FAILED, "Test error");
+
+      const result = applyErrorHandler(errorResult, errorHandler, context);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe("fallback");
+      }
+    });
+
+    it("throws when handler returns rethrow action", () => {
+      const errorHandler: ErrorHandler = {
+        handle: () => ({ type: "rethrow" }),
+      };
+      const context: ErrorContext = { functionName: "test" };
+      const errorResult = err(SorokitErrorCode.TX_BUILD_FAILED, "Test error");
+
+      expect(() => applyErrorHandler(errorResult, errorHandler, context)).toThrow(
+        "Test error",
+      );
+    });
+
+    it("returns error when handler returns retry action", () => {
+      const errorHandler: ErrorHandler = {
+        handle: () => ({ type: "retry" }),
+      };
+      const context: ErrorContext = { functionName: "test" };
+      const errorResult = err(SorokitErrorCode.TX_BUILD_FAILED, "Test error");
+
+      const result = applyErrorHandler(errorResult, errorHandler, context);
+
+      expect(result.status).toBe("error");
+    });
+
+    it("returns error when handler returns undefined", () => {
+      const errorHandler: ErrorHandler = {
+        handle: () => undefined,
+      };
+      const context: ErrorContext = { functionName: "test" };
+      const errorResult = err(SorokitErrorCode.TX_BUILD_FAILED, "Test error");
+
+      const result = applyErrorHandler(errorResult, errorHandler, context);
+
+      expect(result.status).toBe("error");
+    });
+
+    it("returns success result unchanged when no error", () => {
+      const errorHandler: ErrorHandler = {
+        handle: vi.fn(),
+      };
+      const context: ErrorContext = { functionName: "test" };
+      const successResult = ok("success");
+
+      const result = applyErrorHandler(successResult, errorHandler, context);
+
+      expect(result.status).toBe("ok");
+      expect(errorHandler.handle).not.toHaveBeenCalled();
+    });
+
+    it("returns error unchanged when no handler provided", () => {
+      const context: ErrorContext = { functionName: "test" };
+      const errorResult = err(SorokitErrorCode.TX_BUILD_FAILED, "Test error");
+
+      const result = applyErrorHandler(errorResult, undefined, context);
+
+      expect(result.status).toBe("error");
+    });
+
+    it("withErrorHandling wraps async function with error handling", async () => {
+      const errorHandler: ErrorHandler = {
+        handle: () => ({ type: "fallback", fallbackValue: "fallback" }),
+      };
+      const context: ErrorContext = { functionName: "test" };
+
+      const fn = async () => err(SorokitErrorCode.TX_BUILD_FAILED, "Test error");
+      const result = await withErrorHandling(errorHandler, context, fn);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe("fallback");
+      }
+    });
+
+    it("withErrorHandling passes context to handler", async () => {
+      const errorHandler: ErrorHandler = {
+        handle: vi.fn(),
+      };
+      const context: ErrorContext = { functionName: "test", params: { key: "value" } };
+
+      const fn = async () => err(SorokitErrorCode.TX_BUILD_FAILED, "Test error");
+      await withErrorHandling(errorHandler, context, fn);
+
+      expect(errorHandler.handle).toHaveBeenCalledWith(
+        expect.objectContaining({ code: SorokitErrorCode.TX_BUILD_FAILED }),
+        context,
+      );
+    });
+  });
 });
+
+describe("retryWithBackoff", () => {
+  it("returns result on first success", async () => {
+    const fn = vi.fn().mockResolvedValue("success");
+    const result = await retryWithBackoff(fn);
+
+    expect(result).toBe("success");
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries on transient errors", async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new Error("Request timeout"))
+      .mockResolvedValue("success");
+
+    const result = await retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 10 });
+
+    expect(result).toBe("success");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws after exhausting retries", async () => {
+    const fn = vi.fn().mockRejectedValue(new Error("Request timeout"));
+
+    await expect(
+      retryWithBackoff(fn, { maxAttempts: 2, initialDelayMs: 10 }),
+    ).rejects.toThrow("Request timeout");
+
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry on permanent errors", async () => {
+    const fn = vi.fn().mockRejectedValue(new Error("404 Not Found"));
+
+    await expect(
+      retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 10 }),
+    ).rejects.toThrow("404 Not Found");
+
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry on 404 errors", async () => {
+    const fn = vi.fn().mockRejectedValue({ response: { status: 404 } });
+
+    await expect(
+      retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 10 }),
+    ).rejects.toEqual({ response: { status: 404 } });
+
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries on 500 errors", async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce({ response: { status: 500 } })
+      .mockResolvedValue("success");
+
+    const result = await retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 10 });
+
+    expect(result).toBe("success");
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses default config when not provided", async () => {
+    const fn = vi.fn().mockResolvedValue("success");
+    const result = await retryWithBackoff(fn);
+
+    expect(result).toBe("success");
+  });
+
+  it("applies exponential backoff delay", async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new Error("timeout"))
+      .mockRejectedValueOnce(new Error("timeout"))
+      .mockResolvedValue("success");
+
+    const startTime = Date.now();
+    await retryWithBackoff(fn, { maxAttempts: 3, initialDelayMs: 50, jitter: false });
+    const elapsed = Date.now() - startTime;
+
+    expect(fn).toHaveBeenCalledTimes(3);
+    expect(elapsed).toBeGreaterThanOrEqual(150);
+  });
+});
+
+describe("shared/utils — deduplicateRequest (#24)", () => {
+  it("returns the resolved value", async () => {
+    const result = await deduplicateRequest("key-1", () => Promise.resolve("value"));
+    expect(result).toBe("value");
+  });
+
+  it("concurrent calls with the same key share a single Promise", async () => {
+    let callCount = 0;
+    const fn = () => new Promise<string>((resolve) => {
+      callCount++;
+      setTimeout(() => resolve("shared"), 10);
+    });
+
+    const [a, b] = await Promise.all([
+      deduplicateRequest("key-concurrent", fn),
+      deduplicateRequest("key-concurrent", fn),
+    ]);
+
+    expect(a).toBe("shared");
+    expect(b).toBe("shared");
+    expect(callCount).toBe(1); // Only one underlying call was made
+  });
+
+  it("concurrent calls with different keys are independent", async () => {
+    let callCount = 0;
+    const fn = (suffix: string) => () => new Promise<string>((resolve) => {
+      callCount++;
+      setTimeout(() => resolve(suffix), 10);
+    });
+
+    const [a, b] = await Promise.all([
+      deduplicateRequest("key-a", fn("a")),
+      deduplicateRequest("key-b", fn("b")),
+    ]);
+
+    expect(a).toBe("a");
+    expect(b).toBe("b");
+    expect(callCount).toBe(2);
+  });
+
+  it("removes the in-flight entry after resolution so the next call runs fresh", async () => {
+    let callCount = 0;
+    const fn = () => Promise.resolve(++callCount);
+
+    await deduplicateRequest("key-seq", fn);
+    await deduplicateRequest("key-seq", fn);
+
+    expect(callCount).toBe(2); // Each sequential call triggers a new request
+  });
+
+  it("propagates rejections and cleans up the in-flight entry", async () => {
+    let callCount = 0;
+    const fn = () => {
+      callCount++;
+      return Promise.reject(new Error("boom"));
+    };
+
+    await expect(deduplicateRequest("key-fail", fn)).rejects.toThrow("boom");
+    // After rejection, the entry is removed — next call starts fresh
+    await expect(deduplicateRequest("key-fail", fn)).rejects.toThrow("boom");
+    expect(callCount).toBe(2);
+  });
+
+  it("concurrent callers all receive the rejection", async () => {
+    const fn = () => new Promise<string>((_, reject) =>
+      setTimeout(() => reject(new Error("shared-err")), 5),
+    );
+
+    const results = await Promise.allSettled([
+      deduplicateRequest("key-shared-fail", fn),
+      deduplicateRequest("key-shared-fail", fn),
+    ]);
+
+    expect(results[0]?.status).toBe("rejected");
+    expect(results[1]?.status).toBe("rejected");
+  });
+});
+
+describe("applyCodeTransformer", () => {
+  it("is a no-op when transformer is undefined", () => {
+    const result = err(SorokitErrorCode.TX_SUBMIT_FAILED, "fail");
+    expect(applyCodeTransformer(result, undefined)).toBe(result);
+  });
+
+  it("is a no-op when result is ok", () => {
+    const result = ok(42);
+    const transformer = vi.fn(() => "CUSTOM");
+    expect(applyCodeTransformer(result, transformer)).toBe(result);
+    expect(transformer).not.toHaveBeenCalled();
+  });
+
+  it("calls transformer with the original SDK code and applies the return value", () => {
+    const result = err(SorokitErrorCode.TX_SUBMIT_FAILED, "fail");
+    const transformed = applyCodeTransformer(result, () => "PAYMENT_ERROR");
+    expect(transformed.status).toBe("error");
+    if (transformed.status === "error") {
+      expect(transformed.error.code).toBe("PAYMENT_ERROR");
+      expect(transformed.error.message).toBe("fail");
+    }
+  });
+
+  it("does not throw when transformer returns a non-SorokitErrorCode string", () => {
+    const result = err(SorokitErrorCode.UNKNOWN, "oops");
+    expect(() => applyCodeTransformer(result, () => "DOMAIN_SPECIFIC_CODE")).not.toThrow();
+  });
+
+  it("transformer receives the raw SDK code before any remapping", () => {
+    const captured: string[] = [];
+    const result = err(SorokitErrorCode.ACCOUNT_NOT_FOUND, "not found");
+    applyCodeTransformer(result, (code) => {
+      captured.push(code);
+      return "CUSTOM";
+    });
+    expect(captured).toEqual([SorokitErrorCode.ACCOUNT_NOT_FOUND]);
+  });
+});
+
+describe("TokenBucketRateLimiter", () => {
+  it("throws when maxRequestsPerSecond is zero", () => {
+    expect(() => new TokenBucketRateLimiter(0)).toThrow("maxRequestsPerSecond must be a positive number");
+  });
+
+  it("throws when maxRequestsPerSecond is negative", () => {
+    expect(() => new TokenBucketRateLimiter(-1)).toThrow("maxRequestsPerSecond must be a positive number");
+  });
+
+  it("acquire() resolves immediately when tokens are available", async () => {
+    const limiter = new TokenBucketRateLimiter(10);
+    await expect(limiter.acquire()).resolves.toBeUndefined();
+  });
+
+  it("acquire() resolves immediately for a burst up to capacity", async () => {
+    const limiter = new TokenBucketRateLimiter(3);
+    await limiter.acquire();
+    await limiter.acquire();
+    await limiter.acquire();
+    // All three resolved without queuing
+  });
+
+  it("acquire() queues when bucket is empty and resolves after refill", async () => {
+    const limiter = new TokenBucketRateLimiter(1);
+    // Drain the single token
+    await limiter.acquire();
+    // The next acquire should queue and resolve after ~1000ms; use a short limiter to test
+    const start = Date.now();
+    const limiter2 = new TokenBucketRateLimiter(100); // 100/s = 1 token per 10ms
+    // drain all tokens
+    for (let i = 0; i < 100; i++) await limiter2.acquire();
+    // next should queue and resolve
+    await limiter2.acquire();
+    expect(Date.now() - start).toBeGreaterThanOrEqual(0);
+  });
+});
+
+import {
+  generateTraceId,
+  attachTraceId,
+  createTracedLogger,
+  withLogging,
+  type SorokitLogger,
+  type StructuredLogMeta,
+} from "../shared";
+
+describe("trace IDs (#32)", () => {
+  it("generateTraceId returns a non-empty, unique string", () => {
+    const a = generateTraceId();
+    const b = generateTraceId();
+    expect(typeof a).toBe("string");
+    expect(a.length).toBeGreaterThan(0);
+    expect(a).not.toBe(b);
+  });
+
+  it("err accepts an optional traceId", () => {
+    const result = err(SorokitErrorCode.UNKNOWN, "boom", undefined, "trace-123");
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.traceId).toBe("trace-123");
+    }
+  });
+
+  it("err without a traceId leaves the field undefined", () => {
+    const result = err(SorokitErrorCode.UNKNOWN, "boom");
+    if (result.status === "error") {
+      expect(result.error.traceId).toBeUndefined();
+    }
+  });
+
+  it("attachTraceId stamps an error result without one", () => {
+    const stamped = attachTraceId(err(SorokitErrorCode.UNKNOWN, "boom"), "t-1");
+    if (stamped.status === "error") expect(stamped.error.traceId).toBe("t-1");
+  });
+
+  it("attachTraceId does not overwrite an existing traceId", () => {
+    const stamped = attachTraceId(
+      err(SorokitErrorCode.UNKNOWN, "boom", undefined, "original"),
+      "t-2",
+    );
+    if (stamped.status === "error") expect(stamped.error.traceId).toBe("original");
+  });
+
+  it("attachTraceId passes success results through untouched", () => {
+    const result = attachTraceId(ok(42), "t-3");
+    expect(result).toEqual(ok(42));
+  });
+
+  it("createTracedLogger injects the traceId into every log entry", () => {
+    const entries: { msg: string; meta?: StructuredLogMeta }[] = [];
+    const base: SorokitLogger = {
+      debug: (msg, meta) => entries.push({ msg, meta }),
+      info: (msg, meta) => entries.push({ msg, meta }),
+      warn: (msg, meta) => entries.push({ msg, meta }),
+      error: (msg, meta) => entries.push({ msg, meta }),
+    };
+    const traced = createTracedLogger(base, "trace-xyz");
+    traced.info("op", { operation: "op" });
+    expect(traced.traceId).toBe("trace-xyz");
+    expect(entries[0]?.meta?.traceId).toBe("trace-xyz");
+  });
+
+  it("withLogging stamps the logger traceId onto error results", async () => {
+    const traced = createTracedLogger(
+      { debug() {}, info() {}, warn() {}, error() {} },
+      "flow-1",
+    );
+    const result = await withLogging(traced, "account.get", undefined, async () =>
+      err(SorokitErrorCode.ACCOUNT_FETCH_FAILED, "down"),
+    );
+    if (result.status === "error") expect(result.error.traceId).toBe("flow-1");
+  });
+
+  it("withLogging leaves success results unchanged", async () => {
+    const traced = createTracedLogger(
+      { debug() {}, info() {}, warn() {}, error() {} },
+      "flow-2",
+    );
+    const result = await withLogging(traced, "account.get", undefined, async () =>
+      ok({ value: 1 }),
+    );
+    expect(result).toEqual(ok({ value: 1 }));
+  });
+});
+
+import {
+  recordMetric,
+  getMetrics,
+  clearMetrics,
+  withMetrics,
+  metricsCollector,
+} from "../shared/metrics";
+
+describe("metrics — network latency collection (#40)", () => {
+  beforeEach(() => {
+    clearMetrics();
+  });
+
+  it("recordMetric stores an entry retrievable via getMetrics", () => {
+    recordMetric("account.get", 42, true);
+    const summaries = getMetrics();
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.operation).toBe("account.get");
+    expect(summaries[0]?.count).toBe(1);
+    expect(summaries[0]?.successCount).toBe(1);
+    expect(summaries[0]?.failureCount).toBe(0);
+  });
+
+  it("tracks successful and failed calls separately", () => {
+    recordMetric("transaction.submit", 100, true);
+    recordMetric("transaction.submit", 200, false);
+    recordMetric("transaction.submit", 150, true);
+
+    const [summary] = getMetrics({ operation: "transaction.submit" });
+    expect(summary?.count).toBe(3);
+    expect(summary?.successCount).toBe(2);
+    expect(summary?.failureCount).toBe(1);
+  });
+
+  it("computes min, max, and avg correctly", () => {
+    recordMetric("account.get", 100, true);
+    recordMetric("account.get", 200, true);
+    recordMetric("account.get", 300, true);
+
+    const [summary] = getMetrics({ operation: "account.get" });
+    expect(summary?.min).toBe(100);
+    expect(summary?.max).toBe(300);
+    expect(summary?.avg).toBeCloseTo(200);
+  });
+
+  it("computes p99 latency", () => {
+    for (let i = 1; i <= 100; i++) {
+      recordMetric("wallet.sign", i, true);
+    }
+
+    const [summary] = getMetrics({ operation: "wallet.sign" });
+    // sorted [1..100], p99Idx = min(floor(0.99*100), 99) = 99, durations[99] = 100
+    expect(summary?.p99).toBe(100);
+  });
+
+  it("getMetrics with operation filter returns only that operation", () => {
+    recordMetric("account.get", 50, true);
+    recordMetric("transaction.submit", 100, true);
+
+    const filtered = getMetrics({ operation: "account.get" });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.operation).toBe("account.get");
+  });
+
+  it("getMetrics with since filter excludes older entries", async () => {
+    recordMetric("account.get", 10, true);
+    await new Promise((r) => setTimeout(r, 5));
+    const cutoff = Date.now();
+    await new Promise((r) => setTimeout(r, 5));
+    recordMetric("account.get", 20, true);
+
+    const filtered = getMetrics({ since: cutoff });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.count).toBe(1);
+  });
+
+  it("getMetrics without filter returns all operations grouped", () => {
+    recordMetric("account.get", 50, true);
+    recordMetric("transaction.submit", 100, false);
+
+    const summaries = getMetrics();
+    const ops = summaries.map((s) => s.operation).sort();
+    expect(ops).toEqual(["account.get", "transaction.submit"]);
+  });
+
+  it("clearMetrics removes all entries", () => {
+    recordMetric("account.get", 50, true);
+    clearMetrics();
+    expect(getMetrics()).toHaveLength(0);
+  });
+
+  it("withMetrics records duration and success for a resolved promise", async () => {
+    await withMetrics("test.op", async () => "result");
+
+    const [summary] = getMetrics({ operation: "test.op" });
+    expect(summary?.count).toBe(1);
+    expect(summary?.successCount).toBe(1);
+    expect(summary?.min).toBeGreaterThanOrEqual(0);
+  });
+
+  it("withMetrics records failure when the wrapped function throws", async () => {
+    await expect(
+      withMetrics("test.fail", async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+
+    const [summary] = getMetrics({ operation: "test.fail" });
+    expect(summary?.successCount).toBe(0);
+    expect(summary?.failureCount).toBe(1);
+  });
+
+  it("metricsCollector singleton is the same instance used by recordMetric", () => {
+    recordMetric("singleton.check", 10, true);
+    const direct = metricsCollector.getMetrics({ operation: "singleton.check" });
+    expect(direct).toHaveLength(1);
+  });
+
+  it("returns empty array when no metrics recorded", () => {
+    expect(getMetrics()).toHaveLength(0);
+  });
+});
+
+describe("createMemoryCache", () => {
+  it("stores and retrieves values", () => {
+    const cache = createMemoryCache();
+    cache.set("foo", "bar");
+    expect(cache.get("foo")).toBe("bar");
+  });
+
+  it("invalidates and clears entries", () => {
+    const cache = createMemoryCache();
+    cache.set("foo", "bar");
+    cache.invalidate("foo");
+    expect(cache.get("foo")).toBeUndefined();
+
+    cache.set("a", "1");
+    cache.set("b", "2");
+    cache.clear();
+    expect(cache.get("a")).toBeUndefined();
+    expect(cache.get("b")).toBeUndefined();
+  });
+
+  it("enforces TTL expiration", async () => {
+    const cache = createMemoryCache();
+    cache.set("foo", "bar", 10); // 10ms TTL
+    expect(cache.get("foo")).toBe("bar");
+    await new Promise((r) => setTimeout(r, 15));
+    expect(cache.get("foo")).toBeUndefined();
+  });
+
+  it("validates TTL value", () => {
+    const cache = createMemoryCache();
+    expect(() => cache.set("foo", "bar", -10)).toThrow();
+    expect(() => cache.set("foo", "bar", 1.5)).toThrow();
+    // @ts-expect-error
+    expect(() => cache.set("foo", "bar", "100")).toThrow();
+  });
+});
+

@@ -6,6 +6,7 @@
  */
 
 import type { SorokitResult } from "./response";
+import { attachTraceId } from "./response";
 
 export type LogLevel = "off" | "debug" | "info" | "warn" | "error";
 
@@ -21,6 +22,8 @@ export interface SorokitLogger {
   info(message: string, meta?: StructuredLogMeta): void;
   warn(message: string, meta?: StructuredLogMeta): void;
   error(message: string, meta?: StructuredLogMeta): void;
+  /** Optional correlation ID carried by this logger instance. */
+  readonly traceId?: string;
 }
 
 export interface LoggerConfig {
@@ -104,6 +107,24 @@ function createConsoleLogger(
 }
 
 /**
+ * Wrap a logger so every emitted entry carries the given trace ID, and expose
+ * the trace ID on the returned logger (read by {@link withLogging} to stamp
+ * error results). The original logger is left untouched.
+ */
+export function createTracedLogger(
+  logger: SorokitLogger,
+  traceId: string,
+): SorokitLogger {
+  return {
+    traceId,
+    debug: (message, meta) => logger.debug(message, { traceId, ...meta }),
+    info: (message, meta) => logger.info(message, { traceId, ...meta }),
+    warn: (message, meta) => logger.warn(message, { traceId, ...meta }),
+    error: (message, meta) => logger.error(message, { traceId, ...meta }),
+  };
+}
+
+/**
  * Create a logger instance.
  * Pass a custom implementation to redirect logs to your own sink.
  */
@@ -131,7 +152,11 @@ export async function withLogging<T>(
 ): Promise<SorokitResult<T>> {
   logger.debug(operation, { operation, status: "start", ...context });
 
-  const result = await fn();
+  const raw = await fn();
+  // Stamp the logger's trace ID onto error results so callers can correlate
+  // failures with the logged operation chain.
+  const result =
+    logger.traceId !== undefined ? attachTraceId(raw, logger.traceId) : raw;
 
   if (result.status === "ok") {
     logger.info(operation, { operation, status: "ok", ...context });
@@ -141,6 +166,7 @@ export async function withLogging<T>(
       status: "error",
       errorCode: result.error.code,
       errorMessage: result.error.message,
+      traceId: result.error.traceId,
       ...context,
     });
   }

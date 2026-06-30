@@ -15,6 +15,13 @@ export enum WalletType {
   RABET = "RABET",
 }
 
+export enum WalletConnectionState {
+  DISCONNECTED = "disconnected",
+  CONNECTING = "connecting",
+  CONNECTED = "connected",
+  DISCONNECTING = "disconnecting",
+}
+
 export interface WalletState {
   connected: boolean;
   publicKey: string | null;
@@ -28,6 +35,8 @@ export interface SignTransactionInput {
   networkPassphrase: string;
   /** Optional: specific account to sign as (multisig scenarios) */
   accountToSign?: string;
+  /** Optional: list of signer public keys expected to co-sign this transaction */
+  signers?: string[];
 }
 
 /**
@@ -57,6 +66,48 @@ export interface WalletAdapter {
   signTransaction(input: SignTransactionInput): Promise<SorokitResult<string>>;
 }
 
+/** Outcome of a single wallet diagnostic check. */
+export type DiagnosticStatus = "pass" | "fail" | "warn" | "skipped";
+
+/** A single check performed by {@link diagnoseWalletConnection}. */
+export interface DiagnosticCheck {
+  /** Stable machine-readable check identifier, e.g. "wallet_installed". */
+  name: string;
+  /** Outcome of the check. */
+  status: DiagnosticStatus;
+  /** Human-readable description of what was observed. */
+  finding: string;
+  /** Suggested remediation when the check did not pass. */
+  recommendation?: string;
+}
+
+/** Structured report returned by {@link diagnoseWalletConnection}. */
+export interface WalletDiagnosticReport {
+  /** Which wallet was diagnosed. */
+  walletType: WalletType;
+  /** True when no check failed (skipped checks do not count as failures). */
+  healthy: boolean;
+  /** Every check performed, in execution order. */
+  checks: DiagnosticCheck[];
+  /** Flat list of all findings, for quick display. */
+  findings: string[];
+  /** Flat list of all recommendations from non-passing checks. */
+  recommendations: string[];
+}
+
+/** Options controlling {@link diagnoseWalletConnection}. */
+export interface WalletDiagnosticOptions {
+  /** Optional endpoint (e.g. a Horizon URL) used to verify network reachability. */
+  networkUrl?: string;
+  /** Override the fetch implementation — useful for tests or non-browser runtimes. */
+  fetchFn?: typeof fetch;
+  /**
+   * When true, attempt `adapter.connect()` to verify the extension responds.
+   * Connecting can surface a user prompt, so it is opt-in. Default: true.
+   */
+  probeConnection?: boolean;
+}
+
 /**
  * Minimal interface required from a Stellar Wallets Kit instance.
  * Typed locally — sorokit-core never imports SWK at runtime.
@@ -68,4 +119,20 @@ export interface SWKInstance {
     xdr: string,
     opts: { networkPassphrase: string; address?: string },
   ): Promise<{ signedTxXdr: string }>;
+}
+
+/** Known wallet capability flags used for recommendation filtering. */
+export type WalletFeature = "multisig" | "hardware" | "ledger" | "trezor" | "qr";
+
+/** A wallet adapter with its availability status and feature set. */
+export interface DetectedWallet {
+  walletType: WalletType;
+  available: boolean;
+  features: WalletFeature[];
+}
+
+/** Criteria for {@link recommendWallets} — omit to return all available wallets. */
+export interface RecommendationCriteria {
+  /** Return only wallets that support ALL of the listed features. */
+  features?: WalletFeature[];
 }

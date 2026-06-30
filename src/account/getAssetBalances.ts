@@ -1,7 +1,9 @@
 import { ok } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import { SorokitErrorCode } from "../shared/response";
 import type { AssetBalance } from "./types";
 import { getAccount } from "./getAccount";
+import { validateIssuer } from "../shared/validateIssuer";
 
 /**
  * Filter criteria for getAssetBalances().
@@ -32,25 +34,59 @@ export interface AssetBalanceFilter {
  * Fetch balances for an account, with optional filtering by asset code,
  * issuer, type, or zero-balance exclusion.
  *
- * Returns the full AssetBalance shape — same as getBalances() but filterable.
+ * Returns the full `AssetBalance` shape — same as `getBalances()` but filterable.
+ * When `trustedIssuers` is provided every non-native balance issuer is validated
+ * against the list and `TX_BUILD_FAILED` is returned if any issuer is untrusted.
+ *
+ * @param horizonUrl     - Base URL of the Horizon server.
+ * @param publicKey      - Stellar G-address of the account.
+ * @param filter         - Optional filter criteria. Omit to return all balances.
+ * @param trustedIssuers - Optional whitelist of trusted issuer G-addresses.
+ * @returns `ok(AssetBalance[])` on success, or an `error` SorokitResult on failure.
  *
  * @example
  * // All non-zero balances
- * getAssetBalances(horizonUrl, publicKey, { excludeZero: true })
+ * const result = await getAssetBalances(horizonUrl, publicKey, { excludeZero: true });
  *
  * @example
  * // A specific issued asset
- * getAssetBalances(horizonUrl, publicKey, { assetCode: "USDC", assetIssuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN" })
+ * const result = await getAssetBalances(horizonUrl, publicKey, {
+ *   assetCode: "USDC",
+ *   assetIssuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+ * });
  */
 export async function getAssetBalances(
   horizonUrl: string,
   publicKey: string,
   filter?: AssetBalanceFilter,
+  trustedIssuers?: string[] | null,
 ): Promise<SorokitResult<AssetBalance[]>> {
   const result = await getAccount(horizonUrl, publicKey);
   if (result.status === "error") return result;
 
   let balances = result.data.balances;
+
+  // Validate issuers against whitelist if configured
+  if (trustedIssuers !== null && trustedIssuers !== undefined && trustedIssuers.length > 0) {
+    for (const balance of balances) {
+      // Skip native asset validation — only validate issued assets
+      if (balance.assetIssuer !== null) {
+        try {
+          validateIssuer(balance.assetIssuer, trustedIssuers);
+        } catch (cause: unknown) {
+          return {
+            status: "error",
+            data: null,
+            error: {
+              code: (cause as any)?.code || "TX_BUILD_FAILED",
+              message: (cause as Error)?.message || String(cause),
+              cause,
+            },
+          };
+        }
+      }
+    }
+  }
 
   if (!filter) return ok(balances);
 

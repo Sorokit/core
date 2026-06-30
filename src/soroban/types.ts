@@ -3,10 +3,48 @@
  */
 import type { xdr } from "@stellar/stellar-sdk";
 
+export interface ContractMethodInput {
+  name: string;
+  type: string;
+}
+
+export interface ContractMethod {
+  name: string;
+  inputs: ContractMethodInput[];
+  returnType: string | null;
+}
+
+export interface ContractAbiMethod {
+  name: string;
+  args: unknown[];
+  returns?: unknown;
+}
+
+export interface ContractAbiObject {
+  methods: ContractAbiMethod[];
+}
+
+export interface ContractAbiFunctionObject {
+  functions: ContractAbiMethod[];
+}
+
+export interface ContractAbiSpec {
+  funcs(): xdr.ScSpecFunctionV0[];
+}
+
+export type ContractAbi =
+  | ContractAbiObject
+  | ContractAbiFunctionObject
+  | ContractAbiSpec
+  | xdr.ScSpecFunctionV0[];
+
 export interface ContractInvokeParams {
   contractId: string;
   method: string;
   args?: xdr.ScVal[];
+  cachedMetadata?: ContractMethod[];
+  /** Optional ABI used to validate method name and argument count before simulation */
+  contractAbi?: ContractAbi;
   /** Public key of the invoking account */
   publicKey: string;
 }
@@ -15,11 +53,18 @@ export interface ContractReadParams {
   contractId: string;
   method: string;
   args?: xdr.ScVal[];
+  cachedMetadata?: ContractMethod[];
+  /** Optional ABI used to validate method name and argument count before simulation */
+  contractAbi?: ContractAbi;
   /**
    * Public key of a funded account to use as the simulation source.
    * Required — the Soroban RPC needs a real account to simulate against.
    */
   publicKey: string;
+  /** Optional cache for contract read results */
+  cache?: import("../shared/cache").SorokitCache;
+  /** Optional TTL for cache entries in milliseconds (default: 5 minutes) */
+  ttlMs?: number;
 }
 
 export interface ContractCallResult {
@@ -57,4 +102,51 @@ export interface SimulateTransactionResult {
   success: boolean;
   /** Error message if simulation failed */
   error?: string;
+}
+
+/** A single contract invocation in a batch. */
+export interface BatchContractInvocation {
+  contractId: string;
+  method: string;
+  args?: xdr.ScVal[];
+  publicKey: string;
+  cachedMetadata?: ContractMethod[];
+  contractAbi?: ContractAbi;
+}
+
+/** Result for one invocation within a batch — preserves contractId and method for correlation. */
+export type BatchContractResult =
+  | { status: "ok"; data: string; contractId: string; method: string }
+  | {
+      status: "error";
+      error: { code: string; message: string };
+      contractId: string;
+      method: string;
+    };
+
+export type ContractResultType =
+  | "bool"
+  | "u32"
+  | "i32"
+  | "u64"
+  | "i64"
+  | "u128"
+  | "i128"
+  | "string"
+  | "symbol"
+  | "bytes"
+  | "void"
+  | "vec"
+  | "map"
+  | "address";
+
+export interface ParsedContractResult {
+  type: string;
+  value: unknown;
+}
+
+export interface ContractStateChangeReport {
+  added: Record<string, unknown>;
+  removed: Record<string, unknown>;
+  modified: Record<string, { oldValue: unknown; newValue: unknown }>;
 }

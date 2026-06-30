@@ -14,6 +14,7 @@ import { disconnectWallet } from "../wallet/disconnect";
 import { signTransaction } from "../wallet/signTransaction";
 import { emptyWalletState } from "../wallet/index";
 import { getAccount } from "../account/getAccount";
+import { getAccountsBatch } from "../account/getAccountsBatch";
 import { getBalances } from "../account/getBalances";
 import { getAssetBalances } from "../account/getAssetBalances";
 import { streamAccount } from "../account/streamAccount";
@@ -21,23 +22,36 @@ import {
   buildPaymentTransaction,
   buildCreateAccountTransaction,
   buildTrustlineTransaction,
+  buildAccountMerge,
 } from "../transaction/buildTransaction";
+import type { AccountMergeOptions } from "../transaction/buildTransaction";
 import { submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
 import { estimateFee } from "../transaction/estimateFee";
 import { streamTransactions } from "../transaction/streamTransactions";
+import { validateDestination } from "../transaction/validateDestination";
+import type {
+  DestinationValidationResult,
+  ValidateDestinationOptions,
+} from "../transaction/validateDestination";
 import { readContract } from "../soroban/readContract";
 import { prepareContractCall } from "../soroban/prepareCall";
 import { simulateTransaction } from "../soroban/simulateTransaction";
 import { executeContract } from "../soroban/executeContract";
 import { invokeContract } from "../soroban/invokeContract";
-import { createLogger, withLogging } from "../shared/logger";
-import { formatAddress } from "../shared/utils";
+import { getContractMethods } from "../soroban/contractMetadata";
+import { createLogger, createTracedLogger, withLogging } from "../shared/logger";
+import { formatAddress, generateTraceId } from "../shared/utils";
 import { ok } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
+import { wrapCache } from "../shared/cache";
 import type { SorokitCache } from "../shared/cache";
 import type { ResolvedNetworkConfig } from "../shared/types";
+import type { ErrorHandler, ErrorContext } from "../shared/errors";
+import { applyErrorHandler, withErrorHandling, applyCodeTransformer } from "../shared/errors";
+import type { ErrorCodeTransformer } from "../shared/errors";
+import { TokenBucketRateLimiter } from "../shared/utils";
 import type { NetworkType } from "../network/config";
 import type {
   WalletAdapter,
@@ -52,6 +66,7 @@ import type {
   TrustlineParams,
   AccountCreateParams,
   TransactionResult,
+  PathPaymentParams,
 } from "../transaction/types";
 import type { FeeEstimate, FeeEstimateInput, FeeEstimateOptions } from "../transaction/estimateFee";
 import type {
@@ -59,6 +74,7 @@ import type {
   TransactionPage,
 } from "../transaction/streamTransactions";
 import type {
+  ContractMethod,
   ContractInvokeParams,
   ContractReadParams,
   ContractCallResult,
@@ -94,6 +110,19 @@ export interface SorokitClientConfig {
   sorobanPoll?: SorobanPollConfig;
   /** Invoked when estimateFee detects a fee surge (>2x recent median) */
   onFeeSurge?: FeeEstimateOptions["onFeeSurge"];
+  /** Optional error handler for centralized error processing and recovery */
+  errorHandler?: ErrorHandler;
+  /** Trusted asset issuers whitelist — null means no whitelist (all issuers allowed) */
+  trustedIssuers?: string[];
+  /** Optional error code transformer — maps SDK error codes to consumer-specific strings before returning any error result */
+  errorCodeTransformer?: ErrorCodeTransformer;
+  /** Max transaction submissions per second — activates token bucket rate limiting on transaction.submit() */
+  maxTxPerSecond?: number;
+  /**
+   * Correlation ID for this client. Included in every log entry and stamped onto
+   * every error returned by client methods. Generated automatically when omitted.
+   */
+  traceId?: string;
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────
@@ -101,6 +130,10 @@ export interface SorokitClientConfig {
 export interface SorokitClient {
   /** Resolved network configuration for this client instance */
   readonly networkConfig: ResolvedNetworkConfig;
+  /** Trusted asset issuers whitelist — null means no whitelist (all issuers allowed) */
+  readonly trustedIssuers: string[] | null;
+  /** Correlation ID stamped onto every error and log entry from this client. */
+  readonly traceId: string;
 
   readonly wallet: {
     /** Connect and return WalletState */
@@ -122,6 +155,10 @@ export interface SorokitClient {
   readonly account: {
     /** Fetch full account info including all balances */
     get(publicKey: string): Promise<SorokitResult<AccountInfo>>;
+    /** Fetch full account info for multiple accounts in parallel */
+    getAccountsBatch(
+      publicKeys: string[],
+    ): Promise<SorokitResult<SorokitResult<AccountInfo>[]>>;
     /** Fetch balances only */
     getBalances(publicKey: string): Promise<SorokitResult<AssetBalance[]>>;
     /**
@@ -164,6 +201,12 @@ export interface SorokitClient {
       sourcePublicKey: string,
       params: TrustlineParams,
     ): Promise<SorokitResult<string>>;
+    /** Build an account merge transaction XDR (unsigned) */
+    buildAccountMerge(
+      sourcePublicKey: string,
+      destinationPublicKey: string,
+      options?: AccountMergeOptions,
+    ): Promise<SorokitResult<string>>;
     /** Submit a signed transaction XDR */
     submit(signedXdr: string): Promise<SorokitResult<TransactionResult>>;
     /** Fetch the status of a transaction by hash */
@@ -182,9 +225,21 @@ export interface SorokitClient {
       config?: TransactionStreamConfig,
       signal?: AbortSignal,
     ): AsyncGenerator<SorokitResult<TransactionPage>>;
+    /**
+     * Validate a destination address before building a transaction.
+     */
+    validateDestination(
+      publicKey: string,
+      options?: Omit<ValidateDestinationOptions, "horizonUrl">,
+    ): Promise<SorokitResult<DestinationValidationResult>>;
   };
 
   readonly soroban: {
+    /** Discover available contract methods and cache metadata by contract ID */
+    getContractMethods(
+      contractId: string,
+      ttlMs?: number,
+    ): Promise<SorokitResult<ContractMethod[]>>;
     /**
      * Simulate any transaction XDR for fee estimation and pre-flight checks.
      * Uses the Soroban RPC.
@@ -262,18 +317,30 @@ export function createSorokitClient(
 
   const networkConfig = networkResult.data;
   const { horizonUrl, rpcUrl, networkPassphrase } = networkConfig;
-  const logger =
+  const traceId = config.traceId ?? generateTraceId();
+  const baseLogger =
     config.logger ??
     createLogger({
       logLevel: config.logLevel ?? (config.debug ? "debug" : "off"),
     });
+  const logger = createTracedLogger(baseLogger, traceId);
   const defaultPollConfig = config.sorobanPoll;
+  const errorHandler = config.errorHandler;
+  const cache = config.cache ? wrapCache(config.cache) : undefined;
   const feeEstimateOptions: FeeEstimateOptions = {
-    ...(config.cache !== undefined ? { cache: config.cache } : {}),
+    ...(cache !== undefined ? { cache } : {}),
     ...(config.onFeeSurge !== undefined
       ? { onFeeSurge: config.onFeeSurge }
       : {}),
   };
+
+  const applyTx = <T>(r: SorokitResult<T>): SorokitResult<T> =>
+    applyCodeTransformer(r, config.errorCodeTransformer);
+
+  const rateLimiter =
+    config.maxTxPerSecond !== undefined
+      ? new TokenBucketRateLimiter(config.maxTxPerSecond)
+      : null;
 
   logger.info("client.create", {
     operation: "client.create",
@@ -283,141 +350,328 @@ export function createSorokitClient(
     rpcUrl,
   });
 
+  // Client creation checks cache for recovered state
+  if (cache) {
+    const cachedVal = cache.get("wallet:state");
+    logger.debug("client.create: checked cache for recovered wallet state", {
+      hasCachedState: !!cachedVal,
+    });
+  }
+
   const client: SorokitClient = {
     networkConfig,
+    trustedIssuers: config.trustedIssuers ?? null,
+    traceId,
 
     wallet: {
-      connect: (adapter) =>
-        withLogging(logger, "wallet.connect", { walletType: adapter.walletType }, () =>
-          connectWallet(adapter),
-        ),
+      connect: (adapter) => {
+        const action = () => {
+          if (cache) {
+            const cachedVal = cache.get("wallet:state");
+            let cached: WalletState | null = null;
+            if (cachedVal) {
+              if (typeof cachedVal === "string") {
+                try {
+                  cached = JSON.parse(cachedVal);
+                } catch {
+                  // ignore
+                }
+              } else if (typeof cachedVal === "object") {
+                cached = cachedVal as WalletState;
+              }
+            }
+
+            if (cached && cached.connected && cached.walletType === adapter.walletType) {
+              if (adapter.isAvailable()) {
+                logger.info("wallet.connect.recover", { walletType: adapter.walletType, status: "ok" });
+                return Promise.resolve(applyTx(ok(cached)));
+              } else {
+                logger.warn("wallet.connect.recover.validation_failed", { walletType: adapter.walletType });
+                cache.invalidate("wallet:state");
+                return Promise.resolve(applyTx(ok({
+                  connected: false,
+                  publicKey: null,
+                  walletType: null,
+                })));
+              }
+            }
+          }
+
+          return withLogging(logger, "wallet.connect", { walletType: adapter.walletType }, () =>
+            connectWallet(adapter, cache),
+          );
+        };
+        return withErrorHandling(
+          errorHandler,
+          { functionName: "wallet.connect", params: { walletType: adapter.walletType } },
+          action
+        ).then(applyTx);
+      },
       disconnect: (adapter) =>
-        withLogging(logger, "wallet.disconnect", { walletType: adapter.walletType }, () =>
-          disconnectWallet(adapter),
-        ),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "wallet.disconnect", params: { walletType: adapter.walletType } },
+          () =>
+            withLogging(logger, "wallet.disconnect", { walletType: adapter.walletType }, () =>
+              disconnectWallet(adapter, cache),
+            ),
+        ).then(applyTx),
       signTransaction: (adapter, input) =>
-        withLogging(
-          logger,
-          "wallet.signTransaction",
-          { walletType: adapter.walletType },
-          () => signTransaction(adapter, input),
-        ),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "wallet.signTransaction", params: { walletType: adapter.walletType } },
+          () =>
+            withLogging(
+              logger,
+              "wallet.signTransaction",
+              { walletType: adapter.walletType },
+              () => signTransaction(adapter, input),
+            ),
+        ).then(applyTx),
       emptyState: () => emptyWalletState(),
     },
 
+
     account: {
       get: (publicKey) =>
-        withLogging(logger, "account.get", { publicKey }, () =>
-          getAccount(horizonUrl, publicKey),
-        ),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "account.get", params: { publicKey } },
+          () =>
+            withLogging(logger, "account.get", { publicKey }, () =>
+              getAccount(horizonUrl, publicKey),
+            ),
+        ).then(applyTx),
+      getAccountsBatch: (publicKeys) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "account.getAccountsBatch", params: { publicKeys } },
+          () =>
+            withLogging(logger, "account.getAccountsBatch", { publicKeys }, () =>
+              getAccountsBatch(horizonUrl, publicKeys),
+            ),
+        ).then(applyTx),
       getBalances: (publicKey) =>
-        withLogging(logger, "account.getBalances", { publicKey }, () =>
-          getBalances(horizonUrl, publicKey),
-        ),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "account.getBalances", params: { publicKey } },
+          () =>
+            withLogging(logger, "account.getBalances", { publicKey }, () =>
+              getBalances(horizonUrl, publicKey),
+            ),
+        ).then(applyTx),
       getAssetBalances: (publicKey, filter) =>
-        withLogging(logger, "account.getAssetBalances", { publicKey, filter }, () =>
-          getAssetBalances(horizonUrl, publicKey, filter),
-        ),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "account.getAssetBalances", params: { publicKey, filter } },
+          () =>
+            withLogging(logger, "account.getAssetBalances", { publicKey, filter }, () =>
+              getAssetBalances(horizonUrl, publicKey, filter),
+            ),
+        ).then(applyTx),
       stream: (publicKey, streamConfig, signal) =>
         streamAccount(horizonUrl, publicKey, streamConfig, signal, logger),
       formatAddress: (publicKey, chars) => formatAddress(publicKey, chars),
     },
 
     transaction: {
-      buildPayment: (sourcePublicKey, params) => {
-        logger.debug("transaction.buildPayment", { sourcePublicKey });
-        return buildPaymentTransaction(
-          horizonUrl,
-          networkConfig,
-          sourcePublicKey,
-          params,
-        );
-      },
-      buildCreateAccount: (sourcePublicKey, params) => {
-        logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
-        return buildCreateAccountTransaction(
-          horizonUrl,
-          networkConfig,
-          sourcePublicKey,
-          params,
-        );
-      },
-      buildTrustline: (sourcePublicKey, params) => {
-        logger.debug("transaction.buildTrustline", { sourcePublicKey });
-        return buildTrustlineTransaction(
-          horizonUrl,
-          networkConfig,
-          sourcePublicKey,
-          params,
-        );
-      },
-      submit: (signedXdr) => {
-        logger.debug("transaction.submit");
-        return submitTransaction(horizonUrl, networkPassphrase, signedXdr);
-      },
-      getStatus: (hash) => {
-        logger.debug("transaction.getStatus", { hash });
-        return getTransactionStatus(horizonUrl, hash);
-      },
-      estimateFee: (input) => {
-        logger.debug("transaction.estimateFee");
-        return estimateFee(
-          rpcUrl,
-          horizonUrl,
-          networkConfig,
-          input,
-          feeEstimateOptions,
-        );
-      },
+      buildPayment: (sourcePublicKey, params) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.buildPayment", params: { sourcePublicKey, ...params } },
+          () => {
+            logger.debug("transaction.buildPayment", { sourcePublicKey });
+            return buildPaymentTransaction(
+              horizonUrl,
+              networkConfig,
+              sourcePublicKey,
+              params,
+              client.trustedIssuers,
+            );
+          }
+        ).then(applyTx),
+      buildCreateAccount: (sourcePublicKey, params) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.buildCreateAccount", params: { sourcePublicKey, ...params } },
+          () => {
+            logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
+            return buildCreateAccountTransaction(
+              horizonUrl,
+              networkConfig,
+              sourcePublicKey,
+              params,
+            );
+          }
+        ).then(applyTx),
+      buildTrustline: (sourcePublicKey, params) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.buildTrustline", params: { sourcePublicKey, ...params } },
+          () => {
+            logger.debug("transaction.buildTrustline", { sourcePublicKey });
+            return buildTrustlineTransaction(
+              horizonUrl,
+              networkConfig,
+              sourcePublicKey,
+              params,
+              client.trustedIssuers,
+            );
+          }
+        ).then(applyTx),
+      buildAccountMerge: (sourcePublicKey, destinationPublicKey, options) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.buildAccountMerge", params: { sourcePublicKey, destinationPublicKey, options } },
+          () => {
+            logger.debug("transaction.buildAccountMerge", { sourcePublicKey, destinationPublicKey });
+            return buildAccountMerge(
+              horizonUrl,
+              networkConfig,
+              sourcePublicKey,
+              destinationPublicKey,
+              options,
+            );
+          }
+        ).then(applyTx),
+      submit: async (signedXdr) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.submit" },
+          async () => {
+            logger.debug("transaction.submit");
+            if (rateLimiter) await rateLimiter.acquire();
+            return submitTransaction(horizonUrl, networkPassphrase, signedXdr, cache);
+          }
+        ).then(applyTx),
+      getStatus: (hash) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.getStatus", params: { hash } },
+          () => {
+            logger.debug("transaction.getStatus", { hash });
+            return getTransactionStatus(horizonUrl, hash);
+          }
+        ).then(applyTx),
+      estimateFee: (input) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.estimateFee", params: { ...input } },
+          () => {
+            logger.debug("transaction.estimateFee");
+            return estimateFee(
+              rpcUrl,
+              horizonUrl,
+              networkConfig,
+              input,
+              cache,
+              undefined,
+              feeEstimateOptions,
+            );
+          }
+        ).then(applyTx),
       stream: (publicKey, config, signal) => {
         logger.debug("transaction.stream", { publicKey });
         return streamTransactions(horizonUrl, publicKey, config, signal);
       },
+      validateDestination: (publicKey, options) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "transaction.validateDestination", params: { publicKey, options } },
+          () => {
+            logger.debug("transaction.validateDestination", { publicKey });
+            return validateDestination(publicKey, {
+              ...options,
+              horizonUrl: horizonUrl,
+            });
+          },
+        ).then(applyTx),
     },
 
     soroban: {
-      simulate: (transactionXdr) =>
-        withLogging(logger, "soroban.simulate", undefined, () =>
-          simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
-        ),
-      prepare: (params) =>
-        withLogging(
-          logger,
-          "soroban.prepare",
-          { contractId: params.contractId, method: params.method },
-          () => prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
-        ),
-      execute: (signedXdr, pollConfig) =>
-        executeContract(
-          rpcUrl,
-          networkConfig,
-          signedXdr,
-          pollConfig ?? defaultPollConfig,
-          logger,
-        ),
-      invoke: (params, signFn, pollConfig) =>
-        withLogging(
-          logger,
-          "soroban.invoke",
-          { contractId: params.contractId, method: params.method },
+      getContractMethods: (contractId, ttlMs) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.getContractMethods", params: { contractId } },
           () =>
-            invokeContract(
+            withLogging(
+              logger,
+              "soroban.getContractMethods",
+              { contractId },
+              () =>
+                getContractMethods(rpcUrl, contractId, {
+                  ...(cache && { cache }),
+                  ...(ttlMs !== undefined && { ttlMs }),
+                }),
+            ),
+        ).then(applyTx),
+      simulate: (transactionXdr) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.simulate" },
+          () =>
+            withLogging(logger, "soroban.simulate", undefined, () =>
+              simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
+            ),
+        ).then(applyTx),
+      prepare: (params) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.prepare", params: { contractId: params.contractId, method: params.method } },
+          () =>
+            withLogging(
+              logger,
+              "soroban.prepare",
+              { contractId: params.contractId, method: params.method },
+              () => prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
+            ),
+        ).then(applyTx),
+      execute: (signedXdr, pollConfig) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.execute" },
+          () =>
+            executeContract(
               rpcUrl,
               networkConfig,
-              horizonUrl,
-              params,
-              signFn,
+              signedXdr,
               pollConfig ?? defaultPollConfig,
               logger,
             ),
-        ),
+        ).then(applyTx),
+      invoke: (params, signFn, pollConfig) =>
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.invoke", params: { contractId: params.contractId, method: params.method } },
+          () =>
+            withLogging(
+              logger,
+              "soroban.invoke",
+              { contractId: params.contractId, method: params.method },
+              () =>
+                invokeContract(
+                  rpcUrl,
+                  networkConfig,
+                  horizonUrl,
+                  params,
+                  signFn,
+                  pollConfig ?? defaultPollConfig,
+                  logger,
+                ),
+            ),
+        ).then(applyTx),
       read: (params) =>
-        withLogging(
-          logger,
-          "soroban.read",
-          { contractId: params.contractId, method: params.method },
-          () => readContract(rpcUrl, horizonUrl, networkConfig, params),
-        ),
+        withErrorHandling(
+          errorHandler,
+          { functionName: "soroban.read", params: { contractId: params.contractId, method: params.method } },
+          () =>
+            withLogging(
+              logger,
+              "soroban.read",
+              { contractId: params.contractId, method: params.method },
+              () => readContract(rpcUrl, horizonUrl, networkConfig, params),
+            ),
+        ).then(applyTx),
     },
 
     network: {

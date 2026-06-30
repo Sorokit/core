@@ -10,12 +10,243 @@ export type {
   WalletAdapter,
   SignTransactionInput,
   SWKInstance,
+  DiagnosticStatus,
+  DiagnosticCheck,
+  WalletDiagnosticReport,
+  WalletDiagnosticOptions,
+  DetectedWallet,
+  RecommendationCriteria,
+  WalletFeature,
 } from "./types";
-export { WalletType as WalletTypeEnum } from "./types";
+export { WalletType as WalletTypeEnum, WalletConnectionState } from "./types";
+export {
+  getSigningHistory,
+  exportSigningHistory,
+  InMemorySigningHistoryStore,
+} from "./signingHistory";
+export type {
+  SigningRecord,
+  SigningHistoryFilter,
+  SigningHistoryStore,
+} from "./signingHistory";
 
-import { ok } from "../shared/response";
+import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import type { WalletState } from "./types";
+import { toMessage } from "../shared/errors";
+import { xdr } from "@stellar/stellar-sdk";
+import type {
+  WalletState,
+  WalletAdapter,
+  DiagnosticCheck,
+  WalletDiagnosticReport,
+  WalletDiagnosticOptions,
+  DetectedWallet,
+  RecommendationCriteria,
+  WalletFeature,
+} from "./types";
+import { WalletType, WalletConnectionState } from "./types";
+
+const WALLET_FEATURE_MAP: Record<WalletType, WalletFeature[]> = {
+  [WalletType.FREIGHTER]: ["multisig"],
+  [WalletType.XBULL]: ["multisig", "hardware"],
+  [WalletType.LOBSTR]: ["multisig"],
+  [WalletType.HANA]: [],
+  [WalletType.RABET]: [],
+};
+
+export type EnvelopeSignatureInput = string | xdr.DecoratedSignature;
+export type SignatureHintInput = string | Buffer | Uint8Array;
+
+function parseEnvelope(envelopeXdr: string): xdr.TransactionEnvelope {
+  if (typeof envelopeXdr !== "string" || envelopeXdr.trim().length === 0) {
+    throw new Error("Transaction envelope XDR must be a non-empty base64 string.");
+  }
+
+  try {
+    return xdr.TransactionEnvelope.fromXDR(envelopeXdr, "base64");
+  } catch {
+    throw new Error("Invalid transaction envelope XDR.");
+  }
+}
+
+function parseSignature(signature: EnvelopeSignatureInput): xdr.DecoratedSignature {
+  let decoratedSignature: xdr.DecoratedSignature;
+
+  if (typeof signature === "string") {
+    if (signature.trim().length === 0) {
+      throw new Error("Signature XDR must be a non-empty base64 string.");
+    }
+
+    try {
+      decoratedSignature = xdr.DecoratedSignature.fromXDR(signature, "base64");
+    } catch {
+      throw new Error("Invalid decorated signature XDR.");
+    }
+  } else {
+    decoratedSignature = signature;
+  }
+
+  if (decoratedSignature.hint().length !== 4) {
+    throw new Error("Signature hint must be exactly 4 bytes.");
+  }
+
+  if (decoratedSignature.signature().length === 0) {
+    throw new Error("Signature bytes must not be empty.");
+  }
+
+  return decoratedSignature;
+}
+
+function normalizeSignatureHint(hint: SignatureHintInput): Buffer {
+  const bytes =
+    typeof hint === "string"
+      ? /^[0-9a-fA-F]{8}$/.test(hint)
+        ? Buffer.from(hint, "hex")
+        : Buffer.from(hint, "base64")
+      : Buffer.from(hint);
+
+  if (bytes.length !== 4) {
+    throw new Error("Signature hint must be exactly 4 bytes.");
+  }
+
+  return bytes;
+}
+
+function bufferEquals(left: Buffer | Uint8Array, right: Buffer | Uint8Array): boolean {
+  return Buffer.from(left).equals(Buffer.from(right));
+}
+
+function getEnvelopeSignatures(envelope: xdr.TransactionEnvelope): xdr.DecoratedSignature[] {
+  switch (envelope.switch()) {
+    case xdr.EnvelopeType.envelopeTypeTxV0():
+      return envelope.v0().signatures();
+    case xdr.EnvelopeType.envelopeTypeTx():
+      return envelope.v1().signatures();
+    case xdr.EnvelopeType.envelopeTypeTxFeeBump():
+      return envelope.feeBump().signatures();
+    default:
+      throw new Error("Unsupported transaction envelope type.");
+  }
+}
+
+function setEnvelopeSignatures(
+  envelope: xdr.TransactionEnvelope,
+  signatures: xdr.DecoratedSignature[],
+): void {
+  switch (envelope.switch()) {
+    case xdr.EnvelopeType.envelopeTypeTxV0():
+      envelope.v0().signatures(signatures);
+      return;
+    case xdr.EnvelopeType.envelopeTypeTx():
+      envelope.v1().signatures(signatures);
+      return;
+    case xdr.EnvelopeType.envelopeTypeTxFeeBump():
+      envelope.feeBump().signatures(signatures);
+      return;
+    default:
+      throw new Error("Unsupported transaction envelope type.");
+  }
+}
+
+/**
+ * Add a decorated signature to a transaction envelope XDR.
+ *
+ * The input envelope is parsed and re-serialized; the original XDR string is not
+ * modified. `signature` may be a base64-encoded DecoratedSignature XDR or an SDK
+ * DecoratedSignature instance.
+ */
+export function addSignatureToEnvelope(
+  envelopeXdr: string,
+  signature: EnvelopeSignatureInput,
+): string {
+  const envelope = parseEnvelope(envelopeXdr);
+  const decoratedSignature = parseSignature(signature);
+  setEnvelopeSignatures(envelope, [
+    ...getEnvelopeSignatures(envelope),
+    decoratedSignature,
+  ]);
+  return envelope.toXDR("base64");
+}
+
+/**
+ * Remove decorated signatures with the provided 4-byte hint from an envelope XDR.
+ *
+ * `hint` may be raw bytes, an 8-character hex string, or a base64-encoded
+ * 4-byte signature hint. The returned XDR is a fresh serialized envelope.
+ */
+export function removeSignatureFromEnvelope(
+  envelopeXdr: string,
+  hint: SignatureHintInput,
+): string {
+  const envelope = parseEnvelope(envelopeXdr);
+  const normalizedHint = normalizeSignatureHint(hint);
+  const retainedSignatures = getEnvelopeSignatures(envelope)
+    .filter((signature) => !bufferEquals(signature.hint(), normalizedHint));
+
+  setEnvelopeSignatures(envelope, retainedSignatures);
+  return envelope.toXDR("base64");
+}
+
+/**
+ * Detect which wallet adapters are currently installed and available.
+ * Only works in a browser environment — returns available: false for all in Node.
+ */
+export function detectInstalledWallets(adapters: WalletAdapter[]): DetectedWallet[] {
+  return adapters.map((adapter) => ({
+    walletType: adapter.walletType,
+    available: adapter.isAvailable(),
+    features: WALLET_FEATURE_MAP[adapter.walletType] ?? [],
+  }));
+}
+
+/**
+ * Reorder wallet adapters by availability and an optional preferred type.
+ *
+ * Order: preferred (when available) → other available wallets (input order)
+ * → unavailable wallets (input order). If the preferred wallet is present
+ * but unavailable, it falls to the unavailable bucket and the first
+ * available adapter leads.
+ */
+export function prioritizeWallet(
+  adapters: WalletAdapter[],
+  preferred?: WalletType,
+): WalletAdapter[] {
+  const preferredAvailable: WalletAdapter[] = [];
+  const otherAvailable: WalletAdapter[] = [];
+  const unavailable: WalletAdapter[] = [];
+
+  for (const adapter of adapters) {
+    const available = adapter.isAvailable();
+    if (!available) {
+      unavailable.push(adapter);
+      continue;
+    }
+    if (preferred !== undefined && adapter.walletType === preferred) {
+      preferredAvailable.push(adapter);
+    } else {
+      otherAvailable.push(adapter);
+    }
+  }
+
+  return [...preferredAvailable, ...otherAvailable, ...unavailable];
+}
+
+/**
+ * Recommend wallets from a list of adapters based on optional feature criteria.
+ * Returns all available wallets when no criteria are provided.
+ * Requires a browser environment — adapters report unavailable in Node.
+ */
+export function recommendWallets(
+  adapters: WalletAdapter[],
+  criteria?: RecommendationCriteria,
+): DetectedWallet[] {
+  const detected = detectInstalledWallets(adapters);
+  const available = detected.filter((w) => w.available);
+  if (!criteria?.features?.length) return available;
+  return available.filter((w) =>
+    criteria.features!.every((f) => w.features.includes(f)),
+  );
+}
 
 /**
  * Return a canonical disconnected WalletState wrapped in SorokitResult.
@@ -23,4 +254,252 @@ import type { WalletState } from "./types";
  */
 export function emptyWalletState(): SorokitResult<WalletState> {
   return ok({ connected: false, publicKey: null, walletType: null });
+}
+
+/**
+ * Collect signatures from multiple signers sequentially, returning the fully-signed XDR.
+ *
+ * Each `signFn` call receives the current (partially-signed) XDR and the signer's public key.
+ * It should return the XDR with that signer's signature appended.
+ * If any signer fails, the error is returned immediately and remaining signers are skipped.
+ *
+ * @param xdr - The unsigned (or partially-signed) transaction XDR.
+ * @param signers - Ordered list of signer public keys.
+ * @param signFn - Signing function called for each signer in order.
+ * @returns The fully-signed XDR on success, or the first encountered error.
+ */
+export async function collectMultiSignatures(
+  xdr: string,
+  signers: string[],
+  signFn: (xdr: string, signer: string) => Promise<SorokitResult<string>>,
+): Promise<SorokitResult<string>> {
+  if (signers.length === 0) {
+    return err(
+      SorokitErrorCode.WALLET_SIGN_FAILED,
+      "collectMultiSignatures: signers list must not be empty.",
+    );
+  }
+
+  let currentXdr = xdr;
+  for (const signer of signers) {
+    const result = await signFn(currentXdr, signer);
+    if (result.status !== "ok") return result;
+    currentXdr = result.data;
+  }
+
+  return ok(currentXdr);
+}
+
+/**
+ * Diagnose a wallet connection by running a series of lightweight checks and
+ * returning a structured report with findings and recommendations.
+ *
+ * Checks performed, in order:
+ * 1. `wallet_installed` — `adapter.isAvailable()` (extension present + browser env).
+ * 2. `network_connectivity` — reaches `options.networkUrl` when provided (skipped otherwise).
+ * 3. `extension_responsive` — attempts `adapter.connect()` to confirm the wallet responds
+ *    (skipped when unavailable or `options.probeConnection === false`).
+ *
+ * Never throws — diagnostics are always returned as a successful SorokitResult.
+ *
+ * @example
+ * const report = await diagnoseWalletConnection(adapter, { networkUrl: horizonUrl });
+ * if (report.status === "ok" && !report.data.healthy) {
+ *   console.warn(report.data.recommendations);
+ * }
+ */
+export async function diagnoseWalletConnection(
+  adapter: WalletAdapter,
+  options?: WalletDiagnosticOptions,
+): Promise<SorokitResult<WalletDiagnosticReport>> {
+  const checks: DiagnosticCheck[] = [];
+
+  // 1. Wallet availability
+  const available = adapter.isAvailable();
+  checks.push(
+    available
+      ? {
+          name: "wallet_installed",
+          status: "pass",
+          finding: `${adapter.walletType} is available.`,
+        }
+      : {
+          name: "wallet_installed",
+          status: "fail",
+          finding: `${adapter.walletType} is not available — the extension is not installed or this is not a browser environment.`,
+          recommendation: `Install the ${adapter.walletType} extension and run in a browser.`,
+        },
+  );
+
+  // 2. Network connectivity (only when a URL is supplied)
+  if (options?.networkUrl) {
+    const fetchFn =
+      options.fetchFn ?? (typeof fetch !== "undefined" ? fetch : undefined);
+    if (!fetchFn) {
+      checks.push({
+        name: "network_connectivity",
+        status: "skipped",
+        finding: "No fetch implementation available to test network connectivity.",
+        recommendation: "Provide options.fetchFn when running outside a browser.",
+      });
+    } else {
+      try {
+        const res = await fetchFn(options.networkUrl, { method: "GET" });
+        checks.push(
+          res.ok
+            ? {
+                name: "network_connectivity",
+                status: "pass",
+                finding: `Network endpoint reachable (HTTP ${res.status}).`,
+              }
+            : {
+                name: "network_connectivity",
+                status: "warn",
+                finding: `Network endpoint returned HTTP ${res.status}.`,
+                recommendation: "Verify the network URL and node health.",
+              },
+        );
+      } catch (cause) {
+        checks.push({
+          name: "network_connectivity",
+          status: "fail",
+          finding: `Network endpoint unreachable: ${toMessage(cause)}`,
+          recommendation: "Check your internet connection and the network URL.",
+        });
+      }
+    }
+  } else {
+    checks.push({
+      name: "network_connectivity",
+      status: "skipped",
+      finding: "No networkUrl provided — connectivity was not tested.",
+    });
+  }
+
+  // 3. Extension responsiveness
+  const probeConnection = options?.probeConnection ?? true;
+  if (!available) {
+    checks.push({
+      name: "extension_responsive",
+      status: "skipped",
+      finding: "Skipped because the wallet is not available.",
+    });
+  } else if (!probeConnection) {
+    checks.push({
+      name: "extension_responsive",
+      status: "skipped",
+      finding: "Skipped because probeConnection was disabled.",
+    });
+  } else {
+    const connectResult = await adapter.connect();
+    if (connectResult.status === "ok") {
+      checks.push({
+        name: "extension_responsive",
+        status: "pass",
+        finding: "Wallet responded and returned a public key.",
+      });
+    } else {
+      const code = connectResult.error.code;
+      const recommendation =
+        code === SorokitErrorCode.WALLET_SIGN_REJECTED ||
+        code === SorokitErrorCode.WALLET_CONNECT_FAILED
+          ? "The connection was rejected — approve the connection request in your wallet."
+          : "Ensure the wallet extension is unlocked and responsive.";
+      checks.push({
+        name: "extension_responsive",
+        status: "fail",
+        finding: `Wallet did not connect: ${connectResult.error.message}`,
+        recommendation,
+      });
+    }
+  }
+
+  const findings = checks.map((c) => c.finding);
+  const recommendations = checks
+    .map((c) => c.recommendation)
+    .filter((r): r is string => r !== undefined);
+  const healthy = checks.every(
+    (c) => c.status === "pass" || c.status === "skipped",
+  );
+
+  return ok({
+    walletType: adapter.walletType,
+    healthy,
+    checks,
+    findings,
+    recommendations,
+  });
+}
+
+/**
+ * State machine for wallet connection transitions.
+ * Enforces valid state transitions: disconnected → connecting → connected → disconnecting → disconnected.
+ * Throws when an invalid transition is attempted.
+ */
+export class WalletStateMachine {
+  private state: WalletConnectionState = WalletConnectionState.DISCONNECTED;
+
+  constructor() {
+    this.state = WalletConnectionState.DISCONNECTED;
+  }
+
+  getCurrentState(): WalletConnectionState {
+    return this.state;
+  }
+
+  transitionToConnecting(): void {
+    if (this.state !== WalletConnectionState.DISCONNECTED) {
+      throw new Error(
+        `Invalid transition: cannot go from ${this.state} to connecting. Only disconnected state can transition to connecting.`,
+      );
+    }
+    this.state = WalletConnectionState.CONNECTING;
+  }
+
+  transitionToConnected(): void {
+    if (this.state !== WalletConnectionState.CONNECTING) {
+      throw new Error(
+        `Invalid transition: cannot go from ${this.state} to connected. Only connecting state can transition to connected.`,
+      );
+    }
+    this.state = WalletConnectionState.CONNECTED;
+  }
+
+  transitionToDisconnecting(): void {
+    if (this.state !== WalletConnectionState.CONNECTED) {
+      throw new Error(
+        `Invalid transition: cannot go from ${this.state} to disconnecting. Only connected state can transition to disconnecting.`,
+      );
+    }
+    this.state = WalletConnectionState.DISCONNECTING;
+  }
+
+  transitionToDisconnected(): void {
+    if (this.state !== WalletConnectionState.DISCONNECTING) {
+      throw new Error(
+        `Invalid transition: cannot go from ${this.state} to disconnected. Only disconnecting state can transition to disconnected.`,
+      );
+    }
+    this.state = WalletConnectionState.DISCONNECTED;
+  }
+
+  isConnected(): boolean {
+    return this.state === WalletConnectionState.CONNECTED;
+  }
+
+  isConnecting(): boolean {
+    return this.state === WalletConnectionState.CONNECTING;
+  }
+
+  isDisconnected(): boolean {
+    return this.state === WalletConnectionState.DISCONNECTED;
+  }
+
+  isDisconnecting(): boolean {
+    return this.state === WalletConnectionState.DISCONNECTING;
+  }
+
+  reset(): void {
+    this.state = WalletConnectionState.DISCONNECTED;
+  }
 }
