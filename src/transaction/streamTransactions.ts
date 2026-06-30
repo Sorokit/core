@@ -1,4 +1,4 @@
-import { Horizon } from "@stellar/stellar-sdk";
+import { Horizon, xdr as stellarXdr } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { sleep, toMessage, isNotFoundError } from "../shared";
@@ -22,6 +22,26 @@ function sameSnapshot(a: unknown, b: unknown): boolean {
     return JSON.stringify(a) === JSON.stringify(b);
   } catch {
     return false;
+  }
+}
+
+function parseOperationTypesFromXdr(envelopeXdr: string | undefined): string[] {
+  if (!envelopeXdr) return [];
+  try {
+    const envelope = stellarXdr.TransactionEnvelope.fromXDR(envelopeXdr, "base64");
+    let ops: stellarXdr.Operation[];
+    if (envelope.switch().name === "envelopeTypeTx") {
+      ops = envelope.v1().tx().operations();
+    } else {
+      ops = (envelope as any).v0().tx().operations();
+    }
+    return ops.map((op) => {
+      const xdrName = op.body().switch().name as string;
+      // "operationTypePayment" -> "payment", "operationTypeCreateAccount" -> "createAccount"
+      return xdrName.replace(/^operationType/, "").replace(/^(.)/, (c) => c.toLowerCase());
+    });
+  } catch {
+    return [];
   }
 }
 
@@ -86,6 +106,14 @@ export interface TransactionStreamConfig {
    * If true, emit the current page immediately on start. Default: true.
    */
   emitOnStart?: boolean;
+  /**
+   * Only include transactions that contain at least one operation of the
+   * specified types (e.g. ["payment", "changeTrust"]).
+   * Filter is applied client-side after operations are decoded from the
+   * transaction envelope XDR.
+   * When omitted or empty, all operation types are included.
+   */
+  operationTypes?: string[];
 }
 
 /**
@@ -146,6 +174,15 @@ function isWithinDateRange(
   return beforeTimestamp === undefined || createdAt <= beforeTimestamp;
 }
 
+function matchesOperationTypes(
+  tx: TransactionResult,
+  operationTypes: string[] | undefined,
+): boolean {
+  if (!operationTypes || operationTypes.length === 0) return true;
+  const txTypes = tx.operationTypes ?? [];
+  return txTypes.some((t) => operationTypes.includes(t));
+}
+
 /**
  * Apply client-side transaction filters and pagination to a Horizon page.
  */
@@ -165,7 +202,8 @@ export function applyTransactionFilters(
   const filtered = transactions.filter((tx) => {
     if (config && !isWithinLedgerRange(tx, config)) return false;
     if (statuses !== undefined && !statuses.has(tx.status)) return false;
-    return isWithinDateRange(tx, beforeTimestamp, afterTimestamp);
+    if (!isWithinDateRange(tx, beforeTimestamp, afterTimestamp)) return false;
+    return matchesOperationTypes(tx, config?.operationTypes);
   });
 
   return filtered.slice(offset, offset + limit);
@@ -178,10 +216,11 @@ export function applyTransactionFilters(
  * the filtered list of transactions and a cursor for resuming the stream.
  * Network errors are yielded as error results rather than stopping the generator.
  *
- * Client-side filters (ledger range, date range, status, limit, offset) are
- * applied after each Horizon response via `applyTransactionFilters`. Adaptive
- * polling increases the interval when consecutive polls return identical pages
- * and resets to the base interval when new transactions arrive.
+ * Client-side filters (ledger range, date range, status, operation types, limit,
+ * offset) are applied after each Horizon response via `applyTransactionFilters`.
+ * Operation types are decoded from each transaction's envelope XDR.
+ * Adaptive polling increases the interval when consecutive polls return identical
+ * pages and resets to the base interval when new transactions arrive.
  *
  * @param horizonUrl - Base URL of the Horizon server.
  * @param publicKey  - Stellar G-address of the account whose transactions to stream.
@@ -189,20 +228,6 @@ export function applyTransactionFilters(
  * @param signal     - Optional `AbortSignal` to stop the stream externally.
  * @param logger     - Optional logger for diagnostic output.
  * @yields `SorokitResult<TransactionPage>` on each poll cycle when the page changes.
- *
- * @example
- * for await (const result of streamTransactions(horizonUrl, publicKey)) {
- *   if (result.status === "ok") {
- *     result.data.transactions.forEach(tx => console.log(tx.hash));
- *   }
- * }
- *
- * @example
- * // Stream only new transactions using cursor
- * let cursor: string | undefined;
- * for await (const result of streamTransactions(horizonUrl, publicKey, { cursor })) {
- *   if (result.status === "ok") cursor = result.data.nextCursor ?? cursor;
- * }
  */
 export async function* streamTransactions(
   horizonUrl: string,
@@ -322,15 +347,19 @@ export async function* streamTransactions(
 
       const page = await builder.call();
 
-      const transactions: TransactionResult[] = page.records.map((tx) => ({
-        hash: tx.hash,
-        status: tx.successful ? ("success" as const) : ("failed" as const),
-        ledger: tx.ledger_attr,
-        createdAt: tx.created_at,
-        fee: String(tx.fee_charged),
-        envelopeXdr: tx.envelope_xdr,
-        resultXdr: tx.result_xdr,
-      }));
+      const transactions: TransactionResult[] = page.records.map((tx) => {
+        const envelopeXdr = tx.envelope_xdr;
+        return {
+          hash: tx.hash,
+          status: tx.successful ? ("success" as const) : ("failed" as const),
+          ledger: tx.ledger_attr,
+          createdAt: tx.created_at,
+          fee: String(tx.fee_charged),
+          envelopeXdr,
+          resultXdr: tx.result_xdr,
+          operationTypes: parseOperationTypesFromXdr(envelopeXdr),
+        };
+      });
 
       // Advance cursor to the last record for next poll
       const lastRecord = page.records[page.records.length - 1];

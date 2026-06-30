@@ -18,7 +18,7 @@ export type {
   RecommendationCriteria,
   WalletFeature,
 } from "./types";
-export { WalletType as WalletTypeEnum } from "./types";
+export { WalletType as WalletTypeEnum, WalletConnectionState } from "./types";
 export {
   getSigningHistory,
   exportSigningHistory,
@@ -44,7 +44,7 @@ import type {
   RecommendationCriteria,
   WalletFeature,
 } from "./types";
-import { WalletType } from "./types";
+import { WalletType, WalletConnectionState } from "./types";
 
 const WALLET_FEATURE_MAP: Record<WalletType, WalletFeature[]> = {
   [WalletType.FREIGHTER]: ["multisig"],
@@ -429,4 +429,77 @@ export async function diagnoseWalletConnection(
     findings,
     recommendations,
   });
+}
+
+/**
+ * State machine for wallet connection transitions.
+ * Enforces valid state transitions: disconnected → connecting → connected → disconnecting → disconnected.
+ * Throws when an invalid transition is attempted.
+ */
+export class WalletStateMachine {
+  private state: WalletConnectionState = WalletConnectionState.DISCONNECTED;
+
+  constructor() {
+    this.state = WalletConnectionState.DISCONNECTED;
+  }
+
+  getCurrentState(): WalletConnectionState {
+    return this.state;
+  }
+
+  transitionToConnecting(): void {
+    if (this.state !== WalletConnectionState.DISCONNECTED) {
+      throw new Error(
+        `Invalid transition: cannot go from ${this.state} to connecting. Only disconnected state can transition to connecting.`,
+      );
+    }
+    this.state = WalletConnectionState.CONNECTING;
+  }
+
+  transitionToConnected(): void {
+    if (this.state !== WalletConnectionState.CONNECTING) {
+      throw new Error(
+        `Invalid transition: cannot go from ${this.state} to connected. Only connecting state can transition to connected.`,
+      );
+    }
+    this.state = WalletConnectionState.CONNECTED;
+  }
+
+  transitionToDisconnecting(): void {
+    if (this.state !== WalletConnectionState.CONNECTED) {
+      throw new Error(
+        `Invalid transition: cannot go from ${this.state} to disconnecting. Only connected state can transition to disconnecting.`,
+      );
+    }
+    this.state = WalletConnectionState.DISCONNECTING;
+  }
+
+  transitionToDisconnected(): void {
+    if (this.state !== WalletConnectionState.DISCONNECTING) {
+      throw new Error(
+        `Invalid transition: cannot go from ${this.state} to disconnected. Only disconnecting state can transition to disconnected.`,
+      );
+    }
+    this.state = WalletConnectionState.DISCONNECTED;
+  }
+
+  isConnected(): boolean {
+    return this.state === WalletConnectionState.CONNECTED;
+  }
+
+  isConnecting(): boolean {
+    return this.state === WalletConnectionState.CONNECTING;
+  }
+
+  isDisconnected(): boolean {
+    return this.state === WalletConnectionState.DISCONNECTED;
+  }
+
+  isDisconnecting(): boolean {
+    return this.state === WalletConnectionState.DISCONNECTING;
+  }
+
+  reset(): void {
+    this.state = WalletConnectionState.DISCONNECTED;
+  }
 }

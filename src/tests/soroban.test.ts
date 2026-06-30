@@ -1798,3 +1798,559 @@ describe("simulateContractSafe (#97)", () => {
     expect(Number(result.data.fee)).toBeGreaterThan(0);
   });
 });
+
+import { parseContractResult } from "../soroban/parseContractResult";
+
+describe("parseContractResult (#119)", () => {
+  it("parses bool true with type", () => {
+    const result = parseContractResult(xdr.ScVal.scvBool(true));
+    expect(result.type).toBe("bool");
+    expect(result.value).toBe(true);
+  });
+
+  it("parses bool false with type", () => {
+    const result = parseContractResult(xdr.ScVal.scvBool(false));
+    expect(result.type).toBe("bool");
+    expect(result.value).toBe(false);
+  });
+
+  it("parses u32", () => {
+    const result = parseContractResult(xdr.ScVal.scvU32(42));
+    expect(result.type).toBe("u32");
+    expect(result.value).toBe(42);
+  });
+
+  it("parses i32 negative", () => {
+    const result = parseContractResult(xdr.ScVal.scvI32(-7));
+    expect(result.type).toBe("i32");
+    expect(result.value).toBe(-7);
+  });
+
+  it("parses u64 as bigint", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvU64(new xdr.Uint64("100")),
+    );
+    expect(result.type).toBe("u64");
+    expect(result.value).toBe(100n);
+  });
+
+  it("parses i64 as bigint", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvI64(new xdr.Int64("-50")),
+    );
+    expect(result.type).toBe("i64");
+    expect(result.value).toBe(-50n);
+  });
+
+  it("parses u128 as bigint", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvU128(
+        new xdr.UInt128Parts({ hi: new xdr.Uint64("0"), lo: new xdr.Uint64("999") }),
+      ),
+    );
+    expect(result.type).toBe("u128");
+    expect(result.value).toBe(999n);
+  });
+
+  it("parses i128 as bigint (positive)", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvI128(
+        new xdr.Int128Parts({ hi: new xdr.Int64("0"), lo: new xdr.Uint64("1234") }),
+      ),
+    );
+    expect(result.type).toBe("i128");
+    expect(result.value).toBe(1234n);
+  });
+
+  it("parses string", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvString(Buffer.from("hello", "utf8")),
+    );
+    expect(result.type).toBe("string");
+    expect(result.value).toBe("hello");
+  });
+
+  it("parses symbol", () => {
+    const result = parseContractResult(xdr.ScVal.scvSymbol("tick"));
+    expect(result.type).toBe("symbol");
+    expect(result.value).toBe("tick");
+  });
+
+  it("parses bytes", () => {
+    const result = parseContractResult(xdr.ScVal.scvBytes(Buffer.from([1, 2, 3])));
+    expect(result.type).toBe("bytes");
+    expect(result.value).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it("parses void as undefined", () => {
+    const result = parseContractResult(xdr.ScVal.scvVoid());
+    expect(result.type).toBe("void");
+    expect(result.value).toBeUndefined();
+  });
+
+  it("parses vec recursively", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvVec([xdr.ScVal.scvU32(1), xdr.ScVal.scvU32(2)]),
+    );
+    expect(result.type).toBe("vec");
+    expect(result.value).toEqual([1, 2]);
+  });
+
+  it("parses map to plain object", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvMap([
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvString(Buffer.from("a", "utf8")),
+          val: xdr.ScVal.scvU32(10),
+        }),
+      ]),
+    );
+    expect(result.type).toBe("map");
+    expect(result.value).toEqual({ a: 10 });
+  });
+
+  it("returns the expected type in result when validation passes", () => {
+    const result = parseContractResult(xdr.ScVal.scvU32(5), "u32");
+    expect(result.type).toBe("u32");
+    expect(result.value).toBe(5);
+  });
+
+  it("returns the expected type for bool validation", () => {
+    const result = parseContractResult(xdr.ScVal.scvBool(true), "bool");
+    expect(result.type).toBe("bool");
+    expect(result.value).toBe(true);
+  });
+
+  it("returns the expected type for string validation", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvString(Buffer.from("hi", "utf8")),
+      "string",
+    );
+    expect(result.type).toBe("string");
+    expect(result.value).toBe("hi");
+  });
+
+  it("returns the expected type for void validation", () => {
+    const result = parseContractResult(xdr.ScVal.scvVoid(), "void");
+    expect(result.type).toBe("void");
+    expect(result.value).toBeUndefined();
+  });
+
+  it("returns the expected type for vec validation", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvVec([xdr.ScVal.scvBool(true)]),
+      "vec",
+    );
+    expect(result.type).toBe("vec");
+  });
+
+  it("returns the expected type for map validation", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvMap([
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvString(Buffer.from("k", "utf8")),
+          val: xdr.ScVal.scvU32(1),
+        }),
+      ]),
+      "map",
+    );
+    expect(result.type).toBe("map");
+  });
+
+  it("throws TypeError when expected type does not match (u32 vs bool)", () => {
+    expect(() =>
+      parseContractResult(xdr.ScVal.scvBool(true), "u32"),
+    ).toThrow(TypeError);
+  });
+
+  it("throws TypeError when expected type does not match (string vs u32)", () => {
+    expect(() =>
+      parseContractResult(xdr.ScVal.scvU32(1), "string"),
+    ).toThrow(TypeError);
+  });
+
+  it("throws TypeError when expected type does not match (i32 vs void)", () => {
+    expect(() =>
+      parseContractResult(xdr.ScVal.scvVoid(), "i32"),
+    ).toThrow(TypeError);
+  });
+
+  it("throws with descriptive message on type mismatch", () => {
+    expect(() =>
+      parseContractResult(xdr.ScVal.scvBool(false), "u128"),
+    ).toThrow(/expected type "u128" but got "bool"/);
+  });
+
+  it("does not throw when expected type is omitted", () => {
+    expect(() => parseContractResult(xdr.ScVal.scvBool(true))).not.toThrow();
+  });
+
+  it("infers type from the ScVal when expected type is omitted", () => {
+    const result = parseContractResult(xdr.ScVal.scvI32(-1));
+    expect(result.type).toBe("i32");
+    expect(result.value).toBe(-1);
+  });
+
+  it("validates u64 expected type", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvU64(new xdr.Uint64("1")),
+      "u64",
+    );
+    expect(result.type).toBe("u64");
+    expect(result.value).toBe(1n);
+  });
+
+  it("validates i64 expected type", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvI64(new xdr.Int64("0")),
+      "i64",
+    );
+    expect(result.type).toBe("i64");
+    expect(result.value).toBe(0n);
+  });
+
+  it("validates u128 expected type", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvU128(
+        new xdr.UInt128Parts({ hi: new xdr.Uint64("0"), lo: new xdr.Uint64("7") }),
+      ),
+      "u128",
+    );
+    expect(result.type).toBe("u128");
+    expect(result.value).toBe(7n);
+  });
+
+  it("validates i128 expected type", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvI128(
+        new xdr.Int128Parts({ hi: new xdr.Int64("0"), lo: new xdr.Uint64("11") }),
+      ),
+      "i128",
+    );
+    expect(result.type).toBe("i128");
+    expect(result.value).toBe(11n);
+  });
+
+  it("validates symbol expected type", () => {
+    const result = parseContractResult(xdr.ScVal.scvSymbol("name"), "symbol");
+    expect(result.type).toBe("symbol");
+    expect(result.value).toBe("name");
+  });
+
+  it("validates bytes expected type", () => {
+    const result = parseContractResult(
+      xdr.ScVal.scvBytes(Buffer.from([0xff])),
+      "bytes",
+    );
+    expect(result.type).toBe("bytes");
+  });
+
+  it("validates address expected type", () => {
+    const addr = xdr.ScVal.scvAddress(
+      xdr.ScAddress.scAddressTypeAccount(
+        xdr.PublicKey.publicKeyTypeEd25519(Buffer.alloc(32)),
+      ),
+    );
+    const result = parseContractResult(addr, "address");
+    expect(result.type).toBe("address");
+  });
+
+  it("throws for mismatched address expected type", () => {
+    expect(() =>
+      parseContractResult(xdr.ScVal.scvU32(1), "address"),
+    ).toThrow(TypeError);
+  });
+});
+
+describe("soroban/describeStorageSlot", () => {
+  const { describeStorageSlot } = require("../soroban/storageSlot");
+
+  it("returns ok with slot info for ledger type", () => {
+    const result = describeStorageSlot("ledger");
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.slotType).toBe("ledger");
+    expect(result.data.capacity).toBeTruthy();
+    expect(result.data.retentionPeriod).toBeTruthy();
+    expect(result.data.costModel).toBeTruthy();
+    expect(result.data.notes).toBeTruthy();
+  });
+
+  it("returns ok with slot info for instance type", () => {
+    const result = describeStorageSlot("instance");
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data.slotType).toBe("instance");
+    expect(result.data.capacity).toBeTruthy();
+    expect(result.data.retentionPeriod).toBeTruthy();
+    expect(result.data.costModel).toBeTruthy();
+    expect(result.data.notes).toBeTruthy();
+  });
+
+  it("ledger and instance descriptions differ", () => {
+    const ledger = describeStorageSlot("ledger");
+    const instance = describeStorageSlot("instance");
+    if (ledger.status !== "ok" || instance.status !== "ok") return;
+    expect(ledger.data.retentionPeriod).not.toBe(instance.data.retentionPeriod);
+    expect(ledger.data.costModel).not.toBe(instance.data.costModel);
+  });
+
+  it("returns error for unknown slot type", () => {
+    const result = describeStorageSlot("persistent" as any);
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.message).toContain("persistent");
+  });
+
+  it("covers all documented Soroban slot types without throwing", () => {
+    const types = ["ledger", "instance"] as const;
+    for (const t of types) {
+      expect(() => describeStorageSlot(t)).not.toThrow();
+    }
+  });
+});
+
+import {
+  clearContractStateHistory,
+  getStateHistory,
+  InMemoryContractStateHistoryStore,
+  trackContractStateHistory,
+} from "../soroban/contractStateHistory";
+import type {
+  ContractStateHistoryStore,
+  ContractStateSnapshot,
+} from "../soroban/contractStateHistory";
+
+// ─── #134 contract state history tracking ─────────────────────────────────────
+
+describe("trackContractStateHistory / getStateHistory (#134)", () => {
+  beforeEach(() => {
+    clearContractStateHistory();
+  });
+
+  const CONTRACT_A = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const CONTRACT_B = "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBWHF";
+
+  // ── trackContractStateHistory ──────────────────────────────────────────────
+
+  it("records the first state snapshot", () => {
+    const result = trackContractStateHistory(CONTRACT_A, { counter: 0 });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data).not.toBeNull();
+    expect(result.data!.contractId).toBe(CONTRACT_A);
+    expect(result.data!.state).toEqual({ counter: 0 });
+  });
+
+  it("records multiple state changes", () => {
+    trackContractStateHistory(CONTRACT_A, { counter: 0 });
+    trackContractStateHistory(CONTRACT_A, { counter: 1 });
+    trackContractStateHistory(CONTRACT_A, { counter: 2 });
+
+    const history = getStateHistory(CONTRACT_A);
+    expect(history.status).toBe("ok");
+    if (history.status !== "ok") return;
+    expect(history.data).toHaveLength(3);
+  });
+
+  it("records a timestamp as a valid ISO-8601 string", () => {
+    const before = new Date().toISOString();
+    const result = trackContractStateHistory(CONTRACT_A, { val: 1 });
+    const after = new Date().toISOString();
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    const ts = result.data!.timestamp;
+    expect(ts >= before).toBe(true);
+    expect(ts <= after).toBe(true);
+  });
+
+  it("skips duplicate consecutive states and returns null", () => {
+    const state = { counter: 5 };
+    trackContractStateHistory(CONTRACT_A, state);
+    const second = trackContractStateHistory(CONTRACT_A, { counter: 5 });
+
+    expect(second.status).toBe("ok");
+    if (second.status !== "ok") return;
+    expect(second.data).toBeNull();
+
+    const history = getStateHistory(CONTRACT_A);
+    if (history.status !== "ok") return;
+    expect(history.data).toHaveLength(1);
+  });
+
+  it("records state after a duplicate when it subsequently changes", () => {
+    trackContractStateHistory(CONTRACT_A, { counter: 1 });
+    trackContractStateHistory(CONTRACT_A, { counter: 1 }); // duplicate — skipped
+    trackContractStateHistory(CONTRACT_A, { counter: 2 }); // new state — recorded
+
+    const history = getStateHistory(CONTRACT_A);
+    if (history.status !== "ok") return;
+    expect(history.data).toHaveLength(2);
+    expect(history.data[1].state).toEqual({ counter: 2 });
+  });
+
+  it("attaches optional metadata to the snapshot", () => {
+    const meta = { source: "test", version: 1 };
+    const result = trackContractStateHistory(CONTRACT_A, { x: 1 }, meta);
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data!.metadata).toEqual(meta);
+  });
+
+  it("snapshot without metadata has no metadata field", () => {
+    const result = trackContractStateHistory(CONTRACT_A, { x: 1 });
+    if (result.status !== "ok") return;
+    expect(result.data!.metadata).toBeUndefined();
+  });
+
+  // ── getStateHistory ────────────────────────────────────────────────────────
+
+  it("returns empty array for unknown contract ID", () => {
+    const result = getStateHistory("CUNKNOWN");
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data).toEqual([]);
+  });
+
+  it("history is in chronological (insertion) order", () => {
+    trackContractStateHistory(CONTRACT_A, { counter: 1 });
+    trackContractStateHistory(CONTRACT_A, { counter: 2 });
+    trackContractStateHistory(CONTRACT_A, { counter: 3 });
+
+    const result = getStateHistory(CONTRACT_A);
+    if (result.status !== "ok") return;
+    expect(result.data.map((s) => s.state.counter)).toEqual([1, 2, 3]);
+  });
+
+  it("retrieval does not mutate stored history", () => {
+    trackContractStateHistory(CONTRACT_A, { counter: 1 });
+
+    const first = getStateHistory(CONTRACT_A);
+    if (first.status !== "ok") return;
+    first.data.push({} as ContractStateSnapshot);
+
+    const second = getStateHistory(CONTRACT_A);
+    if (second.status !== "ok") return;
+    expect(second.data).toHaveLength(1);
+  });
+
+  it("tracks multiple contracts independently", () => {
+    trackContractStateHistory(CONTRACT_A, { a: 1 });
+    trackContractStateHistory(CONTRACT_A, { a: 2 });
+    trackContractStateHistory(CONTRACT_B, { b: 10 });
+
+    const histA = getStateHistory(CONTRACT_A);
+    const histB = getStateHistory(CONTRACT_B);
+
+    if (histA.status !== "ok" || histB.status !== "ok") return;
+    expect(histA.data).toHaveLength(2);
+    expect(histB.data).toHaveLength(1);
+    expect(histB.data[0].state).toEqual({ b: 10 });
+  });
+
+  // ── persistent store integration ───────────────────────────────────────────
+
+  it("uses a supplied persistent store instead of the default", () => {
+    const store = new InMemoryContractStateHistoryStore();
+
+    trackContractStateHistory(CONTRACT_A, { counter: 99 }, undefined, store);
+
+    // Default store is unaffected
+    const defaultHistory = getStateHistory(CONTRACT_A);
+    if (defaultHistory.status !== "ok") return;
+    expect(defaultHistory.data).toHaveLength(0);
+
+    // Custom store has the entry
+    const storeHistory = getStateHistory(CONTRACT_A, store);
+    if (storeHistory.status !== "ok") return;
+    expect(storeHistory.data).toHaveLength(1);
+    expect(storeHistory.data[0].state.counter).toBe(99);
+  });
+
+  it("InMemoryContractStateHistoryStore.clear() without id removes all history", () => {
+    const store = new InMemoryContractStateHistoryStore();
+    trackContractStateHistory(CONTRACT_A, { a: 1 }, undefined, store);
+    trackContractStateHistory(CONTRACT_B, { b: 2 }, undefined, store);
+    store.clear();
+
+    expect(getStateHistory(CONTRACT_A, store).data).toHaveLength(0);
+    expect(getStateHistory(CONTRACT_B, store).data).toHaveLength(0);
+  });
+
+  it("InMemoryContractStateHistoryStore.clear(contractId) removes only that contract", () => {
+    const store = new InMemoryContractStateHistoryStore();
+    trackContractStateHistory(CONTRACT_A, { a: 1 }, undefined, store);
+    trackContractStateHistory(CONTRACT_B, { b: 2 }, undefined, store);
+    store.clear(CONTRACT_A);
+
+    expect(getStateHistory(CONTRACT_A, store).data).toHaveLength(0);
+    expect(getStateHistory(CONTRACT_B, store).data).toHaveLength(1);
+  });
+
+  it("supports a custom ContractStateHistoryStore implementation", () => {
+    const records: ContractStateSnapshot[] = [];
+    const customStore: ContractStateHistoryStore = {
+      append(snapshot) {
+        records.push(snapshot);
+      },
+      getAll(id) {
+        return records.filter((r) => r.contractId === id);
+      },
+      clear() {
+        records.length = 0;
+      },
+    };
+
+    trackContractStateHistory(CONTRACT_A, { x: 7 }, undefined, customStore);
+    expect(records).toHaveLength(1);
+    const result = getStateHistory(CONTRACT_A, customStore);
+    if (result.status !== "ok") return;
+    expect(result.data[0].state.x).toBe(7);
+  });
+
+  // ── edge cases ─────────────────────────────────────────────────────────────
+
+  it("returns ok with null for empty contractId string", () => {
+    const result = trackContractStateHistory("", { x: 1 });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data).toBeNull();
+  });
+
+  it("handles an empty state object", () => {
+    const result = trackContractStateHistory(CONTRACT_A, {});
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data!.state).toEqual({});
+  });
+
+  it("snapshot state is a copy — mutating the original does not affect stored state", () => {
+    const state = { counter: 1 };
+    trackContractStateHistory(CONTRACT_A, state);
+    state.counter = 999;
+
+    const history = getStateHistory(CONTRACT_A);
+    if (history.status !== "ok") return;
+    expect(history.data[0].state.counter).toBe(1);
+  });
+
+  it("clearContractStateHistory resets default store for all contracts", () => {
+    trackContractStateHistory(CONTRACT_A, { a: 1 });
+    trackContractStateHistory(CONTRACT_B, { b: 1 });
+    clearContractStateHistory();
+
+    expect(getStateHistory(CONTRACT_A).data).toHaveLength(0);
+    expect(getStateHistory(CONTRACT_B).data).toHaveLength(0);
+  });
+
+  it("clearContractStateHistory(contractId) only removes that contract", () => {
+    trackContractStateHistory(CONTRACT_A, { a: 1 });
+    trackContractStateHistory(CONTRACT_B, { b: 1 });
+    clearContractStateHistory(CONTRACT_A);
+
+    expect(getStateHistory(CONTRACT_A).data).toHaveLength(0);
+    expect(getStateHistory(CONTRACT_B).data).toHaveLength(1);
+  });
+});

@@ -862,4 +862,369 @@ describe("getMultipleAssetBalances — bulk account queries (#42)", () => {
     // Parallel: should be ~DELAY ms, not DELAY*N ms
     expect(elapsed).toBeLessThan(DELAY * keys.length * 0.9);
   }, 10_000);
+
+  describe("prefetchSequence", () => {
+    it("fetches and caches sequence number for 30 seconds", async () => {
+      const { prefetchSequence } = await import("../account/prefetchSequence");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const { clearSequenceCache } = await import("../shared/sequenceCache");
+
+      clearSequenceCache();
+
+      const mockLoadAccount = vi.fn().mockResolvedValue({
+        sequence: "123456789",
+        sequenceNumber: () => "123456789",
+      });
+
+      vi.spyOn(Horizon, "Server").mockImplementation(
+        () =>
+          ({
+            loadAccount: mockLoadAccount,
+          } as any),
+      );
+
+      const result = await prefetchSequence(HORIZON_URL, KEY_A);
+
+      expect(result.status).toBe("ok");
+      expect(result.data).toBe("123456789");
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+
+      // Second call should use cache
+      const result2 = await prefetchSequence(HORIZON_URL, KEY_A);
+      expect(result2.status).toBe("ok");
+      expect(result2.data).toBe("123456789");
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1); // No additional call
+    });
+
+    it("returns cached sequence without fetching if already cached", async () => {
+      const { prefetchSequence } = await import("../account/prefetchSequence");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const { cacheSequence, clearSequenceCache } = await import(
+        "../shared/sequenceCache",
+      );
+
+      clearSequenceCache();
+
+      // Pre-cache a sequence
+      cacheSequence(KEY_A, "987654321");
+
+      const mockLoadAccount = vi.fn().mockResolvedValue({
+        sequence: "123456789",
+        sequenceNumber: () => "123456789",
+      });
+
+      vi.spyOn(Horizon, "Server").mockImplementation(
+        () =>
+          ({
+            loadAccount: mockLoadAccount,
+          } as any),
+      );
+
+      const result = await prefetchSequence(HORIZON_URL, KEY_A);
+
+      expect(result.status).toBe("ok");
+      expect(result.data).toBe("987654321"); // Should return cached value
+      expect(mockLoadAccount).not.toHaveBeenCalled(); // Should not fetch
+    });
+
+    it("expires cache after 30 seconds", async () => {
+      const { prefetchSequence } = await import("../account/prefetchSequence");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const { cacheSequence, clearSequenceCache, _getSequenceCacheForTesting } =
+        await import("../shared/sequenceCache");
+
+      clearSequenceCache();
+
+      // Pre-cache with old timestamp
+      cacheSequence(KEY_A, "111111111");
+
+      // Manually expire the cache by manipulating the internal state
+      const _sequenceCache = _getSequenceCacheForTesting();
+      const entry = _sequenceCache.get(KEY_A);
+      if (entry) {
+        entry.cachedAt = Date.now() - 31_000; // 31 seconds ago
+      }
+
+      const mockLoadAccount = vi.fn().mockResolvedValue({
+        sequence: "222222222",
+        sequenceNumber: () => "222222222",
+      });
+
+      vi.spyOn(Horizon, "Server").mockImplementation(
+        () =>
+          ({
+            loadAccount: mockLoadAccount,
+          } as any),
+      );
+
+      const result = await prefetchSequence(HORIZON_URL, KEY_A);
+
+      expect(result.status).toBe("ok");
+      expect(result.data).toBe("222222222"); // Should fetch new value
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns error when account not found", async () => {
+      const { prefetchSequence } = await import("../account/prefetchSequence");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const { clearSequenceCache } = await import("../shared/sequenceCache");
+
+      clearSequenceCache();
+
+      const mockLoadAccount = vi.fn().mockRejectedValue(
+        new Error("404 Not Found"),
+      );
+
+      vi.spyOn(Horizon, "Server").mockImplementation(
+        () =>
+          ({
+            loadAccount: mockLoadAccount,
+          } as any),
+      );
+
+      const result = await prefetchSequence(HORIZON_URL, KEY_A);
+
+      expect(result.status).toBe("error");
+      expect(result.error.code).toBe("ACCOUNT_FETCH_FAILED");
+    });
+
+    it("clears cache when clearSequenceCache is called", async () => {
+      const { prefetchSequence } = await import("../account/prefetchSequence");
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const { cacheSequence, clearSequenceCache, getCachedSequence } =
+        await import("../shared/sequenceCache");
+
+      clearSequenceCache();
+
+      cacheSequence(KEY_A, "555555555");
+      expect(getCachedSequence(KEY_A)).toBe("555555555");
+
+      clearSequenceCache();
+      expect(getCachedSequence(KEY_A)).toBeNull();
+    });
+  });
+
+  // ─── Issue #132: watchWalletBalance ─────────────────────────────────────────
+
+  describe("watchWalletBalance", () => {
+    const HORIZON = "https://horizon-testnet.stellar.org";
+    const PK = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+
+    /** Small helper to build an AssetBalance for tests. */
+    function bal(assetCode: string, balance: string, assetIssuer: string | null = null) {
+      return {
+        assetType: assetIssuer ? ("credit_alphanum4" as const) : ("native" as const),
+        assetCode,
+        assetIssuer,
+        balance,
+        balanceFloat: parseFloat(balance),
+      };
+    }
+
+    /** Build a minimal AccountInfo with the given balances. */
+    function acct(sequence: string, balances: ReturnType<typeof bal>[]): AccountInfo {
+      return {
+        publicKey: PK,
+        displayAddress: "GAAZI...CWNA",
+        sequence,
+        subentryCount: 0,
+        balances,
+      };
+    }
+
+    /**
+     * Run the watch loop for `ticks` account polls and collect the callback events.
+     * Each entry in `accounts` is returned by a successive getAccount call.
+     */
+    async function runWatch(
+      accounts: AccountInfo[],
+      threshold: number,
+      ticks: number,
+      opts?: { assetCode?: string; assetIssuer?: string | null },
+    ) {
+      const { getAccount } = await import("../account/getAccount");
+      const { watchWalletBalance } = await import("../account/watchWalletBalance");
+      const { ok } = await import("../shared/response");
+
+      let callCount = 0;
+      vi.mocked(getAccount).mockImplementation(async () => {
+        const acctData = accounts[callCount] ?? accounts.at(-1)!;
+        callCount++;
+        return ok(acctData);
+      });
+
+      const events: import("../account/watchWalletBalance").WalletBalanceChangeEvent[] = [];
+      const unwatch = watchWalletBalance(HORIZON, PK, threshold, (ev) => events.push(ev), {
+        intervalMs: 1,
+        ...opts,
+      });
+
+      // Drive `ticks` poll iterations: each iteration is one getAccount call
+      // plus one sleep. vi.mock makes sleep resolve instantly.
+      // We wait for the mocked calls to accumulate rather than sleeping real time.
+      await new Promise<void>((resolve) => {
+        const interval = setInterval(() => {
+          if (callCount >= ticks) {
+            clearInterval(interval);
+            resolve();
+          }
+        }, 5);
+      });
+
+      unwatch();
+      return events;
+    }
+
+    it("fires callback when balance increases by at least the threshold", async () => {
+      const accounts = [
+        acct("1", [bal("XLM", "100")]),
+        acct("2", [bal("XLM", "120")]), // +20, threshold 10 → fire
+      ];
+      const events = await runWatch(accounts, 10, 2);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]!.assetCode).toBe("XLM");
+      expect(events[0]!.oldBalance).toBe("100");
+      expect(events[0]!.newBalance).toBe("120");
+      expect(events[0]!.delta).toBeCloseTo(20);
+    });
+
+    it("fires callback when balance decreases by at least the threshold", async () => {
+      const accounts = [
+        acct("1", [bal("XLM", "100")]),
+        acct("2", [bal("XLM", "85")]), // -15, threshold 10 → fire
+      ];
+      const events = await runWatch(accounts, 10, 2);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]!.delta).toBeCloseTo(-15);
+    });
+
+    it("does NOT fire when change is below the threshold", async () => {
+      const accounts = [
+        acct("1", [bal("XLM", "100")]),
+        acct("2", [bal("XLM", "105")]), // +5, threshold 10 → silent
+      ];
+      const events = await runWatch(accounts, 10, 2);
+
+      expect(events).toHaveLength(0);
+    });
+
+    it("fires on every poll where the change meets the threshold", async () => {
+      const accounts = [
+        acct("1", [bal("XLM", "100")]),
+        acct("2", [bal("XLM", "120")]), // +20 → fire
+        acct("3", [bal("XLM", "150")]), // +30 → fire
+        acct("4", [bal("XLM", "151")]), // +1  → silent (below threshold 10)
+      ];
+      const events = await runWatch(accounts, 10, 4);
+
+      expect(events).toHaveLength(2);
+    });
+
+    it("does not fire on the first poll (no baseline yet)", async () => {
+      const accounts = [
+        acct("1", [bal("XLM", "1000")]), // first poll — no previous baseline
+      ];
+      const events = await runWatch(accounts, 0, 1);
+
+      // Even with threshold 0, no baseline means nothing to compare against.
+      expect(events).toHaveLength(0);
+    });
+
+    it("fires with threshold=0 on any balance change", async () => {
+      const accounts = [
+        acct("1", [bal("XLM", "100")]),
+        acct("2", [bal("XLM", "100.0000001")]), // tiny change
+      ];
+      const events = await runWatch(accounts, 0, 2);
+
+      expect(events).toHaveLength(1);
+    });
+
+    it("filters by assetCode when the option is provided", async () => {
+      const accounts = [
+        acct("1", [bal("XLM", "100"), bal("USDC", "50", "GISSUER")]),
+        acct("2", [bal("XLM", "120"), bal("USDC", "80", "GISSUER")]), // both change
+      ];
+      // Watch XLM only
+      const events = await runWatch(accounts, 10, 2, { assetCode: "XLM" });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]!.assetCode).toBe("XLM");
+    });
+
+    it("filters by assetIssuer when the option is provided", async () => {
+      const accounts = [
+        acct("1", [bal("USDC", "100", "GISSUER_A"), bal("USDC", "100", "GISSUER_B")]),
+        acct("2", [bal("USDC", "200", "GISSUER_A"), bal("USDC", "200", "GISSUER_B")]),
+      ];
+      // Watch only GISSUER_A
+      const events = await runWatch(accounts, 10, 2, {
+        assetCode: "USDC",
+        assetIssuer: "GISSUER_A",
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0]!.assetIssuer).toBe("GISSUER_A");
+    });
+
+    it("returns an unwatch function that stops polling", async () => {
+      const { getAccount } = await import("../account/getAccount");
+      const { watchWalletBalance } = await import("../account/watchWalletBalance");
+      const { ok } = await import("../shared/response");
+
+      let callCount = 0;
+      vi.mocked(getAccount).mockImplementation(async () => {
+        callCount++;
+        return ok(acct(String(callCount), [bal("XLM", String(callCount * 100))]));
+      });
+
+      const events: unknown[] = [];
+      const unwatch = watchWalletBalance(HORIZON, PK, 0, (ev) => events.push(ev), {
+        intervalMs: 1,
+      });
+
+      // Allow one poll cycle to complete, then stop.
+      await new Promise<void>((resolve) => {
+        const id = setInterval(() => {
+          if (callCount >= 2) {
+            clearInterval(id);
+            resolve();
+          }
+        }, 5);
+      });
+
+      const countAtStop = callCount;
+      unwatch();
+
+      // Give it 20 ms to make sure no extra calls happen.
+      await new Promise((r) => setTimeout(r, 20));
+      expect(callCount).toBe(countAtStop);
+    }, 10_000);
+
+    it("provides correct delta and changePercent in the event payload", async () => {
+      const accounts = [
+        acct("1", [bal("XLM", "200")]),
+        acct("2", [bal("XLM", "150")]), // −50 → −25 %
+      ];
+      const events = await runWatch(accounts, 10, 2);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]!.delta).toBeCloseTo(-50);
+      expect(events[0]!.changePercent).toBeCloseTo(-25);
+    });
+
+    it("watches multiple assets simultaneously and fires for each that crosses threshold", async () => {
+      const accounts = [
+        acct("1", [bal("XLM", "100"), bal("USDC", "1000", "GISSUER")]),
+        acct("2", [bal("XLM", "200"), bal("USDC", "1100", "GISSUER")]), // both change by ≥10
+      ];
+      const events = await runWatch(accounts, 10, 2);
+
+      expect(events).toHaveLength(2);
+      const codes = events.map((e) => e.assetCode).sort();
+      expect(codes).toEqual(["USDC", "XLM"]);
+    });
+  });
 });

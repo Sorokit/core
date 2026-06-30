@@ -62,11 +62,18 @@ export type {
 
 // ─── Account types ────────────────────────────────────────────────────────────
 export { evaluateBalanceAlerts } from "./account/balanceAlerts";
+export { getAccountsBatch } from "./account/getAccountsBatch";
 export type { AssetBalanceFilter } from "./account/getAssetBalances";
 export { getMultipleAssetBalances } from "./account/getMultipleAssetBalances";
 export type { MultipleAssetBalancesResult } from "./account/getMultipleAssetBalances";
 export { streamAccount } from "./account/streamAccount";
 export type { AccountStreamConfig } from "./account/streamAccount";
+export { watchWalletBalance } from "./account/watchWalletBalance";
+export type {
+  WalletBalanceChangeEvent,
+  WatchWalletBalanceCallback,
+  WatchWalletBalanceOptions,
+} from "./account/watchWalletBalance";
 export type {
   AccountInfo,
   AssetBalance,
@@ -77,6 +84,7 @@ export type {
 
 // ─── Transaction validation ───────────────────────────────────────────────────
 export {
+  analyzeFeeHistory,
   createHashMemo,
   createIdMemo,
   createReturnMemo,
@@ -95,12 +103,17 @@ export {
   eurcAsset,
   ativeAsset,
 } from "./transaction";
-export type { SorokitMemo } from "./transaction";
+export type { FeeHistoryAnalytics, FeeHistoryPercentiles, SorokitMemo } from "./transaction";
 export type {
   TransactionValidationFinding,
   TransactionValidationReport,
   ValidationRules,
 } from "./transaction/validateTransactionXdr";
+export { validateDestination } from "./transaction/validateDestination";
+export type {
+  DestinationValidationResult,
+  ValidateDestinationOptions,
+} from "./transaction/validateDestination";
 
 // ─── Transaction types ────────────────────────────────────────────────────────
 export type {
@@ -111,7 +124,8 @@ export type {
 } from "./transaction/estimateFee";
 export { calculateFeeTiers } from "./transaction/estimateFee";
 export { streamTransactions } from "./transaction/streamTransactions";
-export { buildPathPayment, checkTrustlines, buildBulkTrustlines } from "./transaction/index";
+export { buildPathPayment, checkTrustlines, buildBulkTrustlines, prepareAccountCreation } from "./transaction/index";
+export type { PrepareAccountCreationOptions } from "./transaction/index";
 export type {
   TransactionPage,
   TransactionStreamConfig,
@@ -121,6 +135,8 @@ export {
   createTransactionContext,
 } from "./transaction/transactionContext";
 export type { TransactionBuilderContext } from "./transaction/transactionContext";
+export { buildAccountMerge } from "./transaction";
+export type { AccountMergeOptions } from "./transaction";
 export type {
   AccountCreateParams,
   AtomicSwapParams,
@@ -143,6 +159,7 @@ export {
   decodeContractValue,
   encodeContractArgs,
 } from "./soroban/contractEncoding";
+export { parseContractResult } from "./soroban/parseContractResult";
 export { getContractMethods } from "./soroban/contractMetadata";
 export { buildContractDeploy } from "./soroban/deployContract";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
@@ -163,6 +180,8 @@ export type {
   ContractMethod,
   ContractMethodInput,
   ContractReadParams,
+  ContractResultType,
+  ParsedContractResult,
   PreparedContractCall,
   SimulateTransactionResult,
   SorobanPollConfig,

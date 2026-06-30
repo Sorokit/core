@@ -1,5 +1,8 @@
+import type { ContractStateChangeReport } from "./types";
+
 export { readContract } from "./readContract";
 export { decodeContractValue, encodeContractArgs } from "./contractEncoding";
+export { parseContractResult } from "./parseContractResult";
 export { prepareContractCall } from "./prepareCall";
 export { simulateTransaction } from "./simulateTransaction";
 export { simulateContractSafe } from "./simulateContractSafe";
@@ -36,8 +39,23 @@ export type {
   ContractReadParams,
   ContractCallResult,
   PreparedContractCall,
+  ContractResultType,
+  ParsedContractResult,
   SorobanPollConfig,
   SimulateTransactionResult,
   BatchContractInvocation,
   BatchContractResult,
+  ContractStateChangeReport,
 } from "./types";
+export { describeStorageSlot } from "./storageSlot";
+export type { StorageSlotInfo, StorageSlotType } from "./storageSlot";
+export {
+  trackContractStateHistory,
+  getStateHistory,
+  clearContractStateHistory,
+  InMemoryContractStateHistoryStore,
+} from "./contractStateHistory";
+export type {
+  ContractStateSnapshot,
+  ContractStateHistoryStore,
+} from "./contractStateHistory";
