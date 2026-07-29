@@ -48,6 +48,17 @@ export { SorobanSimulator } from "./simulator";
 export type { SimulatedMethodResult, SorobanSimulatorOptions } from "./simulator";
 export { buildContractDeploy } from "./deployContract";
 export {
+  decodeContractEvent,
+  decodeFactoryEvent,
+  decodeRouterEvent,
+} from "./decodeContractEvent";
+export type {
+  ContractEventDecoder,
+  DecodedContractEvent,
+  PairCreatedEvent,
+  SwapEvent,
+} from "./decodeContractEvent";
+export {
   snapshotContractState,
   compareSnapshots,
   listSnapshots,

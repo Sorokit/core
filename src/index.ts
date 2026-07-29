@@ -281,6 +281,17 @@ export type {
 export { invokeContract } from "./soroban/invokeContract";
 export type { InvokeContractOptions } from "./soroban/invokeContract";
 export { buildContractDeploy } from "./soroban/deployContract";
+export {
+  decodeContractEvent,
+  decodeFactoryEvent,
+  decodeRouterEvent,
+} from "./soroban/decodeContractEvent";
+export type {
+  ContractEventDecoder,
+  DecodedContractEvent,
+  PairCreatedEvent,
+  SwapEvent,
+} from "./soroban/decodeContractEvent";
 export { createContractReadCacheKey } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
