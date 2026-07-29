@@ -329,3 +329,9 @@ Pull requests are welcome. For significant changes, please open an issue first t
 ## License
 
 [MIT](LICENSE)
+# Factory statistics
+
+API servers can expose `getFactoryStatistics` at a route such as
+`GET /factory/:id/statistics`. Supply an adapter that reads the factory pair
+count and deployment metadata; the function returns Sorokit's standard
+structured JSON result.

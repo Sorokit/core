@@ -281,6 +281,11 @@ export type {
 export { invokeContract } from "./soroban/invokeContract";
 export type { InvokeContractOptions } from "./soroban/invokeContract";
 export { buildContractDeploy } from "./soroban/deployContract";
+export { getFactoryStatistics } from "./soroban/factoryStatistics";
+export type {
+  FactoryStatistics,
+  FactoryStatisticsSource,
+} from "./soroban/factoryStatistics";
 export { createContractReadCacheKey } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
