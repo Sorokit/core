@@ -68,6 +68,43 @@ export interface BuildPathPaymentParams {
 }
 
 /**
+ * Convert a router failure into a stable, descriptive Sorokit error code.
+ *
+ * Existing callers still receive the standard `SorokitResult` envelope while
+ * new integrations can branch on a contract-specific code.
+ */
+export function describeRouterSwapFailure(cause: unknown): {
+  code: SorokitErrorCode;
+  message: string;
+} {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("path") || normalized.includes("route")) {
+    return {
+      code: SorokitErrorCode.ROUTER_INVALID_PATH,
+      message: `Router could not execute the requested swap path: ${message}`,
+    };
+  }
+  if (normalized.includes("liquidity") || normalized.includes("underfunded")) {
+    return {
+      code: SorokitErrorCode.ROUTER_INSUFFICIENT_LIQUIDITY,
+      message: `Router has insufficient liquidity for this swap: ${message}`,
+    };
+  }
+  if (normalized.includes("slippage") || normalized.includes("minimum amount")) {
+    return {
+      code: SorokitErrorCode.ROUTER_SLIPPAGE_EXCEEDED,
+      message: `Router swap exceeded the configured slippage limit: ${message}`,
+    };
+  }
+  return {
+    code: SorokitErrorCode.ROUTER_SWAP_FAILED,
+    message: `Router swap execution failed: ${message}`,
+  };
+}
+
+/**
  * Find the best swap path between two assets.
  * 
  * This is a placeholder implementation. In production, this would query
@@ -88,8 +125,8 @@ export async function findSwapPath(
   
   if (sourceAsset.code === destAsset.code && sourceAsset.issuer === destAsset.issuer) {
     return err(
-      SorokitErrorCode.INVALID_CONFIG,
-      "Source and destination assets cannot be the same",
+      SorokitErrorCode.ROUTER_INVALID_PATH,
+      "Router path is invalid: source and destination assets cannot be the same",
     );
   }
 

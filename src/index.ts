@@ -152,6 +152,7 @@ export { calculateFeeTiers, fetchCongestionFeeEstimate } from "./transaction/est
 export {
   findSwapPath,
   buildPathPaymentTransaction,
+  describeRouterSwapFailure,
 } from "./transaction/pathPayment";
 export type {
   SwapRoute,

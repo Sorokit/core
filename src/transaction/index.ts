@@ -132,6 +132,7 @@ export { fetchCongestionFeeEstimate } from "./estimateFee";
 export {
   findSwapPath,
   buildPathPaymentTransaction,
+  describeRouterSwapFailure,
 } from "./pathPayment";
 export type {
   SwapRoute,
