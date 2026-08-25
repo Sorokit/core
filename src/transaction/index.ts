@@ -151,17 +151,33 @@ export {
   findSwapPath,
   buildPathPaymentTransaction,
   describeRouterSwapFailure,
+  discoverPaymentPaths,
+  DEFAULT_PATH_DISCOVERY_CACHE_TTL_MS,
 } from "./pathPayment";
 export type {
   SwapRoute,
   SwapRouteAsset,
   FindSwapPathOptions,
   BuildPathPaymentParams,
+  DiscoveredPathHop,
+  DiscoveredPaymentPath,
+  DiscoverPaymentPathsResult,
 } from "./pathPayment";
 export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
+export {
+  validateTrustline,
+  getBulkTrustlines,
+  buildBulkTrustlineTransaction,
+} from "./trustlineManagement";
+export type {
+  TrustlineState,
+  BulkTrustlinesResult,
+  BulkTrustlineOperation,
+  BuildBulkTrustlineTransactionParams,
+} from "./trustlineManagement";
 export {
   queryTransactionHistory,
 } from "./queryTransactionHistory";

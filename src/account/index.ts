@@ -9,17 +9,25 @@ export { createBalanceAlert } from "./createBalanceAlert";
 export {
   rotateAccountKey,
   setAccountRecovery,
+  recoverAccountKeys,
   isValidStellarPublicKey,
 } from "./keyRotation";
-export { getAccountActivitySummary } from "./getAccountActivitySummary";
+export {
+  getAccountActivitySummary,
+  DEFAULT_ACTIVITY_SUMMARY_CACHE_TTL_MS,
+} from "./getAccountActivitySummary";
 export type {
   ActivityPeriod,
   AssetActivity,
   AccountActivitySummary,
+  AccountActivitySummaryOptions,
+  CounterpartyActivity,
 } from "./getAccountActivitySummary";
 export type {
   RotateAccountKeyParams,
   SetAccountRecoveryParams,
+  RecoverAccountKeysParams,
+  RecoveryNewKey,
 } from "./keyRotation";
 export type {
   AccountInfo,
