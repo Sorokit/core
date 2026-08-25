@@ -4,6 +4,8 @@ import type { SorokitResult } from "../shared/response";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import { getAccount } from "./getAccount";
+import { createHorizonServer } from "../shared/serverFactory";
+import { toMessage } from "../shared/errors";
 
 /**
  * Options/Params for rotating an account key.
@@ -45,6 +47,267 @@ export interface SetAccountRecoveryParams {
 export function isValidStellarPublicKey(key: string): boolean {
   if (typeof key !== "string") return false;
   return StrKey.isValidEd25519PublicKey(key);
+}
+
+// ─── Account key recovery (issue #401) ────────────────────────────────────────
+
+/** A replacement signer to add during account key recovery. */
+export interface RecoveryNewKey {
+  /** New signer public key (G-address) to add. */
+  publicKey: string;
+  /** Signing weight for the new key (default: 1). */
+  weight?: number;
+}
+
+/**
+ * Options/Params for recovering account keys via a designated recovery signer.
+ */
+export interface RecoverAccountKeysParams {
+  /** Account object or public key string (G-address) whose keys are being recovered. */
+  account: string;
+  /**
+   * Recovery signer public key (G-address). Must currently be a signer on
+   * the account (e.g. set up in advance via {@link setAccountRecovery}).
+   */
+  recoveryKey: string;
+  /** New signer(s) to add in place of the compromised/unavailable key(s). */
+  newKeys: RecoveryNewKey[];
+  /**
+   * Existing signer public key(s) to remove (the compromised or
+   * unavailable keys being replaced). May be empty to add new signers
+   * without removing any existing ones.
+   */
+  compromisedKeys?: string[];
+  /**
+   * Optional new thresholds to set as part of recovery. When omitted, the
+   * account's current thresholds are preserved unchanged.
+   */
+  lowThreshold?: number;
+  medThreshold?: number;
+  highThreshold?: number;
+}
+
+/**
+ * Recover account signing keys using a pre-configured recovery signer.
+ *
+ * Constructs (but does not submit or sign) a transaction that adds each key
+ * in `newKeys` and removes each key in `compromisedKeys`, in a safe order —
+ * new keys are added before old ones are removed, so the account is never
+ * left without a signer that meets its own thresholds mid-transaction.
+ *
+ * This is a template only: the caller is responsible for collecting the
+ * signatures required to meet the account's current `highThreshold` (recovery
+ * operations are `setOptions`, which always requires high-threshold weight)
+ * before submitting — see `buildMultiSigEnvelope`/`collectSignature` in
+ * `transaction/multiSig.ts` for multi-signature recovery.
+ *
+ * Safety considerations:
+ * - Validates the account, recovery key, and every new/compromised key format.
+ * - Requires the recovery key to currently be a signer on the account.
+ * - Rejects a recovery that would remove the recovery key itself (it must
+ *   remain available to co-sign, or a subsequent recovery becomes impossible).
+ * - Rejects a recovery that would drop total signer weight below the
+ *   account's current (or newly requested) high threshold, which would
+ *   otherwise unintentionally lock the account out of high-security operations.
+ * - Rejects a recovery that would leave the account with zero signers of
+ *   nonzero weight.
+ *
+ * @param horizonUrl Base URL of Horizon server
+ * @param networkConfig Resolved network configuration
+ * @param params Recovery parameters — recovery key, new keys, and keys to remove
+ * @returns `ok(transactionXdr)` — an unsigned transaction template ready for
+ *   review and signing — or an error describing why recovery was rejected.
+ *
+ * @example
+ * const result = await recoverAccountKeys(horizonUrl, networkConfig, {
+ *   account: "GACCOUNT...",
+ *   recoveryKey: "GRECOVERY...",
+ *   compromisedKeys: ["GCOMPROMISED..."],
+ *   newKeys: [{ publicKey: "GNEWKEY...", weight: 1 }],
+ * });
+ * if (result.status === "ok") {
+ *   // Review result.data (the transaction XDR), then collect the required
+ *   // signatures (e.g. via buildMultiSigEnvelope) before submitting.
+ * }
+ */
+export async function recoverAccountKeys(
+  horizonUrl: string,
+  networkConfig: ResolvedNetworkConfig,
+  params: RecoverAccountKeysParams,
+): Promise<SorokitResult<string>> {
+  const { account, recoveryKey, newKeys, compromisedKeys = [] } = params;
+
+  if (!isValidStellarPublicKey(account)) {
+    return err(SorokitErrorCode.INVALID_ADDRESS, `Invalid account address: ${account}`);
+  }
+  if (!isValidStellarPublicKey(recoveryKey)) {
+    return err(SorokitErrorCode.INVALID_ADDRESS, `Invalid recovery key address: ${recoveryKey}`);
+  }
+  if (!newKeys || newKeys.length === 0) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "recoverAccountKeys: at least one new key is required.",
+    );
+  }
+  for (const newKey of newKeys) {
+    if (!isValidStellarPublicKey(newKey.publicKey)) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        `Invalid new key address: ${newKey.publicKey}`,
+      );
+    }
+    if (newKey.weight !== undefined && newKey.weight < 0) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        `recoverAccountKeys: new key ${newKey.publicKey} has invalid weight ${newKey.weight} — must be >= 0.`,
+      );
+    }
+  }
+  for (const compromisedKey of compromisedKeys) {
+    if (!isValidStellarPublicKey(compromisedKey)) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        `Invalid compromised key address: ${compromisedKey}`,
+      );
+    }
+  }
+  if (compromisedKeys.includes(recoveryKey)) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "recoverAccountKeys: the recovery key cannot be listed as a compromised key — it must remain available to authorize this and any future recovery.",
+    );
+  }
+  const newKeyAddresses = new Set(newKeys.map((k) => k.publicKey));
+  for (const compromisedKey of compromisedKeys) {
+    if (newKeyAddresses.has(compromisedKey)) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        `recoverAccountKeys: key ${compromisedKey} cannot be listed as both a new key and a compromised key.`,
+      );
+    }
+  }
+
+  let horizonAccount;
+  try {
+    const server = createHorizonServer(horizonUrl);
+    horizonAccount = await server.loadAccount(account);
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+      `recoverAccountKeys: failed to load account ${account}: ${toMessage(cause)}`,
+      cause,
+    );
+  }
+
+  const currentSigners = new Map(
+    horizonAccount.signers.map((s) => [s.key, s.weight]),
+  );
+
+  if (!currentSigners.has(recoveryKey) || (currentSigners.get(recoveryKey) ?? 0) <= 0) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `recoverAccountKeys: ${recoveryKey} is not currently an active signer on ${account}. Configure it first via setAccountRecovery().`,
+    );
+  }
+
+  for (const compromisedKey of compromisedKeys) {
+    if (!currentSigners.has(compromisedKey) || (currentSigners.get(compromisedKey) ?? 0) <= 0) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        `recoverAccountKeys: ${compromisedKey} is not currently an active signer on ${account} — nothing to recover.`,
+      );
+    }
+  }
+
+  const highThreshold = params.highThreshold ?? horizonAccount.thresholds.high_threshold;
+  const medThreshold = params.medThreshold ?? horizonAccount.thresholds.med_threshold;
+  const lowThreshold = params.lowThreshold ?? horizonAccount.thresholds.low_threshold;
+
+  // Simulate the resulting signer set (master key weight is a "signer" too,
+  // keyed by the account address itself in Horizon's signers list) to
+  // ensure recovery cannot unintentionally lock the account out.
+  const resultingWeights = new Map(currentSigners);
+  for (const compromisedKey of compromisedKeys) {
+    resultingWeights.set(compromisedKey, 0);
+  }
+  for (const newKey of newKeys) {
+    resultingWeights.set(newKey.publicKey, newKey.weight ?? 1);
+  }
+
+  const resultingTotalWeight = Array.from(resultingWeights.values()).reduce(
+    (sum, w) => sum + w,
+    0,
+  );
+
+  if (resultingTotalWeight <= 0) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      "recoverAccountKeys: the requested change would leave the account with zero total signer weight, which would permanently lock it. Recovery rejected.",
+    );
+  }
+  if (resultingTotalWeight < highThreshold) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `recoverAccountKeys: the requested change would leave total signer weight (${resultingTotalWeight}) below the account's high threshold (${highThreshold}), which would lock the account out of high-security operations. Recovery rejected.`,
+    );
+  }
+
+  try {
+    const sourceAccount = new (await import("@stellar/stellar-sdk")).Account(
+      account,
+      horizonAccount.sequence,
+    );
+
+    const builder = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: networkConfig.networkPassphrase,
+    });
+
+    // 1. Add every new key first, so the account always has a valid
+    //    superset of signers before any existing key is removed.
+    for (const newKey of newKeys) {
+      builder.addOperation(
+        Operation.setOptions({
+          signer: {
+            ed25519PublicKey: newKey.publicKey,
+            weight: newKey.weight ?? 1,
+          },
+        }),
+      );
+    }
+
+    // 2. Update thresholds, if requested, after new keys are in place and
+    //    before old keys are removed.
+    if (
+      params.lowThreshold !== undefined ||
+      params.medThreshold !== undefined ||
+      params.highThreshold !== undefined
+    ) {
+      builder.addOperation(
+        Operation.setOptions({ lowThreshold, medThreshold, highThreshold }),
+      );
+    }
+
+    // 3. Remove compromised/unavailable keys last (weight 0 removes a signer).
+    for (const compromisedKey of compromisedKeys) {
+      builder.addOperation(
+        Operation.setOptions({
+          signer: { ed25519PublicKey: compromisedKey, weight: 0 },
+        }),
+      );
+    }
+
+    builder.setTimeout(DEFAULT_TX_TIMEOUT_SECONDS);
+    const tx = builder.build();
+
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Failed to build account recovery transaction: ${cause instanceof Error ? cause.message : String(cause)}`,
+      cause,
+    );
+  }
 }
 
 /**
