@@ -304,6 +304,13 @@ export async function fetchContractWasm(
   }
 }
 
+export const contractMetadataInternals = {
+  parseContractMethodsFromWasm,
+  readContractSpecSection,
+  readWasmCustomSections,
+  fetchContractWasm,
+};
+
 function specTypeToString(typeDef: unknown): string {
   const kind = xdrName(call(typeDef, "switch"));
   const normalized = kind
@@ -464,7 +471,7 @@ export async function getContractMethods(
     return inFlightRequests.get(cacheKey)!;
   }
 
-  const promise = (async () => {
+  const promise = (async (): Promise<SorokitResult<ContractMethod[]>> => {
     try {
       const wasmResult = await contractMetadataInternals.fetchContractWasm(rpcUrl, contractId);
       if (wasmResult.status === "error") return wasmResult;
@@ -561,35 +568,63 @@ export function validateContractArgs(
   method: ContractMethod,
   args: xdr.ScVal[],
   errorCode: SorokitErrorCode,
+): SorokitResult<void>;
+export function validateContractArgs(
+  schema: ContractSchema,
+  method: string,
+  argCount: number,
+): SorokitResult<void>;
+export function validateContractArgs(
+  methodOrSchema: ContractMethod | ContractSchema,
+  argsOrMethod: xdr.ScVal[] | string,
+  errorCodeOrArgCount?: SorokitErrorCode | number,
 ): SorokitResult<void> {
-  for (let i = 0; i < args.length; i++) {
-    const input = method.inputs[i];
-    const arg = args[i];
-    if (!input || !arg) continue;
+  if ("inputs" in methodOrSchema && Array.isArray(argsOrMethod)) {
+    const method = methodOrSchema;
+    const args = argsOrMethod;
+    const errorCode = errorCodeOrArgCount as SorokitErrorCode;
+    for (let i = 0; i < args.length; i++) {
+      const input = method.inputs[i];
+      const arg = args[i];
+      if (!input || !arg) continue;
 
-    const scvName: string = arg.switch().name;
-    const actualType = SCV_TO_ABI_TYPE[scvName] ?? scvName;
-    const expectedType = input.type;
+      const scvName: string = arg.switch().name;
+      const actualType = SCV_TO_ABI_TYPE[scvName] ?? scvName;
+      const expectedType = input.type;
 
-    // Allow vec/map/option/result/tuple as prefix matches (e.g. "vec<address>")
-    const expectedBase = expectedType.split("<")[0];
-    if (actualType !== expectedBase && actualType !== expectedType) {
-      return err(
-        errorCode,
-        `Argument "${input.name}" (position ${i}): expected type "${expectedType}", got "${actualType}"`,
-      );
+      // Allow vec/map/option/result/tuple as prefix matches (e.g. "vec<address>")
+      const expectedBase = expectedType.split("<")[0];
+      if (actualType !== expectedBase && actualType !== expectedType) {
+        return err(
+          errorCode,
+          `Argument "${input.name}" (position ${i}): expected type "${expectedType}", got "${actualType}"`,
+        );
+      }
     }
+
+    return ok(undefined);
+  }
+
+  const schema = methodOrSchema as ContractSchema;
+  const method = argsOrMethod as string;
+  const argCount = errorCodeOrArgCount as number;
+  const methodSchema = schema.methods.find((m) => m.name === method);
+  if (!methodSchema) {
+    return err(
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      `Method "${method}" not found in schema for contract ${schema.contractId}. Available: ${schema.methods.map((m) => m.name).join(", ")}`,
+    );
+  }
+
+  if (methodSchema.params.length !== argCount) {
+    return err(
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      `Method "${method}" expects ${methodSchema.params.length} argument(s) [${methodSchema.params.map((p) => `${p.name}: ${p.type}`).join(", ")}], but ${argCount} were provided.`,
+    );
   }
 
   return ok(undefined);
 }
-
-export const contractMetadataInternals = {
-  parseContractMethodsFromWasm,
-  readContractSpecSection,
-  readWasmCustomSections,
-  fetchContractWasm,
-};
 
 /**
  * Fetch, parse, and cache the typed ABI schema for a contract.
@@ -651,43 +686,4 @@ function isContractSchema(value: unknown): value is ContractSchema {
   if (!value || typeof value !== "object") return false;
   const s = value as Partial<ContractSchema>;
   return typeof s.contractId === "string" && Array.isArray(s.methods);
-}
-
-/**
- * Validate user-supplied arguments against a parsed `ContractMethodSchema`.
- *
- * Checks:
- * - the method exists in the schema
- * - the number of provided ScVal arguments matches the expected param count
- *
- * Returns `ok(void)` when valid, or a `CONTRACT_PREPARE_FAILED` error
- * describing the mismatch.
- *
- * @param schema    - Schema returned by `parseContractSchema`.
- * @param method    - Name of the method to validate against.
- * @param argCount  - Number of arguments the caller intends to pass.
- *
- * (issue #206)
- */
-export function validateContractArgs(
-  schema: ContractSchema,
-  method: string,
-  argCount: number,
-): SorokitResult<void> {
-  const methodSchema = schema.methods.find((m) => m.name === method);
-  if (!methodSchema) {
-    return err(
-      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
-      `Method "${method}" not found in schema for contract ${schema.contractId}. Available: ${schema.methods.map((m) => m.name).join(", ")}`,
-    );
-  }
-
-  if (methodSchema.params.length !== argCount) {
-    return err(
-      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
-      `Method "${method}" expects ${methodSchema.params.length} argument(s) [${methodSchema.params.map((p) => `${p.name}: ${p.type}`).join(", ")}], but ${argCount} were provided.`,
-    );
-  }
-
-  return ok(undefined);
 }

@@ -205,7 +205,7 @@ export async function verifyDidOwnership(
   }
 
   if (!document) {
-    return { verified: false, reason: `DID could not be resolved: "${did}".`, document: undefined };
+    return { verified: false, reason: `DID could not be resolved: "${did}".` };
   }
 
   if (isExpired(document)) {

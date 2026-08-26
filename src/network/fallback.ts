@@ -1,4 +1,4 @@
-import { err, isErr, ok } from "../shared/response";
+import { err, isErr, ok, SorokitErrorCode } from "../shared/response";
 import type { RecoveryAttempt, SorokitResult } from "../shared/response";
 import { isTransientError, toMessage } from "../shared/errors";
 
@@ -72,20 +72,25 @@ export class EndpointFallbackManager {
           if (!isEligibleForFallback) {
             if (this._allowDegradedMode) {
               return {
-                ...result,
+                status: "error",
+                data: null,
                 error: {
-                  ...result.error,
+                  code: result.error.code,
+                  message: result.error.message,
+                  cause: result.error.cause,
                   recoveryAttempts,
                   degradedMode: true,
                 },
               };
             }
             return {
-              ...result,
+              status: "error",
+              data: null,
               error: {
-                ...result.error,
-                recoveryAttempts,
+                code: result.error.code,
+                message: result.error.message,
                 cause: result.error.cause ?? lastCause,
+                recoveryAttempts,
               },
             };
           }
@@ -107,15 +112,20 @@ export class EndpointFallbackManager {
       : "Network operation failed with no available endpoints.";
 
     const errorResult = err<T>(
-      "NETWORK_ERROR" as any,
+      SorokitErrorCode.NETWORK_ERROR,
       finalErrorMessage,
       lastCause,
     );
 
+    const errObj = isErr(errorResult) ? errorResult.error : { code: SorokitErrorCode.NETWORK_ERROR, message: finalErrorMessage, cause: lastCause };
+
     return {
-      ...errorResult,
+      status: "error",
+      data: null,
       error: {
-        ...errorResult.error,
+        code: errObj.code,
+        message: errObj.message,
+        cause: errObj.cause,
         recoveryAttempts,
         degradedMode: this._allowDegradedMode,
       },

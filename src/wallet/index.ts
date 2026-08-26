@@ -24,10 +24,6 @@ export type {
   WalletCapabilityId,
   WalletCapabilitySource,
   WalletCapabilities,
-  WalletCapability,
-  WalletCapabilityId,
-  WalletCapabilitySource,
-  WalletCapabilities,
 } from "./types";
 export {
   getSigningHistory,
@@ -61,10 +57,6 @@ import type {
   WalletFeature,
   ConnectedAccountsResult,
   AccountSwitchResult,
-  WalletCapability,
-  WalletCapabilityId,
-  WalletCapabilitySource,
-  WalletCapabilities,
   WalletCapability,
   WalletCapabilityId,
   WalletCapabilitySource,

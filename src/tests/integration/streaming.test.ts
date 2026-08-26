@@ -73,7 +73,12 @@ describe("Integration: Account Streaming", () => {
     expect(events[1].balances[0].balance).toBe("5.0");
 
     expect(onBalanceChangeSpy).toHaveBeenCalledOnce();
-    expect(onBalanceChangeSpy).toHaveBeenCalledWith("XLM", "0.0", "5.0");
+    expect(onBalanceChangeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "XLM" }),
+      "0.0",
+      "5.0",
+      "5",
+    );
 
     expect(onAlertSpy).toHaveBeenCalledOnce();
     expect(onAlertSpy).toHaveBeenCalledWith(

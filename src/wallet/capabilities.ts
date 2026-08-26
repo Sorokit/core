@@ -54,19 +54,25 @@ function normalizeCapabilities(
   const byId = new Map<string, WalletCapability>();
 
   for (const id of STANDARD_CAPABILITIES) {
-    byId.set(id, {
+    const cap: WalletCapability = {
       id,
       supported: false,
       source: "fallback",
-      description: CAPABILITY_DESCRIPTIONS[id],
-    });
+    };
+    const desc = CAPABILITY_DESCRIPTIONS[id];
+    if (desc !== undefined) cap.description = desc;
+    byId.set(id, cap);
   }
 
   for (const capability of capabilities) {
-    byId.set(capability.id, {
-      ...capability,
-      description: capability.description ?? CAPABILITY_DESCRIPTIONS[capability.id],
-    });
+    const desc = capability.description ?? CAPABILITY_DESCRIPTIONS[capability.id];
+    const cap: WalletCapability = {
+      id: capability.id,
+      supported: capability.supported,
+      source: capability.source,
+    };
+    if (desc !== undefined) cap.description = desc;
+    byId.set(capability.id, cap);
   }
 
   const normalized = Array.from(byId.values());
@@ -99,12 +105,16 @@ function fallbackCapabilities(adapter: WalletAdapter): WalletCapability[] {
     }
   }
 
-  return Array.from(supported).map((id) => ({
-    id,
-    supported: true,
-    source: "fallback",
-    description: CAPABILITY_DESCRIPTIONS[id],
-  }));
+  return Array.from(supported).map((id) => {
+    const cap: WalletCapability = {
+      id,
+      supported: true,
+      source: "fallback",
+    };
+    const desc = CAPABILITY_DESCRIPTIONS[id];
+    if (desc !== undefined) cap.description = desc;
+    return cap;
+  });
 }
 
 export function getWalletCapabilities(adapter: WalletAdapter): WalletCapabilities {

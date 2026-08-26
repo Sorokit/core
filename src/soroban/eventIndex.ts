@@ -136,8 +136,11 @@ export class InMemoryEventIndex {
 
     const slice = all.slice(startIdx, startIdx + limit);
     const nextCursor = startIdx + limit < total ? slice[slice.length - 1]?.id : undefined;
-
-    return { events: slice, nextCursor, total };
+    const result: IndexedEventQueryResult = { events: slice, total };
+    if (nextCursor !== undefined) {
+      result.nextCursor = nextCursor;
+    }
+    return result;
   }
 
   /** Total number of events currently held in the index. */

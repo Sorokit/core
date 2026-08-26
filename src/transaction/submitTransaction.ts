@@ -17,8 +17,7 @@ import { CircuitBreakerRegistry } from "../network/circuitBreaker";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
-  requestWindow: 10,
-  failureRateThreshold: 0.5,
+  failureThreshold: 5,
   recoveryWindowMs: 30_000,
 });
 
@@ -53,7 +52,9 @@ function detectNetworkPassphraseMismatch(
   let sourceAccountId = source;
   if (source.startsWith("M")) {
     try {
-      sourceAccountId = StrKey.decodeEd25519PublicKey(source);
+      sourceAccountId = StrKey.encodeEd25519PublicKey(
+        StrKey.decodeMed25519PublicKey(source).subarray(0, 32),
+      );
     } catch {
       // If muxed account decoding fails, fall back to Horizon validation
       return false;

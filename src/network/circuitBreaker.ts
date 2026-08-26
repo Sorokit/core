@@ -5,8 +5,8 @@
  * called immediately (fail-fast) instead of retrying for 30+ seconds.
  *
  * State machine:
- *   CLOSED  ──(50% failure rate across 10 requests)──▶  OPEN
- *   OPEN    ──(30 s recovery window)───▶  HALF_OPEN
+ *   CLOSED  ──(5 consecutive transient failures)──▶  OPEN
+ *   OPEN    ──(60 s recovery window)───▶  HALF_OPEN
  *   HALF_OPEN ──(probe succeeds)─────▶  CLOSED
  *   HALF_OPEN ──(probe fails)────────▶  OPEN
  *
@@ -15,8 +15,6 @@
  */
 
 import { isTransientError } from "../shared/errors";
-import { err, SorokitErrorCode } from "../shared/response";
-import type { SorokitResult } from "../shared/response";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -24,18 +22,13 @@ export type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
 
 export interface CircuitBreakerConfig {
   /**
-   * Number of requests to track for failure rate calculation.
-   * @default 10
+   * Number of consecutive transient failures required to trip the circuit.
+   * @default 5
    */
-  requestWindow?: number;
-  /**
-   * Failure rate threshold (0-1) that trips the circuit.
-   * @default 0.5 (50%)
-   */
-  failureRateThreshold?: number;
+  failureThreshold?: number;
   /**
    * Milliseconds to wait in OPEN state before transitioning to HALF_OPEN.
-   * @default 30_000
+   * @default 60_000
    */
   recoveryWindowMs?: number;
   /**
@@ -58,10 +51,6 @@ export interface CircuitBreakerMetrics {
   consecutiveFailures: number;
   totalFailures: number;
   totalSuccesses: number;
-  /** Number of requests in the current window. */
-  requestCount: number;
-  /** Current failure rate in the window (0-1). */
-  failureRate: number;
   /** Epoch ms when the circuit was last opened, or null if never opened. */
   lastOpenedAt: number | null;
   /** Epoch ms when the circuit last transitioned to any state. */
@@ -86,9 +75,8 @@ export class CircuitOpenError extends Error {
 
 // ─── Defaults ─────────────────────────────────────────────────────────────────
 
-const DEFAULT_REQUEST_WINDOW = 10;
-const DEFAULT_FAILURE_RATE_THRESHOLD = 0.5;
-const DEFAULT_RECOVERY_WINDOW_MS = 30_000;
+const DEFAULT_FAILURE_THRESHOLD = 5;
+const DEFAULT_RECOVERY_WINDOW_MS = 60_000;
 
 // ─── Implementation ───────────────────────────────────────────────────────────
 
@@ -106,12 +94,10 @@ export class CircuitBreaker {
   private consecutiveFailures = 0;
   private totalFailures = 0;
   private totalSuccesses = 0;
-  private requestHistory: boolean[] = []; // true = success, false = failure
   private lastOpenedAt: number | null = null;
   private lastTransitionAt: number = Date.now();
 
-  private readonly requestWindow: number;
-  private readonly failureRateThreshold: number;
+  private readonly failureThreshold: number;
   private readonly recoveryWindowMs: number;
   private readonly onStateChange:
     | ((event: CircuitStateChangeEvent) => void)
@@ -121,10 +107,8 @@ export class CircuitBreaker {
     readonly endpoint: string,
     config: CircuitBreakerConfig = {},
   ) {
-    this.requestWindow =
-      config.requestWindow ?? DEFAULT_REQUEST_WINDOW;
-    this.failureRateThreshold =
-      config.failureRateThreshold ?? DEFAULT_FAILURE_RATE_THRESHOLD;
+    this.failureThreshold =
+      config.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
     this.recoveryWindowMs =
       config.recoveryWindowMs ?? DEFAULT_RECOVERY_WINDOW_MS;
     this.onStateChange = config.onStateChange ?? undefined;
@@ -138,14 +122,11 @@ export class CircuitBreaker {
   }
 
   getMetrics(): CircuitBreakerMetrics {
-    const failureRate = this.calculateFailureRate();
     return {
       state: this.currentState,
       consecutiveFailures: this.consecutiveFailures,
       totalFailures: this.totalFailures,
       totalSuccesses: this.totalSuccesses,
-      requestCount: this.requestHistory.length,
-      failureRate,
       lastOpenedAt: this.lastOpenedAt,
       lastTransitionAt: this.lastTransitionAt,
     };
@@ -157,24 +138,20 @@ export class CircuitBreaker {
    * Execute `fn` through the circuit breaker.
    *
    * - CLOSED: execute normally; track failures and successes.
-   * - OPEN: return SERVICE_UNAVAILABLE error immediately without calling `fn`.
+   * - OPEN: throw `CircuitOpenError` immediately without calling `fn`.
    * - HALF_OPEN: execute one probe; close on success, reopen on failure.
    */
-  async call<T>(fn: () => Promise<T>): Promise<SorokitResult<T>> {
+  async call<T>(fn: () => Promise<T>): Promise<T> {
     this.checkRecovery();
 
     if (this.state === "OPEN") {
-      return err(
-        SorokitErrorCode.SERVICE_UNAVAILABLE,
-        `Circuit breaker OPEN for "${this.endpoint}" — failing fast. ` +
-          `Opened at ${new Date(this.lastOpenedAt!).toISOString()}.`,
-      );
+      throw new CircuitOpenError(this.endpoint, this.lastOpenedAt!);
     }
 
     try {
       const result = await fn();
       this.onSuccess();
-      return { status: "ok", data: result };
+      return result;
     } catch (error) {
       // Only transient errors (5xx, timeout, network) count as circuit failures.
       // Permanent errors (bad params, 404) pass through without tripping the circuit.
@@ -191,30 +168,9 @@ export class CircuitBreaker {
   reset(): void {
     this.transition("CLOSED");
     this.consecutiveFailures = 0;
-    this.requestHistory = [];
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────
-
-  /**
-   * Calculate the current failure rate based on the request history window.
-   */
-  private calculateFailureRate(): number {
-    if (this.requestHistory.length === 0) return 0;
-    const failures = this.requestHistory.filter((success) => !success).length;
-    return failures / this.requestHistory.length;
-  }
-
-  /**
-   * Record a request result in the sliding window.
-   */
-  private recordRequest(success: boolean): void {
-    this.requestHistory.push(success);
-    // Keep only the most recent requests within the window
-    if (this.requestHistory.length > this.requestWindow) {
-      this.requestHistory.shift();
-    }
-  }
 
   /**
    * If the circuit is OPEN and the recovery window has elapsed,
@@ -232,12 +188,10 @@ export class CircuitBreaker {
 
   private onSuccess(): void {
     this.totalSuccesses += 1;
-    this.recordRequest(true);
 
     if (this.state === "HALF_OPEN") {
       // Probe succeeded — close the circuit
       this.consecutiveFailures = 0;
-      this.requestHistory = [];
       this.transition("CLOSED");
       return;
     }
@@ -249,7 +203,6 @@ export class CircuitBreaker {
   private onFailure(): void {
     this.totalFailures += 1;
     this.consecutiveFailures += 1;
-    this.recordRequest(false);
 
     if (this.state === "HALF_OPEN") {
       // Probe failed — reopen the circuit and restart the recovery clock
@@ -260,8 +213,7 @@ export class CircuitBreaker {
 
     if (
       this.state === "CLOSED" &&
-      this.calculateFailureRate() >= this.failureRateThreshold &&
-      this.requestHistory.length >= this.requestWindow
+      this.consecutiveFailures >= this.failureThreshold
     ) {
       this.lastOpenedAt = Date.now();
       this.transition("OPEN");
@@ -317,7 +269,7 @@ export class CircuitBreakerRegistry {
   }
 
   /** Convenience wrapper: call `fn` through the breaker for `endpoint`. */
-  async call<T>(endpoint: string, fn: () => Promise<T>): Promise<SorokitResult<T>> {
+  async call<T>(endpoint: string, fn: () => Promise<T>): Promise<T> {
     return this.getBreakerFor(endpoint).call(fn);
   }
 

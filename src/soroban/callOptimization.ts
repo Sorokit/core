@@ -221,15 +221,22 @@ export function analyzeCallOptimization(
   const priorityOrder: Record<OptimizationPriority, number> = { high: 0, medium: 1, low: 2 };
   suggestions.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
 
+  const observedMetrics: {
+    feeStroops?: number;
+    cpuInstructions?: number;
+    memoryBytes?: number;
+    ledgerReads?: number;
+    ledgerWrites?: number;
+  } = {};
+  if (feeStroops !== undefined) observedMetrics.feeStroops = feeStroops;
+  if (cpuInstructions !== undefined) observedMetrics.cpuInstructions = cpuInstructions;
+  if (memoryBytes !== undefined) observedMetrics.memoryBytes = memoryBytes;
+  if (ledgerReads !== undefined) observedMetrics.ledgerReads = ledgerReads;
+  if (ledgerWrites !== undefined) observedMetrics.ledgerWrites = ledgerWrites;
+
   return {
     suggestions,
     dataAvailable: true,
-    observedMetrics: {
-      feeStroops,
-      cpuInstructions,
-      memoryBytes,
-      ledgerReads,
-      ledgerWrites,
-    },
+    observedMetrics,
   };
 }
