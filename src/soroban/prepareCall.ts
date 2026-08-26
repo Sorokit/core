@@ -25,8 +25,7 @@ import { CircuitBreakerRegistry } from "../network/circuitBreaker";
 
 // Shared circuit breaker registry for RPC operations
 const rpcCircuitBreaker = new CircuitBreakerRegistry({
-  requestWindow: 10,
-  failureRateThreshold: 0.5,
+  failureThreshold: 5,
   recoveryWindowMs: 30_000,
 });
 

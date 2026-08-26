@@ -7,7 +7,7 @@ import {
   afterEach,
   type SpyInstance,
 } from "vitest";
-import { Asset, Horizon, Account, Keypair, Networks, StrKey, FeeBumpTransaction, Operation } from "@stellar/stellar-sdk";
+import { Asset, Horizon, Account, Keypair, Networks, StrKey, FeeBumpTransaction, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
 import * as serverFactory from "../shared/serverFactory";
 import { createHash } from "crypto";
 import {
@@ -131,8 +131,10 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
   class MockTransactionBuilder {
     static fromXDR = mocks.fromXDR;
     memo?: unknown;
+    sourceAccount?: any;
 
-    constructor(_sourceAccount: unknown, _options: unknown) {
+    constructor(sourceAccount: unknown, _options: unknown) {
+      this.sourceAccount = sourceAccount;
       transactionBuilderInstances.push(this);
     }
 
@@ -155,7 +157,14 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
     build(...args: any[]) {
       const customBuild = mockBuild(...args);
       if (customBuild) return customBuild;
-      return { toXDR: () => MOCK_XDR };
+      const source = typeof this.sourceAccount === "string" ? this.sourceAccount : (this.sourceAccount as any)?.accountId?.() ?? (this.sourceAccount as any)?.publicKey;
+      return {
+        source,
+        toXDR: () => MOCK_XDR,
+        sign: vi.fn(),
+        hash: () => Buffer.alloc(32),
+        signatures: [],
+      };
     }
   }
 
@@ -399,26 +408,17 @@ describe("memo builders (#114)", () => {
 
 describe("muxed account network passphrase detection (#381)", () => {
   it("detects network mismatch for regular G-address accounts", async () => {
-    const sourcePublicKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
-    const keypair = Keypair.fromSecret(
-      "SAAPQAMBGM7T4KLLH6EJIFRFSLEOTBGYHSCIG47ETBAMKBRF42C2J7OZ",
-    );
+    const keypair = Keypair.random();
+    const sourcePublicKey = keypair.publicKey();
     
-    // Create a transaction signed for testnet
-    const testnetTx = new TransactionBuilder(
-      new Account(sourcePublicKey, "1"),
-      { fee: "100", networkPassphrase: Networks.TESTNET },
-    )
-      .addOperation(Operation.payment({
-        destination: "GABBZAB7XBYRSX2NH6RQ5ZFAK3LWOO4SR7WKC6ANM5WFCZJDH6VTLTT",
-        asset: Asset.native(),
-        amount: "10",
-      }))
-      .setTimeout(30)
-      .build();
+    const mockTx = {
+      source: sourcePublicKey,
+      hash: () => Buffer.alloc(32),
+      signatures: [{ hint: () => Buffer.from(keypair.rawPublicKey().slice(-4)), signature: () => Buffer.alloc(64) }],
+    };
+    mocks.fromXDR.mockReturnValueOnce(mockTx);
     
-    testnetTx.sign(keypair);
-    const signedXdr = testnetTx.toXDR();
+    const signedXdr = "AAAAAQAAAAA=";
     
     // Try to submit with mainnet passphrase
     const result = await submitTransaction(
@@ -438,7 +438,8 @@ describe("muxed account network passphrase detection (#381)", () => {
   it("handles muxed M-address accounts by extracting inner G-address", async () => {
     // Test that the implementation can handle muxed addresses without crashing
     // by mocking a transaction with a muxed source
-    const sourcePublicKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
+    const keypair = Keypair.random();
+    const sourcePublicKey = keypair.publicKey();
     
     // Create a mock transaction with muxed source
     const mockTx = {
@@ -468,17 +469,16 @@ describe("muxed account network passphrase detection (#381)", () => {
   });
 
   it("allows transactions with correct network passphrase for regular accounts", async () => {
-    const sourcePublicKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
-    const keypair = Keypair.fromSecret(
-      "SAAPQAMBGM7T4KLLH6EJIFRFSLEOTBGYHSCIG47ETBAMKBRF42C2J7OZ",
-    );
+    const keypair = Keypair.random();
+    const sourcePublicKey = keypair.publicKey();
+    const destPublicKey = Keypair.random().publicKey();
     
     const testnetTx = new TransactionBuilder(
       new Account(sourcePublicKey, "1"),
       { fee: "100", networkPassphrase: Networks.TESTNET },
     )
       .addOperation(Operation.payment({
-        destination: "GABBZAB7XBYRSX2NH6RQ5ZFAK3LWOO4SR7WKC6ANM5WFCZJDH6VTLTT",
+        destination: destPublicKey,
         asset: Asset.native(),
         amount: "10",
       }))
@@ -505,17 +505,16 @@ describe("muxed account network passphrase detection (#381)", () => {
   });
 
   it("handles invalid muxed addresses gracefully", async () => {
-    const sourcePublicKey = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
-    const keypair = Keypair.fromSecret(
-      "SAAPQAMBGM7T4KLLH6EJIFRFSLEOTBGYHSCIG47ETBAMKBRF42C2J7OZ",
-    );
+    const keypair = Keypair.random();
+    const sourcePublicKey = keypair.publicKey();
+    const destPublicKey = Keypair.random().publicKey();
     
     const testnetTx = new TransactionBuilder(
       new Account(sourcePublicKey, "1"),
       { fee: "100", networkPassphrase: Networks.TESTNET },
     )
       .addOperation(Operation.payment({
-        destination: "GABBZAB7XBYRSX2NH6RQ5ZFAK3LWOO4SR7WKC6ANM5WFCZJDH6VTLTT",
+        destination: destPublicKey,
         asset: Asset.native(),
         amount: "10",
       }))

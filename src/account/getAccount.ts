@@ -9,11 +9,9 @@ import { CircuitBreakerRegistry } from "../network/circuitBreaker";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
-  requestWindow: 10,
-  failureRateThreshold: 0.5,
+  failureThreshold: 5,
   recoveryWindowMs: 30_000,
 });
-import { CircuitBreakerRegistry } from "../network/circuitBreaker";
 
 /**
  * Fetch full account details including all balances from Horizon.
@@ -50,10 +48,6 @@ export function getAccount(
           return await server.loadAccount(publicKey);
         });
       });
-
-      if (account.status === "error") {
-        return account;
-      }
 
       const balances: AssetBalance[] = account.balances.map((b) => {
         // Note: parseFloat is used here for convenience/backward compatibility.
