@@ -22,6 +22,7 @@ import { validateContractMethodMetadata, validateContractArgs } from "./contract
 import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
+import { optimizeContractArgs } from "./optimizeArgs";
 
 // Shared circuit breaker registry for RPC operations
 const rpcCircuitBreaker = new CircuitBreakerRegistry({
@@ -126,7 +127,8 @@ export async function prepareContractCall(
     const contract = new Contract(params.contractId);
 
     const sourceAccount = await horizonServer.loadAccount(params.publicKey);
-    const operation = contract.call(params.method, ...(params.args ?? []));
+    const optimizedArgs = optimizeContractArgs(params.args ?? []).args;
+    const operation = contract.call(params.method, ...optimizedArgs);
 
     const tx = new TransactionBuilder(sourceAccount, {
       fee: BASE_FEE,

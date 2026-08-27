@@ -387,3 +387,131 @@ export async function discoverPaymentPaths(
     );
   }
 }
+
+
+/** A route quote with a maximum fillable destination amount. */
+export interface PaymentRouteQuote {
+  route: SwapRoute;
+  /** Maximum destination amount this route can currently deliver. */
+  maxDestinationAmount: string;
+  /** Source amount required to fill maxDestinationAmount. */
+  sourceAmount: string;
+}
+
+export interface SplitPaymentLeg {
+  route: SwapRoute;
+  destinationAmount: string;
+  sourceAmount: string;
+}
+
+export interface SplitPaymentPlan {
+  legs: readonly SplitPaymentLeg[];
+  totalDestinationAmount: string;
+  totalSourceAmount: string;
+}
+
+export interface SplitPaymentOptions {
+  /** Do not use more than this many routes. Defaults to all supplied quotes. */
+  maxPaths?: number;
+  /** Reject plans containing a leg smaller than this destination amount. */
+  minLegDestinationAmount?: string;
+}
+
+const AMOUNT_SCALE = 7n;
+const AMOUNT_FACTOR = 10n ** AMOUNT_SCALE;
+
+function parseStellarAmount(value: string, field: string): bigint {
+  const normalized = value.trim();
+  if (!/^\d+(?:\.\d{1,7})?$/.test(normalized)) {
+    throw new Error(`${field} must be a non-negative Stellar amount with at most 7 decimals`);
+  }
+  const [whole = "0", fraction = ""] = normalized.split(".");
+  return BigInt(whole) * AMOUNT_FACTOR + BigInt(fraction.padEnd(7, "0"));
+}
+
+function formatStellarAmount(value: bigint): string {
+  const whole = value / AMOUNT_FACTOR;
+  const fraction = (value % AMOUNT_FACTOR).toString().padStart(7, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
+/**
+ * Build an optimized split plan for a strict-receive payment.
+ *
+ * Quotes are ranked by effective source cost and filled greedily. Every leg
+ * remains a normal path payment, so callers can build and submit the legs as
+ * one atomic transaction where the network or application supports batching.
+ * The planner is deterministic and never over-allocates a route’s quoted
+ * capacity.
+ */
+export function buildOptimizedSplitPaymentPlan(
+  quotes: readonly PaymentRouteQuote[],
+  destinationAmount: string,
+  options?: SplitPaymentOptions,
+): SorokitResult<SplitPaymentPlan> {
+  let target: bigint;
+  try {
+    target = parseStellarAmount(destinationAmount, "destinationAmount");
+  } catch (cause) {
+    return err(SorokitErrorCode.ROUTER_INVALID_PATH, toMessage(cause), cause);
+  }
+  if (target <= 0n) {
+    return err(SorokitErrorCode.ROUTER_INVALID_PATH, "destinationAmount must be positive");
+  }
+  if (quotes.length === 0) {
+    return err(SorokitErrorCode.ROUTER_INVALID_PATH, "at least one route quote is required");
+  }
+
+  let normalized: Array<{
+    quote: PaymentRouteQuote;
+    capacity: bigint;
+    source: bigint;
+    rate: number;
+  }>;
+  try {
+    normalized = quotes.map((quote) => {
+      const capacity = parseStellarAmount(quote.maxDestinationAmount, "maxDestinationAmount");
+      const source = parseStellarAmount(quote.sourceAmount, "sourceAmount");
+      if (capacity <= 0n || source <= 0n) throw new Error("route quote amounts must be positive");
+      return { quote, capacity, source, rate: Number(source) / Number(capacity) };
+    });
+  } catch (cause) {
+    return err(SorokitErrorCode.ROUTER_INVALID_PATH, toMessage(cause), cause);
+  }
+  const maxPaths = options?.maxPaths ?? normalized.length;
+  if (!Number.isInteger(maxPaths) || maxPaths <= 0) {
+    return err(SorokitErrorCode.ROUTER_INVALID_PATH, "maxPaths must be a positive integer");
+  }
+  const minLeg = options?.minLegDestinationAmount
+    ? parseStellarAmount(options.minLegDestinationAmount, "minLegDestinationAmount")
+    : 0n;
+  normalized.sort((a, b) => a.rate - b.rate);
+
+  let remaining = target;
+  let totalSource = 0n;
+  const legs: SplitPaymentLeg[] = [];
+  for (const candidate of normalized.slice(0, maxPaths)) {
+    if (remaining === 0n) break;
+    const destination = remaining < candidate.capacity ? remaining : candidate.capacity;
+    if (destination < minLeg && remaining !== target) continue;
+    const source = (candidate.source * destination + candidate.capacity - 1n) / candidate.capacity;
+    legs.push({
+      route: candidate.quote.route,
+      destinationAmount: formatStellarAmount(destination),
+      sourceAmount: formatStellarAmount(source),
+    });
+    remaining -= destination;
+    totalSource += source;
+  }
+  if (remaining > 0n) {
+    return err(
+      SorokitErrorCode.ROUTER_INSUFFICIENT_LIQUIDITY,
+      `route quotes cannot deliver the requested destination amount; short by ${formatStellarAmount(remaining)}`,
+    );
+  }
+  return ok({
+    legs,
+    totalDestinationAmount: formatStellarAmount(target),
+    totalSourceAmount: formatStellarAmount(totalSource),
+  });
+}
