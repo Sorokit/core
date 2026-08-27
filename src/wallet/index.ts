@@ -8,6 +8,8 @@ export type { SigningRateLimiterConfig, QueueState } from "./signingRateLimiter"
 export { createSigningChallenge, mergeSignatures } from "./signingDelegation";
 export { FreighterAdapter, XBullAdapter, LobstrAdapter } from "./adapters";
 export { WalletType } from "./types";
+export { generateDeviceFingerprint, evaluateDeviceTrust, DEFAULT_TRUST_THRESHOLD } from "./deviceTrust";
+export type { DeviceSignals, DeviceFingerprint, TrustHistoryEntry, TrustScoreOptions, TrustEvaluation } from "./deviceTrust";
 
 import type { PersistenceAdapter } from "./types";
 export type {

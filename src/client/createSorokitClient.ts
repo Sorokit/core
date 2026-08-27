@@ -13,6 +13,10 @@ import { connectWallet } from "../wallet/connect";
 import { disconnectWallet } from "../wallet/disconnect";
 import { signTransaction } from "../wallet/signTransaction";
 import { emptyWalletState } from "../wallet/index";
+import { generateDeviceFingerprint, evaluateDeviceTrust, DEFAULT_TRUST_THRESHOLD } from "../wallet/deviceTrust";
+import type { DeviceSignals, DeviceFingerprint, TrustHistoryEntry, TrustEvaluation } from "../wallet/deviceTrust";
+import { createI18n } from "../shared/i18n";
+import type { I18n, TranslationMap } from "../shared/i18n";
 import { getAccount } from "../account/getAccount";
 import { getAccountsBatch } from "../account/getAccountsBatch";
 import { getBalances } from "../account/getBalances";
@@ -208,6 +212,12 @@ export interface SorokitClientConfig {
    * as does the global `timeoutMs` override above.
    */
   defaultTimeoutMs?: number;
+  /** Locale used for SDK presentation messages; defaults to English. */
+  locale?: string;
+  /** Custom message translations keyed by locale and message key. */
+  translations?: TranslationMap;
+  /** Trust score below which wallet sessions require additional verification. */
+  deviceTrustThreshold?: number;
   /**
    * Optional adapter for persisting wallet connection state across page
    * reloads.  When provided, the client automatically saves wallet state
@@ -232,6 +242,8 @@ export interface SorokitClient {
   readonly traceId: string;
   /** Distributed trace context for this client instance (#212). */
   readonly traceContext: TraceContext;
+  /** Presentation-layer translator; machine-readable error codes remain unchanged. */
+  readonly i18n: I18n;
   /** Get the current trace context (null if none set). */
   readonly getTraceContext: () => TraceContext | null;
 
@@ -248,6 +260,13 @@ export interface SorokitClient {
       adapter: WalletAdapter,
       timeoutMs?: number,
     ): Promise<SorokitResult<WalletState>>;
+    /** Generate a privacy-conscious fingerprint for the current runtime. */
+    fingerprintDevice(signals?: DeviceSignals): DeviceFingerprint;
+    /** Evaluate a device against connection history and configured threshold. */
+    evaluateTrust(
+      fingerprint: DeviceFingerprint | string,
+      history?: TrustHistoryEntry[],
+    ): TrustEvaluation;
     /** Disconnect and return clean WalletState */
     disconnect(
       adapter: WalletAdapter,
@@ -625,6 +644,13 @@ export function validateClientConfig(
     }
   }
 
+  if (config.deviceTrustThreshold !== undefined &&
+      (typeof config.deviceTrustThreshold !== "number" ||
+       !Number.isFinite(config.deviceTrustThreshold) ||
+       config.deviceTrustThreshold < 0 || config.deviceTrustThreshold > 100)) {
+    return err(SorokitErrorCode.INVALID_CONFIG, "deviceTrustThreshold must be a number between 0 and 100");
+  }
+
   if (config.defaultTimeoutMs !== undefined) {
     if (
       typeof config.defaultTimeoutMs !== "number" ||
@@ -678,6 +704,10 @@ export function createSorokitClient(
   const networkConfig = networkResult.data;
   const { horizonUrl, rpcUrl, networkPassphrase } = networkConfig;
   const traceId = config.traceId ?? generateTraceId();
+  const i18n = createI18n({
+    ...(config.locale !== undefined ? { locale: config.locale } : {}),
+    ...(config.translations !== undefined ? { translations: config.translations } : {}),
+  });
   const globalTimeout = config.timeoutMs;
   const baseLogger =
     config.logger ??
@@ -774,6 +804,7 @@ export function createSorokitClient(
   }
 
   const client: SorokitClient = {
+    i18n,
     version: SDK_VERSION,
     networkConfig,
     trustedIssuers: config.trustedIssuers ?? null,
@@ -814,6 +845,10 @@ export function createSorokitClient(
     },
 
     wallet: {
+      fingerprintDevice: (signals) => generateDeviceFingerprint(signals),
+      evaluateTrust: (fingerprint, history) => evaluateDeviceTrust(fingerprint, history, {
+        threshold: config.deviceTrustThreshold ?? DEFAULT_TRUST_THRESHOLD,
+      }),
       connect: (adapter, timeoutMs) => {
         const action = () => {
           // Try cache-based recovery first

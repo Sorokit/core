@@ -183,6 +183,7 @@ export type {
   CongestionFeeEstimate,
   TransactionPriority,
   PriorityMultipliers,
+  AdaptiveFeeOptions,
 } from "./estimateFee";
 export {
   fetchCongestionFeeEstimate,
@@ -195,6 +196,7 @@ export {
   ADAPTIVE_FEE_TTL_INTERMEDIATE_MS,
   FEE_HISTORY_MAX_ENTRIES,
   DEFAULT_PRIORITY_MULTIPLIERS,
+  calculateAdaptiveFee,
 } from "./estimateFee";
 export {
   findSwapPath,

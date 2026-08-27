@@ -13,3 +13,4 @@ export * from "./environment";
 export { isBrowser } from "./environment";
 export * from "./validateIssuer";
 export * from "./validateToken";
+export * from "./i18n";

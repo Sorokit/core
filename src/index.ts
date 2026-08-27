@@ -28,6 +28,9 @@ export {
   signTransactionOffline,
   getWalletCapabilities,
   WALLET_CAPABILITY_IDS,
+  generateDeviceFingerprint,
+  evaluateDeviceTrust,
+  DEFAULT_TRUST_THRESHOLD,
 } from "./wallet";
 export type {
   CreateSigningChallengeOptions,
@@ -73,6 +76,7 @@ export type {
   WalletCapabilitySource,
   WalletCapabilities,
 } from "./wallet/types";
+export type { DeviceSignals, DeviceFingerprint, TrustHistoryEntry, TrustScoreOptions, TrustEvaluation } from "./wallet/deviceTrust";
 
 // ─── Wallet Status Tracker ─────────────────────────────────────────────────────
 export {
@@ -350,6 +354,8 @@ export type {
 
 // ─── Fee-bump transactions (#398) ─────────────────────────────────────────────
 export { buildFeeBumpTransaction } from "./transaction/feeBumpTransaction";
+export { buildEscrowTransaction, validateEscrow, validateEscrowAction, createEscrowRelease, createEscrowRefund, createEscrowDispute, isEscrowExpired, calculateAdaptiveFee } from "./transaction";
+export type { EscrowAction, EscrowState, EscrowTiming, EscrowParams, EscrowValidation, AdaptiveFeeOptions } from "./transaction";
 
 // ─── Webhook support (#395) ───────────────────────────────────────────────────
 export {
@@ -685,6 +691,8 @@ export type {
   ReconcileOptions,
 } from "./account/reconcileBalances";
 export { SDK_VERSION } from "./shared/constants";
+export { createI18n, translateMessage, localizeError, DEFAULT_LOCALE, EN_TRANSLATIONS, ES_TRANSLATIONS } from "./shared/i18n";
+export type { I18n, I18nConfig, MessageKey, TranslationCatalog, TranslationMap, LocalizedError, SupportedLocale } from "./shared/i18n";
 export type { SorokitCache } from "./shared/cache";
 export { createInMemoryCache, invalidateContractState } from "./shared/cache";
 export { createTracedLogger } from "./shared/logger";
