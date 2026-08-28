@@ -473,3 +473,20 @@ export type {
   ForecastAccuracySample,
   ForecastAccuracyReport,
 } from "./feeForecast";
+
+// ─── Transaction dependency ordering (#526) ───────────────────────────────────
+export {
+  validateDependencies,
+  planTransactionExecution,
+  resolveTransactionOrder,
+  findParallelizableTransactions,
+  DependencyGraphError,
+} from "./dependencyGraph";
+export type {
+  TransactionNode,
+  DependencyError,
+  DependencyErrorCode,
+  DependencyValidation,
+  ExecutionPlan,
+  DependencyPlanResult,
+} from "./dependencyGraph";
