@@ -33,8 +33,17 @@ vi.mock("../account/getAccount", () => ({
   }),
 }));
 
-vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
+// Add error state for retry tests
+const accountErrorMockState = vi.hoisted(() => ({
+  sleepCalls: [] as number[],
+  errors: [] as Error[],
+  index: 0,
+  shouldFail: false,
+  failCount: 0,
+}));
+
+vi.mock("@stellar/stellar-sdk", async (importOriginal: any) => {
+  const actual = await importOriginal("@stellar/stellar-sdk");
   return {
     ...actual,
     Horizon: {
@@ -1480,7 +1489,7 @@ describe("streamAccount — onBalanceChange callback (#11)", () => {
       const a2 = createAccount("2");
 
       const callCounts: Record<string, number> = {};
-      vi.mocked(getAccount).mockImplementation(async (_url, key) => {
+      vi.mocked(getAccount).mockImplementation(async (_url: string, key: string) => {
         callCounts[key] = (callCounts[key] ?? 0) + 1;
         return key === "key1" ? ok(a1) : ok(a2);
       });
@@ -1714,7 +1723,7 @@ describe("getMultipleAssetBalances — bulk account queries (#42)", () => {
 
     const DELAY = 30;
     vi.mocked(getAccount).mockImplementation(
-      (_, publicKey) =>
+      (_: string, publicKey: string) =>
         new Promise((resolve) =>
           setTimeout(() => resolve(ok(makeAccount(publicKey, "1"))), DELAY),
         ),
@@ -2553,4 +2562,160 @@ describe("streamAccount — emitOnStart, maxPolls, AbortSignal, mid-stream error
     expect(results[1]).toEqual(expect.objectContaining({ status: "error" }));
     expect(results[2]).toEqual(expect.objectContaining({ status: "ok" }));
   }, 10_000);
+
+  describe("automatic retry with exponential backoff", () => {
+    beforeEach(() => {
+      accountMockState.sleepCalls.length = 0;
+    });
+
+    it("retries transient errors with exponential backoff", async () => {
+      const { getAccount } = await import("../account/getAccount");
+      const { streamAccount } = await import("../account/streamAccount");
+
+      const account1 = createAccount("1");
+      const transientError = new Error("ECONNREFUSED");
+
+      vi.mocked(getAccount)
+        .mockRejectedValueOnce(transientError)
+        .mockRejectedValueOnce(transientError)
+        .mockResolvedValueOnce(ok(account1));
+
+      const results: unknown[] = [];
+      for await (const r of streamAccount("https://horizon.test", "G...", {
+        maxPolls: 3,
+        emitOnStart: true,
+        intervalMs: 1,
+        enableAutoRetry: true,
+      })) {
+        results.push(r);
+      }
+
+      // Should have retry delays (1s, 2s for exponential backoff)
+      expect(accountMockState.sleepCalls.length).toBeGreaterThan(0);
+      // First retry should be around 1s, second around 2s
+      expect(accountMockState.sleepCalls[0]).toBeGreaterThanOrEqual(1000);
+      expect(accountMockState.sleepCalls[0]).toBeLessThanOrEqual(1100); // with jitter
+      if (accountMockState.sleepCalls.length > 1) {
+        expect(accountMockState.sleepCalls[1]).toBeGreaterThanOrEqual(2000);
+        expect(accountMockState.sleepCalls[1]).toBeLessThanOrEqual(2200); // with jitter
+      }
+
+      // Should eventually succeed
+      expect(results.some((r: any) => r?.status === "ok")).toBe(true);
+    }, 10_000);
+
+    it("emits error after max consecutive failures and enters cooldown", async () => {
+      const { getAccount } = await import("../account/getAccount");
+      const { streamAccount } = await import("../account/streamAccount");
+
+      const transientError = new Error("ETIMEDOUT");
+
+      vi.mocked(getAccount).mockRejectedValue(transientError);
+
+      const results: unknown[] = [];
+      for await (const r of streamAccount("https://horizon.test", "G...", {
+        maxPolls: 7, // Allow enough polls to hit max consecutive failures (5)
+        emitOnStart: true,
+        intervalMs: 1,
+        enableAutoRetry: true,
+      })) {
+        results.push(r);
+        if (results.length >= 2) break; // Stop after we get the error emission
+      }
+
+      // Should have emitted an error after 5 consecutive failures
+      expect(results.some((r: any) => r?.status === "error")).toBe(true);
+
+      // Should have entered cooldown (60s delay)
+      const cooldownIndex = accountMockState.sleepCalls.findIndex(
+        (ms: number) => ms >= 60000
+      );
+      expect(cooldownIndex).toBeGreaterThanOrEqual(0);
+    }, 10_000);
+
+    it("resets failure counter on successful poll", async () => {
+      const { getAccount } = await import("../account/getAccount");
+      const { streamAccount } = await import("../account/streamAccount");
+
+      const account1 = createAccount("1");
+      const account2 = createAccount("2");
+      const transientError = new Error("ECONNRESET");
+
+      vi.mocked(getAccount)
+        .mockRejectedValueOnce(transientError)
+        .mockRejectedValueOnce(transientError)
+        .mockResolvedValueOnce(ok(account1))
+        .mockRejectedValueOnce(transientError)
+        .mockRejectedValueOnce(transientError)
+        .mockRejectedValueOnce(transientError)
+        .mockResolvedValueOnce(ok(account2));
+
+      const results: unknown[] = [];
+      for await (const r of streamAccount("https://horizon.test", "G...", {
+        maxPolls: 7,
+        emitOnStart: true,
+        intervalMs: 1,
+        enableAutoRetry: true,
+      })) {
+        results.push(r);
+      }
+
+      // Should succeed overall despite multiple failure sequences
+      expect(results.filter((r: any) => r?.status === "ok").length).toBe(2);
+    }, 10_000);
+
+    it("does not retry when enableAutoRetry is false", async () => {
+      const { getAccount } = await import("../account/getAccount");
+      const { streamAccount } = await import("../account/streamAccount");
+
+      const account1 = createAccount("1");
+      const transientError = new Error("ETIMEDOUT");
+
+      vi.mocked(getAccount)
+        .mockRejectedValueOnce(transientError)
+        .mockResolvedValueOnce(ok(account1));
+
+      const results: unknown[] = [];
+      for await (const r of streamAccount("https://horizon.test", "G...", {
+        maxPolls: 2,
+        emitOnStart: true,
+        intervalMs: 1,
+        enableAutoRetry: false,
+      })) {
+        results.push(r);
+      }
+
+      // Should emit error immediately without retry backoff
+      expect(results.some((r: any) => r?.status === "error")).toBe(true);
+      // Should not have retry delays (only normal interval)
+      expect(accountMockState.sleepCalls.every((ms: number) => ms < 1000)).toBe(true);
+    }, 10_000);
+
+    it("does not retry non-transient errors", async () => {
+      const { getAccount } = await import("../account/getAccount");
+      const { streamAccount } = await import("../account/streamAccount");
+
+      const account1 = createAccount("1");
+      const permanentError = new Error("404 Not Found");
+
+      vi.mocked(getAccount)
+        .mockRejectedValueOnce(permanentError)
+        .mockResolvedValueOnce(ok(account1));
+
+      const results: unknown[] = [];
+      for await (const r of streamAccount("https://horizon.test", "G...", {
+        maxPolls: 2,
+        emitOnStart: true,
+        intervalMs: 1,
+        enableAutoRetry: true,
+      })) {
+        results.push(r);
+      }
+
+      // Should emit error immediately without retry
+      expect(results.some((r: any) => r?.status === "error")).toBe(true);
+      // Should not have retry delays
+      expect(accountMockState.sleepCalls.every((ms: number) => ms < 1000)).toBe(true);
+    }, 10_000);
+  });
 });

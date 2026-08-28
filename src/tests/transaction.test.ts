@@ -115,6 +115,10 @@ const {
 
 // ─── Hoisted mocks (must be defined before vi.mock is hoisted) ────────────────
 
+const transactionSleepMockState = vi.hoisted(() => ({
+  sleepCalls: [] as number[],
+}));
+
 const transactionBuilderInstances: Array<{ memo?: unknown }> = [];
 
 const mocks = vi.hoisted(() => ({
@@ -228,6 +232,17 @@ vi.mock("../transaction/buildTransaction", async (importOriginal) => {
     await importOriginal<typeof import("../transaction/buildTransaction")>();
   return {
     ...actual,
+  };
+});
+
+vi.mock("../shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../shared")>("../shared");
+  return {
+    ...actual,
+    sleep: vi.fn((ms: number) => {
+      transactionSleepMockState.sleepCalls.push(ms);
+      return Promise.resolve();
+    }),
   };
 });
 
@@ -2270,7 +2285,6 @@ describe("TokenBucketRateLimiter — rate limiting on submit", () => {
     );
   });
 });
-import { Operation } from "@stellar/stellar-sdk";
 import {
   buildReverseTransaction,
   buildPathPayment,
@@ -4501,4 +4515,172 @@ describe("createTransactionBuilder — undo/redo (#139)", () => {
     expect(b1.size()).toBe(0);
     expect(b2.size()).toBe(2); // b2 unaffected
   });
+});
+
+describe("transaction streaming retry with exponential backoff", () => {
+  beforeEach(() => {
+    transactionSleepMockState.sleepCalls.length = 0;
+    vi.clearAllMocks();
+  });
+
+  it("retries transient errors with exponential backoff", async () => {
+    const { streamTransactions } = await import("../transaction/streamTransactions");
+
+    const transientError = new Error("ECONNREFUSED");
+    const mockPage = {
+      records: TRANSACTION_FIXTURES.map((tx, index) =>
+        makeHorizonRecord(tx, `cursor_${index + 1}`),
+      ),
+    };
+
+    mockTransactionsCall
+      .mockRejectedValueOnce(transientError)
+      .mockRejectedValueOnce(transientError)
+      .mockResolvedValueOnce(mockPage);
+
+    const results: unknown[] = [];
+    for await (const r of streamTransactions("https://horizon.test", "G...", {
+      maxPolls: 3,
+      emitOnStart: true,
+      intervalMs: 1,
+      enableAutoRetry: true,
+    })) {
+      results.push(r);
+    }
+
+    // Should have retry delays (1s, 2s for exponential backoff)
+    expect(transactionSleepMockState.sleepCalls.length).toBeGreaterThan(0);
+    // First retry should be around 1s, second around 2s
+    expect(transactionSleepMockState.sleepCalls[0]).toBeGreaterThanOrEqual(1000);
+    expect(transactionSleepMockState.sleepCalls[0]).toBeLessThanOrEqual(1100); // with jitter
+    if (transactionSleepMockState.sleepCalls.length > 1) {
+      expect(transactionSleepMockState.sleepCalls[1]).toBeGreaterThanOrEqual(2000);
+      expect(transactionSleepMockState.sleepCalls[1]).toBeLessThanOrEqual(2200); // with jitter
+    }
+
+    // Should eventually succeed
+    expect(results.some((r: any) => r?.status === "ok")).toBe(true);
+  }, 10_000);
+
+  it("emits error after max consecutive failures and enters cooldown", async () => {
+    const { streamTransactions } = await import("../transaction/streamTransactions");
+
+    const transientError = new Error("ETIMEDOUT");
+
+    mockTransactionsCall.mockRejectedValue(transientError);
+
+    const results: unknown[] = [];
+    for await (const r of streamTransactions("https://horizon.test", "G...", {
+      maxPolls: 7, // Allow enough polls to hit max consecutive failures (5)
+      emitOnStart: true,
+      intervalMs: 1,
+      enableAutoRetry: true,
+    })) {
+      results.push(r);
+      if (results.length >= 2) break; // Stop after we get the error emission
+    }
+
+    // Should have emitted an error after 5 consecutive failures
+    expect(results.some((r: any) => r?.status === "error")).toBe(true);
+
+    // Should have entered cooldown (60s delay)
+    const cooldownIndex = transactionSleepMockState.sleepCalls.findIndex(
+      (ms) => ms >= 60000
+    );
+    expect(cooldownIndex).toBeGreaterThanOrEqual(0);
+  }, 10_000);
+
+  it("resets failure counter on successful poll", async () => {
+    const { streamTransactions } = await import("../transaction/streamTransactions");
+
+    const transientError = new Error("ECONNRESET");
+    const mockPage = {
+      records: TRANSACTION_FIXTURES.slice(0, 2).map((tx, index) =>
+        makeHorizonRecord(tx, `cursor_${index + 1}`),
+      ),
+    };
+
+    mockTransactionsCall
+      .mockRejectedValueOnce(transientError)
+      .mockRejectedValueOnce(transientError)
+      .mockResolvedValueOnce(mockPage)
+      .mockRejectedValueOnce(transientError)
+      .mockRejectedValueOnce(transientError)
+      .mockRejectedValueOnce(transientError)
+      .mockResolvedValueOnce(mockPage);
+
+    const results: unknown[] = [];
+    for await (const r of streamTransactions("https://horizon.test", "G...", {
+      maxPolls: 7,
+      emitOnStart: true,
+      intervalMs: 1,
+      enableAutoRetry: true,
+    })) {
+      results.push(r);
+    }
+
+    // Should succeed overall despite multiple failure sequences
+    expect(results.filter((r: any) => r?.status === "ok").length).toBe(2);
+  }, 10_000);
+
+  it("does not retry when enableAutoRetry is false", async () => {
+    const { streamTransactions } = await import("../transaction/streamTransactions");
+
+    const transientError = new Error("ETIMEDOUT");
+    const mockPage = {
+      records: TRANSACTION_FIXTURES.slice(0, 1).map((tx, index) =>
+        makeHorizonRecord(tx, `cursor_${index + 1}`),
+      ),
+    };
+
+    mockTransactionsCall
+      .mockRejectedValueOnce(transientError)
+      .mockResolvedValueOnce(mockPage);
+
+    const results: unknown[] = [];
+    for await (const r of streamTransactions("https://horizon.test", "G...", {
+      maxPolls: 2,
+      emitOnStart: true,
+      intervalMs: 1,
+      enableAutoRetry: false,
+    })) {
+      results.push(r);
+    }
+
+    // Should emit error immediately without retry backoff
+    expect(results.some((r: any) => r?.status === "error")).toBe(true);
+    // Should not have retry delays (only normal interval)
+    expect(transactionSleepMockState.sleepCalls.every((ms) => ms < 1000)).toBe(true);
+  }, 10_000);
+
+  it("does not retry non-transient errors (404)", async () => {
+    const { streamTransactions } = await import("../transaction/streamTransactions");
+
+    const notFoundError = new Error("404 Not Found");
+    (notFoundError as any).response = { status: 404 };
+    const mockPage = {
+      records: TRANSACTION_FIXTURES.slice(0, 1).map((tx, index) =>
+        makeHorizonRecord(tx, `cursor_${index + 1}`),
+      ),
+    };
+
+    mockTransactionsCall
+      .mockRejectedValueOnce(notFoundError)
+      .mockResolvedValueOnce(mockPage);
+
+    const results: unknown[] = [];
+    for await (const r of streamTransactions("https://horizon.test", "G...", {
+      maxPolls: 2,
+      emitOnStart: true,
+      intervalMs: 1,
+      enableAutoRetry: true,
+    })) {
+      results.push(r);
+    }
+
+    // Should emit error immediately without retry
+    expect(results.some((r: any) => r?.status === "error")).toBe(true);
+    // Should not have retry delays
+    expect(transactionSleepMockState.sleepCalls.every((ms) => ms < 1000)).toBe(true);
+  }, 10_000);
 });
