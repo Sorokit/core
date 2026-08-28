@@ -875,3 +875,19 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./network/congestionMonitor";
+export { SpendingPolicyEngine, createSpendingPolicyEngine } from "./transaction/spendingPolicy";
+export type {
+  SpendingLimitPeriod,
+  SpendingLimit,
+  DestinationRestriction,
+  ApprovalThreshold,
+  SpendingPolicyConfig,
+  SpendingRequest,
+  SpendingRecordStatus,
+  SpendingRecord,
+  PolicyViolationCode,
+  PolicyViolation,
+  SpendingDecision,
+  SpendingEvaluation,
+  SpendingUsage,
+} from "./transaction/spendingPolicy";
