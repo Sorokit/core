@@ -923,6 +923,7 @@ export type {
   ExecutionPlan,
   DependencyPlanResult,
 } from "./transaction/dependencyGraph";
+
 // ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
 export {
   aggregatePortfolio,
@@ -939,7 +940,7 @@ export type {
   DuplicateSource,
   AggregatePortfolioOptions,
 } from "./account/portfolioAggregation";
->>>>>>> feat/portfolio-aggregation
+
 // ─── SDK health checks & diagnostics (#527) ───────────────────────────────────
 export {
   checkSdkHealth,
@@ -962,4 +963,3 @@ export type {
   SdkHealthOptions,
   EndpointCheckOptions,
 } from "./shared/diagnostics";
->>>>>>> feat/sdiagnostics$/diagnostics
