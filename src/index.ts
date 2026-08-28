@@ -875,3 +875,20 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./network/congestionMonitor";
+
+// ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
+export {
+  aggregatePortfolio,
+  assetIdentifier,
+} from "./account/portfolioAggregation";
+export type {
+  PortfolioWalletSource,
+  PortfolioAssetPrice,
+  PortfolioHolding,
+  PortfolioAggregation,
+  PortfolioValuationCoverage,
+  PortfolioConcentration,
+  WalletAttribution,
+  DuplicateSource,
+  AggregatePortfolioOptions,
+} from "./account/portfolioAggregation";
