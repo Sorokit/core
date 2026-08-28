@@ -930,3 +930,91 @@ export type {
   RiskLevel,
   WalletSecurityReport,
 } from "./wallet/securityAudit";
+
+// ─── Historical fee forecasting (#523) ────────────────────────────────────────
+export {
+  forecastFees,
+  normalizeFeeHistory,
+  recordFeeObservation,
+  getFeeObservations,
+  clearFeeObservations,
+  evaluateForecastAccuracy,
+  linearFeeForecastModel,
+  DEFAULT_OUTLIER_THRESHOLD,
+  DEFAULT_FORECAST_CONFIDENCE_LEVEL,
+  FEE_OBSERVATION_MAX_ENTRIES,
+} from "./transaction/feeForecast";
+export type {
+  FeeObservation,
+  NormalizedFeeObservation,
+  NormalizedFeeHistory,
+  NormalizeFeeHistoryOptions,
+  DiscardedObservation,
+  DiscardedObservationReason,
+  ForecastDataWindow,
+  FeeForecast,
+  FeeForecastResult,
+  FeeForecastModel,
+  FeeForecastPrediction,
+  ForecastFeesOptions,
+  ForecastUnavailableReason,
+  ForecastAccuracySample,
+  ForecastAccuracyReport,
+} from "./transaction/feeForecast";
+
+// ─── Transaction dependency ordering (#526) ───────────────────────────────────
+export {
+  validateDependencies,
+  planTransactionExecution,
+  resolveTransactionOrder,
+  findParallelizableTransactions,
+  DependencyGraphError,
+} from "./transaction/dependencyGraph";
+export type {
+  TransactionNode,
+  DependencyError,
+  DependencyErrorCode,
+  DependencyValidation,
+  ExecutionPlan,
+  DependencyPlanResult,
+} from "./transaction/dependencyGraph";
+
+// ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
+export {
+  aggregatePortfolio,
+  assetIdentifier,
+} from "./account/portfolioAggregation";
+export type {
+  PortfolioWalletSource,
+  PortfolioAssetPrice,
+  PortfolioHolding,
+  PortfolioAggregation,
+  PortfolioValuationCoverage,
+  PortfolioConcentration,
+  WalletAttribution,
+  DuplicateSource,
+  AggregatePortfolioOptions,
+} from "./account/portfolioAggregation";
+
+// ─── SDK health checks & diagnostics (#527) ───────────────────────────────────
+export {
+  checkSdkHealth,
+  runDiagnostics,
+  checkHorizonConnectivity,
+  checkSorobanRpcConnectivity,
+  checkWalletAdapterStatus,
+  checkNetworkConfiguration,
+  checkEnvironment,
+  combineHealthStatuses,
+  DEFAULT_DIAGNOSTIC_TIMEOUT_MS,
+  DEFAULT_SLOW_LATENCY_MS,
+} from "./shared/diagnostics";
+export type {
+  DiagnosticHealthStatus,
+  DiagnosticCheckId,
+  DiagnosticCheckResult,
+  SdkHealthReport,
+  DiagnosticsReport,
+  SdkHealthOptions,
+  EndpointCheckOptions,
+} from "./shared/diagnostics";

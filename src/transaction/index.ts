@@ -459,3 +459,50 @@ export type {
   SpendingEvaluation,
   SpendingUsage,
 } from "./spendingPolicy";
+// ─── Historical fee forecasting (#523) ────────────────────────────────────────
+export {
+  forecastFees,
+  normalizeFeeHistory,
+  recordFeeObservation,
+  getFeeObservations,
+  clearFeeObservations,
+  evaluateForecastAccuracy,
+  linearFeeForecastModel,
+  DEFAULT_OUTLIER_THRESHOLD,
+  DEFAULT_FORECAST_CONFIDENCE_LEVEL,
+  FEE_OBSERVATION_MAX_ENTRIES,
+} from "./feeForecast";
+export type {
+  FeeObservation,
+  NormalizedFeeObservation,
+  NormalizedFeeHistory,
+  NormalizeFeeHistoryOptions,
+  DiscardedObservation,
+  DiscardedObservationReason,
+  ForecastDataWindow,
+  FeeForecast,
+  FeeForecastResult,
+  FeeForecastModel,
+  FeeForecastPrediction,
+  ForecastFeesOptions,
+  ForecastUnavailableReason,
+  ForecastAccuracySample,
+  ForecastAccuracyReport,
+} from "./feeForecast";
+
+// ─── Transaction dependency ordering (#526) ───────────────────────────────────
+export {
+  validateDependencies,
+  planTransactionExecution,
+  resolveTransactionOrder,
+  findParallelizableTransactions,
+  DependencyGraphError,
+} from "./dependencyGraph";
+export type {
+  TransactionNode,
+  DependencyError,
+  DependencyErrorCode,
+  DependencyValidation,
+  ExecutionPlan,
+  DependencyPlanResult,
+} from "./dependencyGraph";

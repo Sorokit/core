@@ -1,0 +1,378 @@
+/**
+ * Transaction dependency analysis and deterministic ordering (#526).
+ *
+ * Applications composing multi-step workflows must often run one transaction
+ * only after another has produced the state it depends on. This module builds
+ * a directed dependency graph over declared transaction nodes, validates it,
+ * and derives a deterministic execution order plus the groups that may be
+ * executed in parallel.
+ *
+ * Ordering uses Kahn's algorithm with a lexicographic tie-break, so a graph
+ * admitting several valid orders always yields the same one.
+ */
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+/** A transaction participating in the dependency graph. */
+export interface TransactionNode<T = unknown> {
+  /** Unique identifier for this transaction within the graph. */
+  id: string;
+  /** IDs of transactions that must complete before this one runs. */
+  dependsOn?: string[];
+  /** Arbitrary caller-supplied payload carried through unchanged. */
+  payload?: T;
+}
+
+/** Why a dependency graph failed validation. */
+export type DependencyErrorCode =
+  | "DUPLICATE_ID"
+  | "MISSING_DEPENDENCY"
+  | "CIRCULAR_DEPENDENCY"
+  | "SELF_DEPENDENCY"
+  | "INVALID_ID";
+
+/** A single structured validation failure. */
+export interface DependencyError {
+  code: DependencyErrorCode;
+  /** Human-readable explanation of the problem. */
+  message: string;
+  /**
+   * The transaction IDs implicated in this error.
+   *
+   * For CIRCULAR_DEPENDENCY this is the cycle itself, in order, with the
+   * entry node repeated at the end so the chain reads end to end.
+   */
+  chain: string[];
+}
+
+/** Outcome of validating a dependency graph. */
+export interface DependencyValidation {
+  valid: boolean;
+  errors: DependencyError[];
+}
+
+/** A deterministic execution plan derived from a valid graph. */
+export interface ExecutionPlan<T = unknown> {
+  /** All transaction IDs in a deterministic, dependency-respecting order. */
+  order: string[];
+  /**
+   * Execution levels. Every transaction in a level depends only on earlier
+   * levels, so a level's members can be safely executed in parallel.
+   */
+  parallelGroups: string[][];
+  /** The graph's nodes, keyed by ID, for convenient lookup during execution. */
+  nodes: Map<string, TransactionNode<T>>;
+}
+
+/** The result of planning execution over a dependency graph. */
+export type DependencyPlanResult<T = unknown> =
+  | { valid: true; plan: ExecutionPlan<T> }
+  | { valid: false; errors: DependencyError[] };
+
+// ─── Errors ──────────────────────────────────────────────────────────────────
+
+/**
+ * Thrown by {@link resolveTransactionOrder} when a graph is invalid.
+ *
+ * Carries the full structured error list so callers can identify the exact
+ * problematic dependency chain rather than parsing a message string.
+ */
+export class DependencyGraphError extends Error {
+  readonly errors: DependencyError[];
+
+  constructor(errors: DependencyError[]) {
+    const summary = errors.map((e) => e.message).join("; ");
+    super(`Invalid transaction dependency graph: ${summary}`);
+    this.name = "DependencyGraphError";
+    this.errors = errors;
+  }
+}
+
+// ─── Validation ──────────────────────────────────────────────────────────────
+
+/** Dependencies of a node, de-duplicated and sorted for determinism. */
+function normalizedDependencies(node: TransactionNode<unknown>): string[] {
+  return [...new Set(node.dependsOn ?? [])].sort();
+}
+
+/**
+ * Find every dependency cycle in the graph.
+ *
+ * Uses an iterative depth-first search so a deeply chained graph cannot blow
+ * the call stack, and reports each distinct cycle once, normalised to start at
+ * its lexicographically smallest member so the same cycle always reads the
+ * same way regardless of which node the search entered it from.
+ */
+function findCycles(adjacency: Map<string, string[]>): string[][] {
+  const WHITE = 0;
+  const GREY = 1;
+  const BLACK = 2;
+  const colour = new Map<string, number>();
+  for (const id of adjacency.keys()) colour.set(id, WHITE);
+
+  const cycles: string[][] = [];
+  const seenCycles = new Set<string>();
+  const path: string[] = [];
+  const onPath = new Set<string>();
+
+  // Explicit stack of (node, next-dependency-index) frames.
+  for (const root of [...adjacency.keys()].sort()) {
+    if (colour.get(root) !== WHITE) continue;
+
+    const stack: Array<{ id: string; index: number }> = [
+      { id: root, index: 0 },
+    ];
+    colour.set(root, GREY);
+    path.push(root);
+    onPath.add(root);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      if (!frame) break;
+
+      const dependencies = adjacency.get(frame.id) ?? [];
+      if (frame.index >= dependencies.length) {
+        colour.set(frame.id, BLACK);
+        onPath.delete(frame.id);
+        path.pop();
+        stack.pop();
+        continue;
+      }
+
+      const next = dependencies[frame.index];
+      frame.index += 1;
+      if (next === undefined) continue;
+      // Dangling edges are reported separately as MISSING_DEPENDENCY.
+      if (!adjacency.has(next)) continue;
+
+      if (onPath.has(next)) {
+        const start = path.indexOf(next);
+        const cycle = path.slice(start);
+        // Rotate to start at the smallest ID so the same cycle found from a
+        // different entry point de-duplicates to one report.
+        let pivot = 0;
+        for (let i = 1; i < cycle.length; i += 1) {
+          const candidate = cycle[i];
+          const current = cycle[pivot];
+          if (candidate !== undefined && current !== undefined && candidate < current) {
+            pivot = i;
+          }
+        }
+        const rotated = [...cycle.slice(pivot), ...cycle.slice(0, pivot)];
+        const key = rotated.join("\u0000");
+        if (!seenCycles.has(key)) {
+          seenCycles.add(key);
+          const first = rotated[0];
+          cycles.push(first === undefined ? rotated : [...rotated, first]);
+        }
+        continue;
+      }
+
+      if (colour.get(next) === WHITE) {
+        colour.set(next, GREY);
+        path.push(next);
+        onPath.add(next);
+        stack.push({ id: next, index: 0 });
+      }
+    }
+  }
+
+  return cycles.sort((a, b) => a.join().localeCompare(b.join()));
+}
+
+/**
+ * Validate a dependency graph without building an execution plan.
+ *
+ * Detects duplicate identifiers, blank identifiers, self-dependencies, missing
+ * dependencies, and circular dependency chains. All problems are collected,
+ * so one call reports everything wrong with the graph rather than only the
+ * first failure encountered.
+ */
+export function validateDependencies<T>(
+  transactions: TransactionNode<T>[],
+): DependencyValidation {
+  const errors: DependencyError[] = [];
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+
+  for (const node of transactions) {
+    if (typeof node.id !== "string" || node.id.trim() === "") {
+      errors.push({
+        code: "INVALID_ID",
+        message: "Transaction id must be a non-empty string.",
+        chain: [],
+      });
+      continue;
+    }
+    if (seen.has(node.id) && !duplicates.has(node.id)) {
+      duplicates.add(node.id);
+      errors.push({
+        code: "DUPLICATE_ID",
+        message: `Duplicate transaction id "${node.id}".`,
+        chain: [node.id],
+      });
+    }
+    seen.add(node.id);
+  }
+
+  // Build adjacency only from well-formed nodes; the first well-formed node
+  // for a duplicated id wins so downstream analysis has a single definition.
+  const adjacency = new Map<string, string[]>();
+  for (const node of transactions) {
+    if (typeof node.id !== "string" || node.id.trim() === "") continue;
+    if (adjacency.has(node.id)) continue;
+    adjacency.set(node.id, normalizedDependencies(node));
+  }
+
+  for (const [id, dependencies] of adjacency) {
+    for (const dependency of dependencies) {
+      if (dependency === id) {
+        errors.push({
+          code: "SELF_DEPENDENCY",
+          message: `Transaction "${id}" depends on itself.`,
+          chain: [id, id],
+        });
+        continue;
+      }
+      if (!adjacency.has(dependency)) {
+        errors.push({
+          code: "MISSING_DEPENDENCY",
+          message: `Transaction "${id}" depends on unknown transaction "${dependency}".`,
+          chain: [id, dependency],
+        });
+      }
+    }
+  }
+
+  for (const cycle of findCycles(adjacency)) {
+    errors.push({
+      code: "CIRCULAR_DEPENDENCY",
+      message: `Circular dependency detected: ${cycle.join(" -> ")}.`,
+      chain: cycle,
+    });
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+// ─── Planning ────────────────────────────────────────────────────────────────
+
+/**
+ * Build an execution plan from a set of transactions.
+ *
+ * Validation runs before any ordering work, so an invalid graph never yields a
+ * partial or misleading order. On success the plan carries both a flat
+ * deterministic order and the parallel-safe execution levels.
+ *
+ * Ordering is by Kahn's algorithm: at each step the ready set (transactions
+ * whose dependencies are all satisfied) is drained in lexicographic order, so
+ * a graph with several valid orders always produces the same one.
+ */
+export function planTransactionExecution<T>(
+  transactions: TransactionNode<T>[],
+): DependencyPlanResult<T> {
+  const validation = validateDependencies(transactions);
+  if (!validation.valid) {
+    return { valid: false, errors: validation.errors };
+  }
+
+  const nodes = new Map<string, TransactionNode<T>>();
+  const dependencies = new Map<string, string[]>();
+  for (const node of transactions) {
+    nodes.set(node.id, node);
+    dependencies.set(node.id, normalizedDependencies(node));
+  }
+
+  // Dependents of each node, so satisfying one can release the others.
+  const dependents = new Map<string, string[]>();
+  const remaining = new Map<string, number>();
+  for (const [id, deps] of dependencies) {
+    remaining.set(id, deps.length);
+    for (const dependency of deps) {
+      const list = dependents.get(dependency) ?? [];
+      list.push(id);
+      dependents.set(dependency, list);
+    }
+  }
+
+  const order: string[] = [];
+  const parallelGroups: string[][] = [];
+
+  let ready = [...dependencies.keys()]
+    .filter((id) => (remaining.get(id) ?? 0) === 0)
+    .sort();
+
+  while (ready.length > 0) {
+    parallelGroups.push([...ready]);
+    order.push(...ready);
+
+    const next: string[] = [];
+    for (const id of ready) {
+      for (const dependent of dependents.get(id) ?? []) {
+        const count = (remaining.get(dependent) ?? 0) - 1;
+        remaining.set(dependent, count);
+        if (count === 0) next.push(dependent);
+      }
+    }
+    ready = next.sort();
+  }
+
+  // Validation already rules out cycles, so every node must have been emitted.
+  // A shortfall here would mean the two disagree — surface it rather than
+  // returning a silently truncated plan.
+  if (order.length !== nodes.size) {
+    const unresolved = [...dependencies.keys()]
+      .filter((id) => !order.includes(id))
+      .sort();
+    return {
+      valid: false,
+      errors: [
+        {
+          code: "CIRCULAR_DEPENDENCY",
+          message: `Dependency chain cannot be satisfied for: ${unresolved.join(", ")}.`,
+          chain: unresolved,
+        },
+      ],
+    };
+  }
+
+  return { valid: true, plan: { order, parallelGroups, nodes } };
+}
+
+/**
+ * Resolve a deterministic execution order, throwing on an invalid graph.
+ *
+ * Convenience wrapper over {@link planTransactionExecution} for callers that
+ * would rather handle a thrown {@link DependencyGraphError} — which carries the
+ * structured error list — than branch on a result object.
+ *
+ * @throws {DependencyGraphError} When the graph fails validation.
+ */
+export function resolveTransactionOrder<T>(
+  transactions: TransactionNode<T>[],
+): string[] {
+  const result = planTransactionExecution(transactions);
+  if (!result.valid) {
+    throw new DependencyGraphError(result.errors);
+  }
+  return result.plan.order;
+}
+
+/**
+ * Group transactions into levels that may each be executed in parallel.
+ *
+ * Every transaction in a returned level depends only on transactions in
+ * earlier levels, so a level's members have no ordering constraint between
+ * them.
+ *
+ * @throws {DependencyGraphError} When the graph fails validation.
+ */
+export function findParallelizableTransactions<T>(
+  transactions: TransactionNode<T>[],
+): string[][] {
+  const result = planTransactionExecution(transactions);
+  if (!result.valid) {
+    throw new DependencyGraphError(result.errors);
+  }
+  return result.plan.parallelGroups;
+}

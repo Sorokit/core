@@ -82,3 +82,17 @@ export type {
   BalanceForecastPoint,
   BalanceForecastResult,
 } from "./balanceForecast";
+
+// ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
+export { aggregatePortfolio, assetIdentifier } from "./portfolioAggregation";
+export type {
+  PortfolioWalletSource,
+  PortfolioAssetPrice,
+  PortfolioHolding,
+  PortfolioAggregation,
+  PortfolioValuationCoverage,
+  PortfolioConcentration,
+  WalletAttribution,
+  DuplicateSource,
+  AggregatePortfolioOptions,
+} from "./portfolioAggregation";
