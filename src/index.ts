@@ -875,3 +875,26 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./network/congestionMonitor";
+
+// ─── SDK health checks & diagnostics (#527) ───────────────────────────────────
+export {
+  checkSdkHealth,
+  runDiagnostics,
+  checkHorizonConnectivity,
+  checkSorobanRpcConnectivity,
+  checkWalletAdapterStatus,
+  checkNetworkConfiguration,
+  checkEnvironment,
+  combineHealthStatuses,
+  DEFAULT_DIAGNOSTIC_TIMEOUT_MS,
+  DEFAULT_SLOW_LATENCY_MS,
+} from "./shared/diagnostics";
+export type {
+  DiagnosticHealthStatus,
+  DiagnosticCheckId,
+  DiagnosticCheckResult,
+  SdkHealthReport,
+  DiagnosticsReport,
+  SdkHealthOptions,
+  EndpointCheckOptions,
+} from "./shared/diagnostics";
