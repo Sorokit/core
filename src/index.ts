@@ -906,3 +906,15 @@ export type {
   SnapshotIntegrityReport,
   SnapshotQuery,
 } from "./soroban/contractStateHistory";
+export {
+  MultiSigContractExecution,
+  createMultiSigContractExecution,
+} from "./soroban/multiSigExecution";
+export type {
+  ContractExecutionSigner,
+  CreateSigningRequestInput,
+  CollectedSignature,
+  SigningRequestStatus,
+  ContractSigningRequest,
+  SigningRequestState,
+} from "./soroban/multiSigExecution";

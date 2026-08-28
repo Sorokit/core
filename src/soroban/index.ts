@@ -515,3 +515,14 @@ export type {
   SnapshotIntegrityReport,
   SnapshotQuery,
 } from "./contractStateHistory";
+  MultiSigContractExecution,
+  createMultiSigContractExecution,
+} from "./multiSigExecution";
+export type {
+  ContractExecutionSigner,
+  CreateSigningRequestInput,
+  CollectedSignature,
+  SigningRequestStatus,
+  ContractSigningRequest,
+  SigningRequestState,
+} from "./multiSigExecution";
