@@ -876,6 +876,7 @@ export type {
   CongestionSnapshot,
 } from "./network/congestionMonitor";
 
+<<<<<<< HEAD
 // ─── Historical fee forecasting (#523) ────────────────────────────────────────
 export {
   forecastFees,
@@ -923,3 +924,21 @@ export type {
   ExecutionPlan,
   DependencyPlanResult,
 } from "./transaction/dependencyGraph";
+=======
+// ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
+export {
+  aggregatePortfolio,
+  assetIdentifier,
+} from "./account/portfolioAggregation";
+export type {
+  PortfolioWalletSource,
+  PortfolioAssetPrice,
+  PortfolioHolding,
+  PortfolioAggregation,
+  PortfolioValuationCoverage,
+  PortfolioConcentration,
+  WalletAttribution,
+  DuplicateSource,
+  AggregatePortfolioOptions,
+} from "./account/portfolioAggregation";
+>>>>>>> feat/portfolio-aggregation
