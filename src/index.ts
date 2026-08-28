@@ -875,3 +875,15 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./network/congestionMonitor";
+export { auditWalletSecurity, isHighRiskConnection } from "./wallet/securityAudit";
+export type {
+  RiskSeverity,
+  RiskConfidence,
+  RiskFactor,
+  WalletVulnerability,
+  VulnerabilitySource,
+  WalletConnectionContext,
+  WalletSecurityAuditOptions,
+  RiskLevel,
+  WalletSecurityReport,
+} from "./wallet/securityAudit";
