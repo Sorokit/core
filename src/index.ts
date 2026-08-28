@@ -891,3 +891,18 @@ export type {
   SpendingEvaluation,
   SpendingUsage,
 } from "./transaction/spendingPolicy";
+export {
+  ContractStateHistory,
+  createContractStateHistory,
+  fingerprintState,
+} from "./soroban/contractStateHistory";
+export type {
+  ContractStateSnapshotRecord,
+  CaptureSnapshotInput,
+  ContractStatePin,
+  StateEntryChangeKind,
+  StateEntryChange,
+  ContractStateComparison,
+  SnapshotIntegrityReport,
+  SnapshotQuery,
+} from "./soroban/contractStateHistory";
