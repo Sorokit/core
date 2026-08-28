@@ -918,3 +918,15 @@ export type {
   ContractSigningRequest,
   SigningRequestState,
 } from "./soroban/multiSigExecution";
+export { auditWalletSecurity, isHighRiskConnection } from "./wallet/securityAudit";
+export type {
+  RiskSeverity,
+  RiskConfidence,
+  RiskFactor,
+  WalletVulnerability,
+  VulnerabilitySource,
+  WalletConnectionContext,
+  WalletSecurityAuditOptions,
+  RiskLevel,
+  WalletSecurityReport,
+} from "./wallet/securityAudit";
