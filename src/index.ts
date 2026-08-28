@@ -876,7 +876,6 @@ export type {
   CongestionSnapshot,
 } from "./network/congestionMonitor";
 
-<<<<<<< HEAD
 // ─── Historical fee forecasting (#523) ────────────────────────────────────────
 export {
   forecastFees,
@@ -924,7 +923,6 @@ export type {
   ExecutionPlan,
   DependencyPlanResult,
 } from "./transaction/dependencyGraph";
-=======
 // ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
 export {
   aggregatePortfolio,
@@ -942,3 +940,26 @@ export type {
   AggregatePortfolioOptions,
 } from "./account/portfolioAggregation";
 >>>>>>> feat/portfolio-aggregation
+// ─── SDK health checks & diagnostics (#527) ───────────────────────────────────
+export {
+  checkSdkHealth,
+  runDiagnostics,
+  checkHorizonConnectivity,
+  checkSorobanRpcConnectivity,
+  checkWalletAdapterStatus,
+  checkNetworkConfiguration,
+  checkEnvironment,
+  combineHealthStatuses,
+  DEFAULT_DIAGNOSTIC_TIMEOUT_MS,
+  DEFAULT_SLOW_LATENCY_MS,
+} from "./shared/diagnostics";
+export type {
+  DiagnosticHealthStatus,
+  DiagnosticCheckId,
+  DiagnosticCheckResult,
+  SdkHealthReport,
+  DiagnosticsReport,
+  SdkHealthOptions,
+  EndpointCheckOptions,
+} from "./shared/diagnostics";
+>>>>>>> feat/sdiagnostics$/diagnostics

@@ -14,3 +14,6 @@ export { isBrowser } from "./environment";
 export * from "./validateIssuer";
 export * from "./validateToken";
 export * from "./i18n";
+
+// ─── SDK health checks & diagnostics (#527) ───────────────────────────────────
+export * from "./diagnostics";
