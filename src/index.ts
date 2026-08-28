@@ -875,3 +875,15 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./network/congestionMonitor";
+export {
+  MultiSigContractExecution,
+  createMultiSigContractExecution,
+} from "./soroban/multiSigExecution";
+export type {
+  ContractExecutionSigner,
+  CreateSigningRequestInput,
+  CollectedSignature,
+  SigningRequestStatus,
+  ContractSigningRequest,
+  SigningRequestState,
+} from "./soroban/multiSigExecution";

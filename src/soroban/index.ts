@@ -499,3 +499,16 @@ export type {
   StorageRecommendation,
   StorageAnalysisReport,
 } from "./storageAnalysis";
+
+export {
+  MultiSigContractExecution,
+  createMultiSigContractExecution,
+} from "./multiSigExecution";
+export type {
+  ContractExecutionSigner,
+  CreateSigningRequestInput,
+  CollectedSignature,
+  SigningRequestStatus,
+  ContractSigningRequest,
+  SigningRequestState,
+} from "./multiSigExecution";
