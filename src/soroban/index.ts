@@ -515,6 +515,8 @@ export type {
   SnapshotIntegrityReport,
   SnapshotQuery,
 } from "./contractStateHistory";
+
+export {
   MultiSigContractExecution,
   createMultiSigContractExecution,
 } from "./multiSigExecution";
