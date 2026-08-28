@@ -875,3 +875,18 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./network/congestionMonitor";
+export {
+  ContractStateHistory,
+  createContractStateHistory,
+  fingerprintState,
+} from "./soroban/contractStateHistory";
+export type {
+  ContractStateSnapshotRecord,
+  CaptureSnapshotInput,
+  ContractStatePin,
+  StateEntryChangeKind,
+  StateEntryChange,
+  ContractStateComparison,
+  SnapshotIntegrityReport,
+  SnapshotQuery,
+} from "./soroban/contractStateHistory";
