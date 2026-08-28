@@ -442,3 +442,20 @@ export async function compareFeeAcrossNetworks(
 // and therefore lives in src/soroban/simulateTransaction.ts.
 // It can be accessed via client.soroban.simulate().
 
+
+// ─── Transaction dependency ordering (#526) ───────────────────────────────────
+export {
+  validateDependencies,
+  planTransactionExecution,
+  resolveTransactionOrder,
+  findParallelizableTransactions,
+  DependencyGraphError,
+} from "./dependencyGraph";
+export type {
+  TransactionNode,
+  DependencyError,
+  DependencyErrorCode,
+  DependencyValidation,
+  ExecutionPlan,
+  DependencyPlanResult,
+} from "./dependencyGraph";

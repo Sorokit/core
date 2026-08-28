@@ -875,3 +875,20 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./network/congestionMonitor";
+
+// ─── Transaction dependency ordering (#526) ───────────────────────────────────
+export {
+  validateDependencies,
+  planTransactionExecution,
+  resolveTransactionOrder,
+  findParallelizableTransactions,
+  DependencyGraphError,
+} from "./transaction/dependencyGraph";
+export type {
+  TransactionNode,
+  DependencyError,
+  DependencyErrorCode,
+  DependencyValidation,
+  ExecutionPlan,
+  DependencyPlanResult,
+} from "./transaction/dependencyGraph";
