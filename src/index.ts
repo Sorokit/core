@@ -875,3 +875,34 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./network/congestionMonitor";
+
+// ─── Historical fee forecasting (#523) ────────────────────────────────────────
+export {
+  forecastFees,
+  normalizeFeeHistory,
+  recordFeeObservation,
+  getFeeObservations,
+  clearFeeObservations,
+  evaluateForecastAccuracy,
+  linearFeeForecastModel,
+  DEFAULT_OUTLIER_THRESHOLD,
+  DEFAULT_FORECAST_CONFIDENCE_LEVEL,
+  FEE_OBSERVATION_MAX_ENTRIES,
+} from "./transaction/feeForecast";
+export type {
+  FeeObservation,
+  NormalizedFeeObservation,
+  NormalizedFeeHistory,
+  NormalizeFeeHistoryOptions,
+  DiscardedObservation,
+  DiscardedObservationReason,
+  ForecastDataWindow,
+  FeeForecast,
+  FeeForecastResult,
+  FeeForecastModel,
+  FeeForecastPrediction,
+  ForecastFeesOptions,
+  ForecastUnavailableReason,
+  ForecastAccuracySample,
+  ForecastAccuracyReport,
+} from "./transaction/feeForecast";
