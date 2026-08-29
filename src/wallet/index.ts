@@ -651,3 +651,16 @@ export type {
   HardwareWalletDevice,
   HardwareWalletCapabilities,
 } from "./hardwareWallet";
+
+export { auditWalletSecurity, isHighRiskConnection } from "./securityAudit";
+export type {
+  RiskSeverity,
+  RiskConfidence,
+  RiskFactor,
+  WalletVulnerability,
+  VulnerabilitySource,
+  WalletConnectionContext,
+  WalletSecurityAuditOptions,
+  RiskLevel,
+  WalletSecurityReport,
+} from "./securityAudit";

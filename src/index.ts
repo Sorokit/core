@@ -875,6 +875,61 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./network/congestionMonitor";
+export { SpendingPolicyEngine, createSpendingPolicyEngine } from "./transaction/spendingPolicy";
+export type {
+  SpendingLimitPeriod,
+  SpendingLimit,
+  DestinationRestriction,
+  ApprovalThreshold,
+  SpendingPolicyConfig,
+  SpendingRequest,
+  SpendingRecordStatus,
+  SpendingRecord,
+  PolicyViolationCode,
+  PolicyViolation,
+  SpendingDecision,
+  SpendingEvaluation,
+  SpendingUsage,
+} from "./transaction/spendingPolicy";
+export {
+  ContractStateHistory,
+  createContractStateHistory,
+  fingerprintState,
+} from "./soroban/contractStateHistory";
+export type {
+  ContractStateSnapshotRecord,
+  CaptureSnapshotInput,
+  ContractStatePin,
+  StateEntryChangeKind,
+  StateEntryChange,
+  ContractStateComparison,
+  SnapshotIntegrityReport,
+  SnapshotQuery,
+} from "./soroban/contractStateHistory";
+export {
+  MultiSigContractExecution,
+  createMultiSigContractExecution,
+} from "./soroban/multiSigExecution";
+export type {
+  ContractExecutionSigner,
+  CreateSigningRequestInput,
+  CollectedSignature,
+  SigningRequestStatus,
+  ContractSigningRequest,
+  SigningRequestState,
+} from "./soroban/multiSigExecution";
+export { auditWalletSecurity, isHighRiskConnection } from "./wallet/securityAudit";
+export type {
+  RiskSeverity,
+  RiskConfidence,
+  RiskFactor,
+  WalletVulnerability,
+  VulnerabilitySource,
+  WalletConnectionContext,
+  WalletSecurityAuditOptions,
+  RiskLevel,
+  WalletSecurityReport,
+} from "./wallet/securityAudit";
 
 // ─── Historical fee forecasting (#523) ────────────────────────────────────────
 export {

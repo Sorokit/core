@@ -499,3 +499,32 @@ export type {
   StorageRecommendation,
   StorageAnalysisReport,
 } from "./storageAnalysis";
+
+export {
+  ContractStateHistory,
+  createContractStateHistory,
+  fingerprintState,
+} from "./contractStateHistory";
+export type {
+  ContractStateSnapshotRecord,
+  CaptureSnapshotInput,
+  ContractStatePin,
+  StateEntryChangeKind,
+  StateEntryChange,
+  ContractStateComparison,
+  SnapshotIntegrityReport,
+  SnapshotQuery,
+} from "./contractStateHistory";
+
+export {
+  MultiSigContractExecution,
+  createMultiSigContractExecution,
+} from "./multiSigExecution";
+export type {
+  ContractExecutionSigner,
+  CreateSigningRequestInput,
+  CollectedSignature,
+  SigningRequestStatus,
+  ContractSigningRequest,
+  SigningRequestState,
+} from "./multiSigExecution";

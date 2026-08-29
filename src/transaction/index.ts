@@ -443,6 +443,22 @@ export async function compareFeeAcrossNetworks(
 // It can be accessed via client.soroban.simulate().
 
 
+export { SpendingPolicyEngine, createSpendingPolicyEngine } from "./spendingPolicy";
+export type {
+  SpendingLimitPeriod,
+  SpendingLimit,
+  DestinationRestriction,
+  ApprovalThreshold,
+  SpendingPolicyConfig,
+  SpendingRequest,
+  SpendingRecordStatus,
+  SpendingRecord,
+  PolicyViolationCode,
+  PolicyViolation,
+  SpendingDecision,
+  SpendingEvaluation,
+  SpendingUsage,
+} from "./spendingPolicy";
 // ─── Historical fee forecasting (#523) ────────────────────────────────────────
 export {
   forecastFees,
