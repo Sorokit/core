@@ -528,3 +528,16 @@ export type {
   ContractSigningRequest,
   SigningRequestState,
 } from "./multiSigExecution";
+
+export {
+  calculateStorageRent,
+  renewContractStorage,
+  renewMultipleContractStorage,
+} from "./storageExpiration";
+export type {
+  StorageRentEstimate,
+  StorageEntryExpiration,
+  StorageRenewalOptions,
+  StorageRenewalOperation,
+  StorageExpirationConfig,
+} from "./storageExpiration";
