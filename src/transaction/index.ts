@@ -327,6 +327,14 @@ export type {
   MultiSigEnvelopeParams,
   MultiSigEnvelope,
 } from "./types";
+
+export {
+  verifyTransactionSignatures,
+} from "./witnessValidation";
+export type {
+  SignatureValidationResult,
+  WitnessValidationResult,
+} from "./witnessValidation";
 export {
   saveTransactionTemplate,
   loadTemplate,
