@@ -554,6 +554,32 @@ export type {
   OnContractUpgrade,
   ContractVersionOptions,
 } from "./soroban/contractVersion";
+// ─── Contract metadata versioning & compatibility (fix.md) ────────────────────
+export {
+  computeContractMetadataFingerprint,
+  buildContractMetadataSnapshot,
+  checkContractMetadataCompatibility,
+  checkStaleContractMetadata,
+  applyContractMetadataMigration,
+  invalidateContractMetadataForIncompatibility,
+  invalidateCachedContractMetadata,
+} from "./soroban/contractMetadataCompatibility";
+export type {
+  ContractMetadataVersion,
+  ContractMetadataSnapshot,
+  ContractMetadataChange,
+  ContractMetadataChangeKind,
+  ContractMetadataCompatibilityStatus,
+  ContractMetadataCompatibilityReport,
+  ContractMetadataMigration,
+  ContractMetadataMigrationHook,
+  ContractMetadataMigrationResult,
+  BuildMetadataSnapshotInput,
+  CheckCompatibilityInput,
+  StaleMetadataCheckInput,
+  StaleMetadataCheckResult,
+  InvalidateMetadataInput,
+} from "./soroban/contractMetadataCompatibility";
 // ─── Contract error decoding (#391) ───────────────────────────────────────────
 export {
   decodeContractError,
