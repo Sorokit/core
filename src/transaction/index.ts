@@ -506,3 +506,25 @@ export type {
   ExecutionPlan,
   DependencyPlanResult,
 } from "./dependencyGraph";
+// ─── Transaction queue with priority scheduling (#501) ───────────────────────
+export { TransactionQueue } from "./transactionQueue";
+export type {
+  TransactionPriority,
+  QueueItemStatus,
+  QueuedTransaction,
+  QueueState,
+  BatchSubmissionResult,
+  RetryPolicy,
+  TransactionQueueConfig,
+} from "./transactionQueue";
+
+// ─── Privacy-preserving transaction mixing (#499) ───────────────────────────────
+export { TransactionMixingPool } from "./transactionMixing";
+export type {
+  PooledTransactionState,
+  PooledTransaction,
+  PoolParticipant,
+  MixingBatchResult,
+  PrivacyAnalysis,
+  MixingPoolConfig,
+} from "./transactionMixing";
