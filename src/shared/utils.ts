@@ -548,3 +548,148 @@ export function getInflightRequestCount(): number {
 export function clearInflightRequests(): void {
   _inflightRequests.clear();
 }
+
+/**
+ * Configuration for streaming poll retry behavior.
+ */
+export interface StreamingRetryConfig {
+  /** Enable automatic retry with exponential backoff. Default: true. */
+  enabled?: boolean;
+  /** Maximum consecutive failures before emitting error and entering cooldown. Default: 5. */
+  maxConsecutiveFailures?: number;
+  /** Cooldown period in milliseconds after max consecutive failures. Default: 60000 (60s). */
+  cooldownMs?: number;
+  /** Initial backoff delay in milliseconds. Default: 1000 (1s). */
+  initialBackoffMs?: number;
+  /** Maximum backoff delay in milliseconds. Default: 30000 (30s). */
+  maxBackoffMs?: number;
+  /** Whether to add random jitter to backoff delays. Default: true. */
+  jitter?: boolean;
+}
+
+/**
+ * Default streaming retry configuration.
+ */
+const DEFAULT_STREAMING_RETRY_CONFIG: Required<StreamingRetryConfig> = {
+  enabled: true,
+  maxConsecutiveFailures: 5,
+  cooldownMs: 60_000,
+  initialBackoffMs: 1_000,
+  maxBackoffMs: 30_000,
+  jitter: true,
+};
+
+/**
+ * State for tracking retry attempts across stream polls.
+ */
+export interface StreamingRetryState {
+  consecutiveFailures: number;
+  inCooldown: boolean;
+}
+
+/**
+ * Calculate exponential backoff delay with jitter.
+ * Progression: 1s, 2s, 4s, 8s, 16s, then capped at 30s.
+ */
+function calculateBackoff(
+  attempt: number,
+  initialBackoffMs: number,
+  maxBackoffMs: number,
+  jitter: boolean,
+): number {
+  const baseDelay = initialBackoffMs * Math.pow(2, attempt);
+  const cappedDelay = Math.min(baseDelay, maxBackoffMs);
+  const jitterMs = jitter ? Math.random() * cappedDelay * 0.1 : 0;
+  return cappedDelay + jitterMs;
+}
+
+/**
+ * Handle retry logic for streaming polls with exponential backoff.
+ *
+ * This function is designed to be called within stream generators to handle
+ * transient errors automatically. It implements:
+ * - Exponential backoff (1s, 2s, 4s, 8s, 16s, capped at 30s)
+ * - Circuit breaker after 5 consecutive failures (60s cooldown)
+ * - Automatic state reset on success
+ *
+ * @param success - Whether the poll succeeded
+ * @param state - Current retry state (consecutive failures, cooldown status)
+ * @param config - Retry configuration
+ * @returns Object indicating whether to retry, delay in ms, and updated state
+ */
+export function retryStreamingPoll(
+  success: boolean,
+  state: StreamingRetryState,
+  config: StreamingRetryConfig = {},
+): {
+  shouldRetry: boolean;
+  delayMs: number;
+  updatedState: StreamingRetryState;
+} {
+  const {
+    enabled,
+    maxConsecutiveFailures,
+    cooldownMs,
+    initialBackoffMs,
+    maxBackoffMs,
+    jitter,
+  } = { ...DEFAULT_STREAMING_RETRY_CONFIG, ...config };
+
+  // Reset state on success
+  if (success) {
+    return {
+      shouldRetry: false,
+      delayMs: 0,
+      updatedState: { consecutiveFailures: 0, inCooldown: false },
+    };
+  }
+
+  // If auto-retry is disabled, don't retry
+  if (!enabled) {
+    return {
+      shouldRetry: false,
+      delayMs: 0,
+      updatedState: state,
+    };
+  }
+
+  // If we're in cooldown, continue cooldown and don't retry
+  if (state.inCooldown) {
+    return {
+      shouldRetry: false,
+      delayMs: cooldownMs,
+      updatedState: state,
+    };
+  }
+
+  // Increment failure counter
+  const updatedState: StreamingRetryState = {
+    consecutiveFailures: state.consecutiveFailures + 1,
+    inCooldown: false,
+  };
+
+  // Check if we've hit the failure threshold
+  if (updatedState.consecutiveFailures >= maxConsecutiveFailures) {
+    // Enter cooldown mode
+    updatedState.inCooldown = true;
+    return {
+      shouldRetry: false,
+      delayMs: cooldownMs,
+      updatedState,
+    };
+  }
+
+  // Calculate backoff delay and retry
+  const delayMs = calculateBackoff(
+    updatedState.consecutiveFailures - 1,
+    initialBackoffMs,
+    maxBackoffMs,
+    jitter,
+  );
+
+  return {
+    shouldRetry: true,
+    delayMs,
+    updatedState,
+  };
+}
