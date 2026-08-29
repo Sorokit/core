@@ -222,6 +222,32 @@ export type {
   GetAccountActivitySummaryOptions,
 } from "./account/getAccountActivitySummary";
 
+// ─── Batch account operations (#514) ──────────────────────────────────────────
+export {
+  bulkCreateTrustlines,
+  bulkSendPayments,
+  bulkRotateKeys,
+  runBatchOperations,
+} from "./account/batchOperations";
+export type {
+  BatchOperation,
+  BatchRunner,
+  BatchOperationResult,
+  BatchOperationStatus,
+  BatchProgress,
+  BatchExecutorConfig,
+  BatchExecutionReport,
+  BulkTrustlineResult,
+  BulkCreateTrustlineOp,
+  BulkCreateTrustlinesInput,
+  BulkPaymentOp,
+  BulkSendPaymentsInput,
+  BulkPaymentResult,
+  BulkRotateKeyOp,
+  BulkRotateKeysInput,
+  BulkRotateKeyResult,
+} from "./account/batchOperations";
+
 // ─── Transaction validation ───────────────────────────────────────────────────
 export {
   createHashMemo,
