@@ -83,6 +83,22 @@ export type {
   BalanceForecastResult,
 } from "./balanceForecast";
 
+// ─── Account activity reporting and compliance analysis (#503) ────────────────
+export {
+  generateComplianceReport,
+  exportComplianceReport,
+} from "./complianceReporting";
+export type {
+  TransactionCategory,
+  ComplianceFramework,
+  NormalizedActivity,
+  ComplianceReport,
+  FlaggedActivity,
+  ComplianceSummary,
+  ComplianceReportOptions,
+  ComplianceRule,
+} from "./complianceReporting";
+
 // ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
 export { aggregatePortfolio, assetIdentifier } from "./portfolioAggregation";
 export type {
