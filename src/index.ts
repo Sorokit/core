@@ -683,6 +683,20 @@ export type {
   SorobanPollConfig,
 } from "./soroban/types";
 
+// ─── Storage expiration tracking (#502) ──────────────────────────────────────
+export {
+  calculateStorageRent,
+  renewContractStorage,
+  renewMultipleContractStorage,
+} from "./soroban/storageExpiration";
+export type {
+  StorageRentEstimate,
+  StorageEntryExpiration,
+  StorageRenewalOptions,
+  StorageRenewalOperation,
+  StorageExpirationConfig,
+} from "./soroban/storageExpiration";
+
 // ─── Response system ──────────────────────────────────────────────────────────
 
 // ─── Transaction scheduler (#453) ────────────────────────────────────────────
@@ -978,6 +992,45 @@ export type {
   ExecutionPlan,
   DependencyPlanResult,
 } from "./transaction/dependencyGraph";
+
+// ─── Transaction queue with priority scheduling (#501) ───────────────────────
+export { TransactionQueue } from "./transaction/transactionQueue";
+export type {
+  TransactionPriority,
+  QueueItemStatus,
+  QueuedTransaction,
+  QueueState,
+  BatchSubmissionResult,
+  RetryPolicy,
+  TransactionQueueConfig,
+} from "./transaction/transactionQueue";
+
+// ─── Privacy-preserving transaction mixing (#499) ───────────────────────────────
+export { TransactionMixingPool } from "./transaction/transactionMixing";
+export type {
+  PooledTransactionState,
+  PooledTransaction,
+  PoolParticipant,
+  MixingBatchResult,
+  PrivacyAnalysis,
+  MixingPoolConfig,
+} from "./transaction/transactionMixing";
+
+// ─── Account activity reporting and compliance analysis (#503) ────────────────
+export {
+  generateComplianceReport,
+  exportComplianceReport,
+} from "./account/complianceReporting";
+export type {
+  TransactionCategory,
+  ComplianceFramework,
+  NormalizedActivity,
+  ComplianceReport,
+  FlaggedActivity,
+  ComplianceSummary,
+  ComplianceReportOptions,
+  ComplianceRule,
+} from "./account/complianceReporting";
 
 // ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
 export {
