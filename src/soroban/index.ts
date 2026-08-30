@@ -77,6 +77,31 @@ export type {
   ContractVersionOptions,
 } from "./contractVersion";
 export {
+  computeContractMetadataFingerprint,
+  buildContractMetadataSnapshot,
+  checkContractMetadataCompatibility,
+  checkStaleContractMetadata,
+  applyContractMetadataMigration,
+  invalidateContractMetadataForIncompatibility,
+  invalidateCachedContractMetadata,
+} from "./contractMetadataCompatibility";
+export type {
+  ContractMetadataVersion,
+  ContractMetadataSnapshot,
+  ContractMetadataChange,
+  ContractMetadataChangeKind,
+  ContractMetadataCompatibilityStatus,
+  ContractMetadataCompatibilityReport,
+  ContractMetadataMigration,
+  ContractMetadataMigrationHook,
+  ContractMetadataMigrationResult,
+  BuildMetadataSnapshotInput,
+  CheckCompatibilityInput,
+  StaleMetadataCheckInput,
+  StaleMetadataCheckResult,
+  InvalidateMetadataInput,
+} from "./contractMetadataCompatibility";
+export {
   decodeContractError,
   DEFAULT_CONTRACT_ERROR_MAP,
   FACTORY_CONTRACT_ERRORS,
