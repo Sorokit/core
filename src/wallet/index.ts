@@ -664,3 +664,35 @@ export type {
   RiskLevel,
   WalletSecurityReport,
 } from "./securityAudit";
+
+// Authentication module exports
+export {
+  WalletAuthenticationManager,
+  detectAuthenticationCapabilities,
+  isAuthenticationMethodAvailable,
+  setupPIN,
+  verifyPIN,
+  changePIN,
+  resetPIN,
+  registerWebAuthn,
+  authenticateWebAuthn,
+  InMemoryAuthenticationStorage,
+  createLocalStorageAuthenticationStorage,
+} from "./authentication";
+export type {
+  AuthenticationState,
+  AuthenticationMethod,
+  AuthenticationStatus,
+  AuthenticationConfig,
+  AuthenticationCredential,
+  AuthenticationCapabilities,
+  AuthenticationStorage,
+  PINSetupOptions,
+  PINVerificationOptions,
+  PINChangeOptions,
+  PINResetResult,
+  PINCredentialData,
+  WebAuthnRegistrationOptions,
+  WebAuthnAuthenticationOptions,
+  WebAuthnCredentialData,
+} from "./authentication";
