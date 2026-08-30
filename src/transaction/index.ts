@@ -303,6 +303,24 @@ export type {
 // ─── Fee-bump transactions (#398) ─────────────────────────────────────────────
 export { buildFeeBumpTransaction } from "./feeBumpTransaction";
 
+// ─── Escrow transactions ───────────────────────────────────────────────────────
+export {
+  buildEscrowTransaction,
+  validateEscrow,
+  validateEscrowAction,
+  createEscrowRelease,
+  createEscrowRefund,
+  createEscrowDispute,
+  isEscrowExpired,
+} from "./escrow";
+export type {
+  EscrowAction,
+  EscrowState,
+  EscrowTiming,
+  EscrowParams,
+  EscrowValidation,
+} from "./escrow";
+
 // ─── Asset pair trading logic (#209) ───────────────────────────────────────────
 export {
   createAssetPair,
@@ -506,3 +524,41 @@ export type {
   ExecutionPlan,
   DependencyPlanResult,
 } from "./dependencyGraph";
+
+// ─── Multi-party transaction consensus (#507) ────────────────────────────────
+export {
+  createConsensusTransaction,
+  approveConsensusTransaction,
+  rejectConsensusTransaction,
+  getConsensusSummaryResult,
+  finalizeConsensusTransaction,
+  getConsensusTransaction,
+  removeConsensusTransaction,
+} from "./consensusCore";
+export type {
+  ConsensusState,
+  ConsensusParticipant,
+  ApprovalDecision,
+  ConsensusTransactionConfig,
+  ConsensusTransaction,
+  ConsensusSummary,
+  CreateConsensusOptions,
+} from "./consensusTypes";
+
+// ─── Transaction XDR encoding optimization (#505) ───────────────────────────
+export {
+  encodeTransaction,
+  decodeTransaction,
+  registerBasePayload,
+  clearPayloadCache,
+  getPayloadCacheStats,
+} from "./xdrEncodingCore";
+export type {
+  EncodedTransaction,
+  EncodingMetadata,
+  EncodingStrategy,
+  EncodingConfig,
+  EncodingResult,
+  DecodingResult,
+  TransactionDelta,
+} from "./xdrEncodingTypes";
