@@ -143,6 +143,29 @@ export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
 export { getNftMetadata, clearNftMetadataCache } from "./nftMetadata";
 export type { NftMetadata, NftMetadataOptions } from "./nftMetadata";
 export type { BuildContractDeployOptions } from "./deployContract";
+// Event archival exports
+export {
+  EventArchivalManager,
+  InMemoryEventArchiveStorage,
+  queryContractEventArchive,
+  calculateArchivedEventRate,
+  getArchivedEventTimeSeries,
+} from "./eventArchival";
+export type {
+  EventArchiveStorage,
+  ArchivedContractEvent,
+  EventArchiveQuery,
+  ArchiveQueryResult,
+  PaginationInfo,
+  TimeSeriesBucket,
+  EventTypeCount,
+  EventAggregation,
+  EventArchivalOptions,
+  EventArchivalSubscription,
+  ArchivalStats,
+  StorageStats,
+} from "./eventArchival";
+
 export type {
   ContractEvent,
   EventFilterPredicate,
