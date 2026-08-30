@@ -564,6 +564,23 @@ export type {
   SnapshotQuery,
 } from "./contractStateHistory";
 
+// ─── Contract state optimization (#514) ───────────────────────────────────────
+export {
+  compressContractState,
+  decompressContractState,
+  measureContractState,
+  benchmarkContractState,
+} from "./contractStateOptimization";
+export type {
+  StateEncoding,
+  StateCompression,
+  ContractStateOptimizeOptions,
+  ContractStateMetadata,
+  OptimizedContractState,
+  ContractStateSizeReport,
+  CompressionBenchmark,
+} from "./contractStateOptimization";
+
 export {
   MultiSigContractExecution,
   createMultiSigContractExecution,
