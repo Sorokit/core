@@ -106,6 +106,30 @@ export type {
   SigningHistoryStore,
 } from "./wallet/signingHistory";
 
+// ─── Wallet connection throttling and abuse detection (#506) ──────────────────
+export {
+  checkThrottle,
+  recordConnectionAttempt,
+  addToAllowlist,
+  addToBlocklist,
+  removeRateLimitRule,
+  getOriginState,
+  resetOriginState,
+  detectAbuse,
+  getConnectionStats,
+  clearThrottlingState,
+} from "./wallet/throttlingCore";
+export type {
+  ThrottlingConfig,
+  ThrottleCheckResult,
+  OriginRateLimitState,
+  ConnectionAttempt,
+  RateLimitRule,
+  AbuseDetectionResult,
+  ConnectionStats,
+} from "./wallet/throttlingTypes";
+export { RateLimitRuleType } from "./wallet/throttlingTypes";
+
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
@@ -839,6 +863,30 @@ export type {
   Discrepancy,
   ReconcileOptions,
 } from "./account/reconcileBalances";
+
+// ─── Account attestation and credential management (#508) ─────────────────────
+export {
+  issueAttestation,
+  verifyAttestation,
+  revokeAttestation,
+  isAttestationRevoked,
+  clearAttestationState,
+} from "./account/attestationCore";
+export {
+  getAccountAttestations,
+  storeAccountAttestation,
+  removeAccountAttestation,
+  clearAccountAttestations,
+} from "./account/attestationQueries";
+export type {
+  AccountAttestation,
+  CredentialMetadata,
+  GetAccountAttestationsFilter,
+  AttestationVerificationResult,
+  IssueAttestationOptions,
+  RevocationEntry,
+} from "./account/attestationTypes";
+
 export { SDK_VERSION } from "./shared/constants";
 export { createI18n, translateMessage, localizeError, DEFAULT_LOCALE, EN_TRANSLATIONS, ES_TRANSLATIONS } from "./shared/i18n";
 export type { I18n, I18nConfig, MessageKey, TranslationCatalog, TranslationMap, LocalizedError, SupportedLocale } from "./shared/i18n";
@@ -1091,6 +1139,44 @@ export type {
   ExecutionPlan,
   DependencyPlanResult,
 } from "./transaction/dependencyGraph";
+
+// ─── Multi-party transaction consensus (#507) ────────────────────────────────
+export {
+  createConsensusTransaction,
+  approveConsensusTransaction,
+  rejectConsensusTransaction,
+  getConsensusSummaryResult,
+  finalizeConsensusTransaction,
+  getConsensusTransaction,
+  removeConsensusTransaction,
+} from "./transaction/consensusCore";
+export type {
+  ConsensusState,
+  ConsensusParticipant,
+  ApprovalDecision,
+  ConsensusTransactionConfig,
+  ConsensusTransaction,
+  ConsensusSummary,
+  CreateConsensusOptions,
+} from "./transaction/consensusTypes";
+
+// ─── Transaction XDR encoding optimization (#505) ───────────────────────────
+export {
+  encodeTransaction,
+  decodeTransaction,
+  registerBasePayload,
+  clearPayloadCache,
+  getPayloadCacheStats,
+} from "./transaction/xdrEncodingCore";
+export type {
+  EncodedTransaction,
+  EncodingMetadata,
+  EncodingStrategy,
+  EncodingConfig,
+  EncodingResult,
+  DecodingResult,
+  TransactionDelta,
+} from "./transaction/xdrEncodingTypes";
 
 // ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
 export {

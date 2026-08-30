@@ -133,3 +133,26 @@ export type {
   DuplicateSource,
   AggregatePortfolioOptions,
 } from "./portfolioAggregation";
+
+// ─── Account attestation and credential management (#508) ─────────────────────
+export {
+  issueAttestation,
+  verifyAttestation,
+  revokeAttestation,
+  isAttestationRevoked,
+  clearAttestationState,
+} from "./attestationCore";
+export {
+  getAccountAttestations,
+  storeAccountAttestation,
+  removeAccountAttestation,
+  clearAccountAttestations,
+} from "./attestationQueries";
+export type {
+  AccountAttestation,
+  CredentialMetadata,
+  GetAccountAttestationsFilter,
+  AttestationVerificationResult,
+  IssueAttestationOptions,
+  RevocationEntry,
+} from "./attestationTypes";
