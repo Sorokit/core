@@ -20,6 +20,17 @@ export {
   isValidStellarPublicKey,
 } from "./keyRotation";
 export {
+  recordKeyRotation,
+  getKeyRotationHistory,
+  detectSuspiciousRotationPattern,
+  clearKeyRotationAuditLog,
+} from "./keyRotationAudit";
+export type {
+  KeyRotationAuditEntry,
+  KeyRotationStatus,
+  GetKeyRotationHistoryOptions,
+} from "./keyRotationAudit";
+export {
   getAccountActivitySummary,
   clearAccountActivitySummaryCache,
   DEFAULT_ACTIVITY_SUMMARY_CACHE_TTL_MS,

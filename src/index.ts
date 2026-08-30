@@ -210,6 +210,17 @@ export type {
   RecoveryReplacementSigner,
 } from "./account/keyRotation";
 export {
+  recordKeyRotation,
+  getKeyRotationHistory,
+  detectSuspiciousRotationPattern,
+  clearKeyRotationAuditLog,
+} from "./account/keyRotationAudit";
+export type {
+  KeyRotationAuditEntry,
+  KeyRotationStatus,
+  GetKeyRotationHistoryOptions,
+} from "./account/keyRotationAudit";
+export {
   getAccountActivitySummary,
   clearAccountActivitySummaryCache,
   DEFAULT_ACTIVITY_SUMMARY_CACHE_TTL_MS,
@@ -287,6 +298,13 @@ export type {
   MultiSigEnvelopeParams,
   MultiSigEnvelope,
 } from "./transaction/types";
+export {
+  verifyTransactionSignatures,
+} from "./transaction/witnessValidation";
+export type {
+  SignatureValidationResult,
+  WitnessValidationResult,
+} from "./transaction/witnessValidation";
 
 // ─── Transaction types ────────────────────────────────────────────────────────
 export type {
@@ -630,8 +648,30 @@ export type {
   BuilderStateListener,
   BuilderStateUnsubscribe,
 } from "./soroban";
-export { invokeContract } from "./soroban/invokeContract";
+export {
+  invokeContract,
+} from "./soroban/invokeContract";
 export type { InvokeContractOptions } from "./soroban/invokeContract";
+export {
+  withExecutionPolicy,
+  cleanupAllExecutionPolicies,
+} from "./soroban/contractCallExecutionPolicy";
+export type {
+  ContractCallExecutionPolicy,
+  TimeoutRecoveryStrategy,
+} from "./soroban/contractCallExecutionPolicy";
+export {
+  recordContractInvocation,
+  queryContractAuditLog,
+  exportAuditLogAsJson,
+  exportAuditLogAsCsv,
+  clearContractAuditLog,
+} from "./soroban/contractAuditTrail";
+export type {
+  ContractAuditEntry,
+  ContractAuditFilter,
+  ContractAuditStatus,
+} from "./soroban/contractAuditTrail";
 export { buildContractDeploy } from "./soroban/deployContract";
 export {
   validateDeployConfig,

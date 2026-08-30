@@ -593,3 +593,25 @@ export type {
   ContractSigningRequest,
   SigningRequestState,
 } from "./multiSigExecution";
+
+export {
+  withExecutionPolicy,
+  cleanupAllExecutionPolicies,
+} from "./contractCallExecutionPolicy";
+export type {
+  ContractCallExecutionPolicy,
+  TimeoutRecoveryStrategy,
+} from "./contractCallExecutionPolicy";
+
+export {
+  recordContractInvocation,
+  queryContractAuditLog,
+  exportAuditLogAsJson,
+  exportAuditLogAsCsv,
+  clearContractAuditLog,
+} from "./contractAuditTrail";
+export type {
+  ContractAuditEntry,
+  ContractAuditFilter,
+  ContractAuditStatus,
+} from "./contractAuditTrail";
