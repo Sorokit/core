@@ -6,3 +6,4 @@ examples/*/dist/
 *.tsbuildinfo
 coverage/
 .DS_Store
+fix.md

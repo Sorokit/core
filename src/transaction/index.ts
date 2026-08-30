@@ -291,6 +291,27 @@ export {
   dispatchTransactionEvent,
   verifySignature,
 } from "./webhooks";
+
+// ─── Payment notifications (#fix.md) ──────────────────────────────────────────
+export {
+  registerPaymentWebhook,
+  unregisterPaymentWebhook,
+  listPaymentWebhooks,
+  clearPaymentWebhooks,
+  triggerPaymentNotifications,
+  dispatchPaymentNotification,
+  generatePaymentEventId,
+  isPaymentNotificationEvent,
+  PAYMENT_NOTIFICATION_EVENTS,
+} from "./paymentNotifications";
+export type {
+  PaymentNotificationEvent,
+  PaymentWebhookOptions,
+  PaymentWebhookPayload,
+  PaymentWebhookRegistration,
+  PaymentNotificationInput,
+  PaymentNotificationChannel,
+} from "./paymentNotifications";
 export type {
   WebhookEventType,
   TransactionWebhookEvent,

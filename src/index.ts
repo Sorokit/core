@@ -380,6 +380,27 @@ export type {
   WebhookPayload,
   WebhookEventDetails,
 } from "./transaction/webhooks";
+
+// ─── Payment notifications (fix.md) ───────────────────────────────────────────
+export {
+  registerPaymentWebhook,
+  unregisterPaymentWebhook,
+  listPaymentWebhooks,
+  clearPaymentWebhooks,
+  triggerPaymentNotifications,
+  dispatchPaymentNotification,
+  generatePaymentEventId,
+  isPaymentNotificationEvent,
+  PAYMENT_NOTIFICATION_EVENTS,
+} from "./transaction/paymentNotifications";
+export type {
+  PaymentNotificationEvent,
+  PaymentWebhookOptions,
+  PaymentWebhookPayload,
+  PaymentWebhookRegistration,
+  PaymentNotificationInput,
+  PaymentNotificationChannel,
+} from "./transaction/paymentNotifications";
 export {
   DEFAULT_PRICE_CACHE_TTL_MS,
   exportTransactionHistory,
