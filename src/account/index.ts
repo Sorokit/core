@@ -83,6 +83,32 @@ export type {
   BalanceForecastResult,
 } from "./balanceForecast";
 
+// ─── Batch account operations (#514) ─────────────────────────────────────────
+export {
+  bulkCreateTrustlines,
+  bulkSendPayments,
+  bulkRotateKeys,
+  runBatchOperations,
+} from "./batchOperations";
+export type {
+  BatchOperation,
+  BatchRunner,
+  BatchOperationResult,
+  BatchOperationStatus,
+  BatchProgress,
+  BatchExecutorConfig,
+  BatchExecutionReport,
+  BulkTrustlineResult,
+  BulkCreateTrustlineOp,
+  BulkCreateTrustlinesInput,
+  BulkPaymentOp,
+  BulkSendPaymentsInput,
+  BulkPaymentResult,
+  BulkRotateKeyOp,
+  BulkRotateKeysInput,
+  BulkRotateKeyResult,
+} from "./batchOperations";
+
 // ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
 export { aggregatePortfolio, assetIdentifier } from "./portfolioAggregation";
 export type {
