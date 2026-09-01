@@ -106,6 +106,30 @@ export type {
   SigningHistoryStore,
 } from "./wallet/signingHistory";
 
+// ─── Wallet connection throttling and abuse detection (#506) ──────────────────
+export {
+  checkThrottle,
+  recordConnectionAttempt,
+  addToAllowlist,
+  addToBlocklist,
+  removeRateLimitRule,
+  getOriginState,
+  resetOriginState,
+  detectAbuse,
+  getConnectionStats,
+  clearThrottlingState,
+} from "./wallet/throttlingCore";
+export type {
+  ThrottlingConfig,
+  ThrottleCheckResult,
+  OriginRateLimitState,
+  ConnectionAttempt,
+  RateLimitRule,
+  AbuseDetectionResult,
+  ConnectionStats,
+} from "./wallet/throttlingTypes";
+export { RateLimitRuleType } from "./wallet/throttlingTypes";
+
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
 export { resolveNetwork } from "./network/resolveNetwork";
@@ -210,6 +234,17 @@ export type {
   RecoveryReplacementSigner,
 } from "./account/keyRotation";
 export {
+  recordKeyRotation,
+  getKeyRotationHistory,
+  detectSuspiciousRotationPattern,
+  clearKeyRotationAuditLog,
+} from "./account/keyRotationAudit";
+export type {
+  KeyRotationAuditEntry,
+  KeyRotationStatus,
+  GetKeyRotationHistoryOptions,
+} from "./account/keyRotationAudit";
+export {
   getAccountActivitySummary,
   clearAccountActivitySummaryCache,
   DEFAULT_ACTIVITY_SUMMARY_CACHE_TTL_MS,
@@ -221,6 +256,32 @@ export type {
   AccountActivitySummary,
   GetAccountActivitySummaryOptions,
 } from "./account/getAccountActivitySummary";
+
+// ─── Batch account operations (#514) ──────────────────────────────────────────
+export {
+  bulkCreateTrustlines,
+  bulkSendPayments,
+  bulkRotateKeys,
+  runBatchOperations,
+} from "./account/batchOperations";
+export type {
+  BatchOperation,
+  BatchRunner,
+  BatchOperationResult,
+  BatchOperationStatus,
+  BatchProgress,
+  BatchExecutorConfig,
+  BatchExecutionReport,
+  BulkTrustlineResult,
+  BulkCreateTrustlineOp,
+  BulkCreateTrustlinesInput,
+  BulkPaymentOp,
+  BulkSendPaymentsInput,
+  BulkPaymentResult,
+  BulkRotateKeyOp,
+  BulkRotateKeysInput,
+  BulkRotateKeyResult,
+} from "./account/batchOperations";
 
 // ─── Transaction validation ───────────────────────────────────────────────────
 export {
@@ -261,6 +322,13 @@ export type {
   MultiSigEnvelopeParams,
   MultiSigEnvelope,
 } from "./transaction/types";
+export {
+  verifyTransactionSignatures,
+} from "./transaction/witnessValidation";
+export type {
+  SignatureValidationResult,
+  WitnessValidationResult,
+} from "./transaction/witnessValidation";
 
 // ─── Transaction types ────────────────────────────────────────────────────────
 export type {
@@ -380,6 +448,27 @@ export type {
   WebhookPayload,
   WebhookEventDetails,
 } from "./transaction/webhooks";
+
+// ─── Payment notifications (fix.md) ───────────────────────────────────────────
+export {
+  registerPaymentWebhook,
+  unregisterPaymentWebhook,
+  listPaymentWebhooks,
+  clearPaymentWebhooks,
+  triggerPaymentNotifications,
+  dispatchPaymentNotification,
+  generatePaymentEventId,
+  isPaymentNotificationEvent,
+  PAYMENT_NOTIFICATION_EVENTS,
+} from "./transaction/paymentNotifications";
+export type {
+  PaymentNotificationEvent,
+  PaymentWebhookOptions,
+  PaymentWebhookPayload,
+  PaymentWebhookRegistration,
+  PaymentNotificationInput,
+  PaymentNotificationChannel,
+} from "./transaction/paymentNotifications";
 export {
   DEFAULT_PRICE_CACHE_TTL_MS,
   exportTransactionHistory,
@@ -533,6 +622,32 @@ export type {
   OnContractUpgrade,
   ContractVersionOptions,
 } from "./soroban/contractVersion";
+// ─── Contract metadata versioning & compatibility (fix.md) ────────────────────
+export {
+  computeContractMetadataFingerprint,
+  buildContractMetadataSnapshot,
+  checkContractMetadataCompatibility,
+  checkStaleContractMetadata,
+  applyContractMetadataMigration,
+  invalidateContractMetadataForIncompatibility,
+  invalidateCachedContractMetadata,
+} from "./soroban/contractMetadataCompatibility";
+export type {
+  ContractMetadataVersion,
+  ContractMetadataSnapshot,
+  ContractMetadataChange,
+  ContractMetadataChangeKind,
+  ContractMetadataCompatibilityStatus,
+  ContractMetadataCompatibilityReport,
+  ContractMetadataMigration,
+  ContractMetadataMigrationHook,
+  ContractMetadataMigrationResult,
+  BuildMetadataSnapshotInput,
+  CheckCompatibilityInput,
+  StaleMetadataCheckInput,
+  StaleMetadataCheckResult,
+  InvalidateMetadataInput,
+} from "./soroban/contractMetadataCompatibility";
 // ─── Contract error decoding (#391) ───────────────────────────────────────────
 export {
   decodeContractError,
@@ -557,8 +672,30 @@ export type {
   BuilderStateListener,
   BuilderStateUnsubscribe,
 } from "./soroban";
-export { invokeContract } from "./soroban/invokeContract";
+export {
+  invokeContract,
+} from "./soroban/invokeContract";
 export type { InvokeContractOptions } from "./soroban/invokeContract";
+export {
+  withExecutionPolicy,
+  cleanupAllExecutionPolicies,
+} from "./soroban/contractCallExecutionPolicy";
+export type {
+  ContractCallExecutionPolicy,
+  TimeoutRecoveryStrategy,
+} from "./soroban/contractCallExecutionPolicy";
+export {
+  recordContractInvocation,
+  queryContractAuditLog,
+  exportAuditLogAsJson,
+  exportAuditLogAsCsv,
+  clearContractAuditLog,
+} from "./soroban/contractAuditTrail";
+export type {
+  ContractAuditEntry,
+  ContractAuditFilter,
+  ContractAuditStatus,
+} from "./soroban/contractAuditTrail";
 export { buildContractDeploy } from "./soroban/deployContract";
 export {
   validateDeployConfig,
@@ -740,6 +877,30 @@ export type {
   Discrepancy,
   ReconcileOptions,
 } from "./account/reconcileBalances";
+
+// ─── Account attestation and credential management (#508) ─────────────────────
+export {
+  issueAttestation,
+  verifyAttestation,
+  revokeAttestation,
+  isAttestationRevoked,
+  clearAttestationState,
+} from "./account/attestationCore";
+export {
+  getAccountAttestations,
+  storeAccountAttestation,
+  removeAccountAttestation,
+  clearAccountAttestations,
+} from "./account/attestationQueries";
+export type {
+  AccountAttestation,
+  CredentialMetadata,
+  GetAccountAttestationsFilter,
+  AttestationVerificationResult,
+  IssueAttestationOptions,
+  RevocationEntry,
+} from "./account/attestationTypes";
+
 export { SDK_VERSION } from "./shared/constants";
 export { createI18n, translateMessage, localizeError, DEFAULT_LOCALE, EN_TRANSLATIONS, ES_TRANSLATIONS } from "./shared/i18n";
 export type { I18n, I18nConfig, MessageKey, TranslationCatalog, TranslationMap, LocalizedError, SupportedLocale } from "./shared/i18n";
@@ -993,44 +1154,43 @@ export type {
   DependencyPlanResult,
 } from "./transaction/dependencyGraph";
 
-// ─── Transaction queue with priority scheduling (#501) ───────────────────────
-export { TransactionQueue } from "./transaction/transactionQueue";
-export type {
-  TransactionPriority,
-  QueueItemStatus,
-  QueuedTransaction,
-  QueueState,
-  BatchSubmissionResult,
-  RetryPolicy,
-  TransactionQueueConfig,
-} from "./transaction/transactionQueue";
-
-// ─── Privacy-preserving transaction mixing (#499) ───────────────────────────────
-export { TransactionMixingPool } from "./transaction/transactionMixing";
-export type {
-  PooledTransactionState,
-  PooledTransaction,
-  PoolParticipant,
-  MixingBatchResult,
-  PrivacyAnalysis,
-  MixingPoolConfig,
-} from "./transaction/transactionMixing";
-
-// ─── Account activity reporting and compliance analysis (#503) ────────────────
+// ─── Multi-party transaction consensus (#507) ────────────────────────────────
 export {
-  generateComplianceReport,
-  exportComplianceReport,
-} from "./account/complianceReporting";
+  createConsensusTransaction,
+  approveConsensusTransaction,
+  rejectConsensusTransaction,
+  getConsensusSummaryResult,
+  finalizeConsensusTransaction,
+  getConsensusTransaction,
+  removeConsensusTransaction,
+} from "./transaction/consensusCore";
 export type {
-  TransactionCategory,
-  ComplianceFramework,
-  NormalizedActivity,
-  ComplianceReport,
-  FlaggedActivity,
-  ComplianceSummary,
-  ComplianceReportOptions,
-  ComplianceRule,
-} from "./account/complianceReporting";
+  ConsensusState,
+  ConsensusParticipant,
+  ApprovalDecision,
+  ConsensusTransactionConfig,
+  ConsensusTransaction,
+  ConsensusSummary,
+  CreateConsensusOptions,
+} from "./transaction/consensusTypes";
+
+// ─── Transaction XDR encoding optimization (#505) ───────────────────────────
+export {
+  encodeTransaction,
+  decodeTransaction,
+  registerBasePayload,
+  clearPayloadCache,
+  getPayloadCacheStats,
+} from "./transaction/xdrEncodingCore";
+export type {
+  EncodedTransaction,
+  EncodingMetadata,
+  EncodingStrategy,
+  EncodingConfig,
+  EncodingResult,
+  DecodingResult,
+  TransactionDelta,
+} from "./transaction/xdrEncodingTypes";
 
 // ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
 export {

@@ -291,6 +291,27 @@ export {
   dispatchTransactionEvent,
   verifySignature,
 } from "./webhooks";
+
+// ─── Payment notifications (#fix.md) ──────────────────────────────────────────
+export {
+  registerPaymentWebhook,
+  unregisterPaymentWebhook,
+  listPaymentWebhooks,
+  clearPaymentWebhooks,
+  triggerPaymentNotifications,
+  dispatchPaymentNotification,
+  generatePaymentEventId,
+  isPaymentNotificationEvent,
+  PAYMENT_NOTIFICATION_EVENTS,
+} from "./paymentNotifications";
+export type {
+  PaymentNotificationEvent,
+  PaymentWebhookOptions,
+  PaymentWebhookPayload,
+  PaymentWebhookRegistration,
+  PaymentNotificationInput,
+  PaymentNotificationChannel,
+} from "./paymentNotifications";
 export type {
   WebhookEventType,
   TransactionWebhookEvent,
@@ -302,6 +323,24 @@ export type {
 
 // ─── Fee-bump transactions (#398) ─────────────────────────────────────────────
 export { buildFeeBumpTransaction } from "./feeBumpTransaction";
+
+// ─── Escrow transactions ───────────────────────────────────────────────────────
+export {
+  buildEscrowTransaction,
+  validateEscrow,
+  validateEscrowAction,
+  createEscrowRelease,
+  createEscrowRefund,
+  createEscrowDispute,
+  isEscrowExpired,
+} from "./escrow";
+export type {
+  EscrowAction,
+  EscrowState,
+  EscrowTiming,
+  EscrowParams,
+  EscrowValidation,
+} from "./escrow";
 
 // ─── Asset pair trading logic (#209) ───────────────────────────────────────────
 export {
@@ -327,6 +366,14 @@ export type {
   MultiSigEnvelopeParams,
   MultiSigEnvelope,
 } from "./types";
+
+export {
+  verifyTransactionSignatures,
+} from "./witnessValidation";
+export type {
+  SignatureValidationResult,
+  WitnessValidationResult,
+} from "./witnessValidation";
 export {
   saveTransactionTemplate,
   loadTemplate,
@@ -506,25 +553,41 @@ export type {
   ExecutionPlan,
   DependencyPlanResult,
 } from "./dependencyGraph";
-// ─── Transaction queue with priority scheduling (#501) ───────────────────────
-export { TransactionQueue } from "./transactionQueue";
-export type {
-  TransactionPriority,
-  QueueItemStatus,
-  QueuedTransaction,
-  QueueState,
-  BatchSubmissionResult,
-  RetryPolicy,
-  TransactionQueueConfig,
-} from "./transactionQueue";
 
-// ─── Privacy-preserving transaction mixing (#499) ───────────────────────────────
-export { TransactionMixingPool } from "./transactionMixing";
+// ─── Multi-party transaction consensus (#507) ────────────────────────────────
+export {
+  createConsensusTransaction,
+  approveConsensusTransaction,
+  rejectConsensusTransaction,
+  getConsensusSummaryResult,
+  finalizeConsensusTransaction,
+  getConsensusTransaction,
+  removeConsensusTransaction,
+} from "./consensusCore";
 export type {
-  PooledTransactionState,
-  PooledTransaction,
-  PoolParticipant,
-  MixingBatchResult,
-  PrivacyAnalysis,
-  MixingPoolConfig,
-} from "./transactionMixing";
+  ConsensusState,
+  ConsensusParticipant,
+  ApprovalDecision,
+  ConsensusTransactionConfig,
+  ConsensusTransaction,
+  ConsensusSummary,
+  CreateConsensusOptions,
+} from "./consensusTypes";
+
+// ─── Transaction XDR encoding optimization (#505) ───────────────────────────
+export {
+  encodeTransaction,
+  decodeTransaction,
+  registerBasePayload,
+  clearPayloadCache,
+  getPayloadCacheStats,
+} from "./xdrEncodingCore";
+export type {
+  EncodedTransaction,
+  EncodingMetadata,
+  EncodingStrategy,
+  EncodingConfig,
+  EncodingResult,
+  DecodingResult,
+  TransactionDelta,
+} from "./xdrEncodingTypes";

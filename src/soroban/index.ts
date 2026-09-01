@@ -77,6 +77,31 @@ export type {
   ContractVersionOptions,
 } from "./contractVersion";
 export {
+  computeContractMetadataFingerprint,
+  buildContractMetadataSnapshot,
+  checkContractMetadataCompatibility,
+  checkStaleContractMetadata,
+  applyContractMetadataMigration,
+  invalidateContractMetadataForIncompatibility,
+  invalidateCachedContractMetadata,
+} from "./contractMetadataCompatibility";
+export type {
+  ContractMetadataVersion,
+  ContractMetadataSnapshot,
+  ContractMetadataChange,
+  ContractMetadataChangeKind,
+  ContractMetadataCompatibilityStatus,
+  ContractMetadataCompatibilityReport,
+  ContractMetadataMigration,
+  ContractMetadataMigrationHook,
+  ContractMetadataMigrationResult,
+  BuildMetadataSnapshotInput,
+  CheckCompatibilityInput,
+  StaleMetadataCheckInput,
+  StaleMetadataCheckResult,
+  InvalidateMetadataInput,
+} from "./contractMetadataCompatibility";
+export {
   decodeContractError,
   DEFAULT_CONTRACT_ERROR_MAP,
   FACTORY_CONTRACT_ERRORS,
@@ -143,6 +168,29 @@ export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
 export { getNftMetadata, clearNftMetadataCache } from "./nftMetadata";
 export type { NftMetadata, NftMetadataOptions } from "./nftMetadata";
 export type { BuildContractDeployOptions } from "./deployContract";
+// Event archival exports
+export {
+  EventArchivalManager,
+  InMemoryEventArchiveStorage,
+  queryContractEventArchive,
+  calculateArchivedEventRate,
+  getArchivedEventTimeSeries,
+} from "./eventArchival";
+export type {
+  EventArchiveStorage,
+  ArchivedContractEvent,
+  EventArchiveQuery,
+  ArchiveQueryResult,
+  PaginationInfo,
+  TimeSeriesBucket,
+  EventTypeCount,
+  EventAggregation,
+  EventArchivalOptions,
+  EventArchivalSubscription,
+  ArchivalStats,
+  StorageStats,
+} from "./eventArchival";
+
 export type {
   ContractEvent,
   EventFilterPredicate,
@@ -516,6 +564,23 @@ export type {
   SnapshotQuery,
 } from "./contractStateHistory";
 
+// ─── Contract state optimization (#514) ───────────────────────────────────────
+export {
+  compressContractState,
+  decompressContractState,
+  measureContractState,
+  benchmarkContractState,
+} from "./contractStateOptimization";
+export type {
+  StateEncoding,
+  StateCompression,
+  ContractStateOptimizeOptions,
+  ContractStateMetadata,
+  OptimizedContractState,
+  ContractStateSizeReport,
+  CompressionBenchmark,
+} from "./contractStateOptimization";
+
 export {
   MultiSigContractExecution,
   createMultiSigContractExecution,
@@ -530,14 +595,23 @@ export type {
 } from "./multiSigExecution";
 
 export {
-  calculateStorageRent,
-  renewContractStorage,
-  renewMultipleContractStorage,
-} from "./storageExpiration";
+  withExecutionPolicy,
+  cleanupAllExecutionPolicies,
+} from "./contractCallExecutionPolicy";
 export type {
-  StorageRentEstimate,
-  StorageEntryExpiration,
-  StorageRenewalOptions,
-  StorageRenewalOperation,
-  StorageExpirationConfig,
-} from "./storageExpiration";
+  ContractCallExecutionPolicy,
+  TimeoutRecoveryStrategy,
+} from "./contractCallExecutionPolicy";
+
+export {
+  recordContractInvocation,
+  queryContractAuditLog,
+  exportAuditLogAsJson,
+  exportAuditLogAsCsv,
+  clearContractAuditLog,
+} from "./contractAuditTrail";
+export type {
+  ContractAuditEntry,
+  ContractAuditFilter,
+  ContractAuditStatus,
+} from "./contractAuditTrail";

@@ -20,6 +20,17 @@ export {
   isValidStellarPublicKey,
 } from "./keyRotation";
 export {
+  recordKeyRotation,
+  getKeyRotationHistory,
+  detectSuspiciousRotationPattern,
+  clearKeyRotationAuditLog,
+} from "./keyRotationAudit";
+export type {
+  KeyRotationAuditEntry,
+  KeyRotationStatus,
+  GetKeyRotationHistoryOptions,
+} from "./keyRotationAudit";
+export {
   getAccountActivitySummary,
   clearAccountActivitySummaryCache,
   DEFAULT_ACTIVITY_SUMMARY_CACHE_TTL_MS,
@@ -83,21 +94,31 @@ export type {
   BalanceForecastResult,
 } from "./balanceForecast";
 
-// ─── Account activity reporting and compliance analysis (#503) ────────────────
+// ─── Batch account operations (#514) ─────────────────────────────────────────
 export {
-  generateComplianceReport,
-  exportComplianceReport,
-} from "./complianceReporting";
+  bulkCreateTrustlines,
+  bulkSendPayments,
+  bulkRotateKeys,
+  runBatchOperations,
+} from "./batchOperations";
 export type {
-  TransactionCategory,
-  ComplianceFramework,
-  NormalizedActivity,
-  ComplianceReport,
-  FlaggedActivity,
-  ComplianceSummary,
-  ComplianceReportOptions,
-  ComplianceRule,
-} from "./complianceReporting";
+  BatchOperation,
+  BatchRunner,
+  BatchOperationResult,
+  BatchOperationStatus,
+  BatchProgress,
+  BatchExecutorConfig,
+  BatchExecutionReport,
+  BulkTrustlineResult,
+  BulkCreateTrustlineOp,
+  BulkCreateTrustlinesInput,
+  BulkPaymentOp,
+  BulkSendPaymentsInput,
+  BulkPaymentResult,
+  BulkRotateKeyOp,
+  BulkRotateKeysInput,
+  BulkRotateKeyResult,
+} from "./batchOperations";
 
 // ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
 export { aggregatePortfolio, assetIdentifier } from "./portfolioAggregation";
@@ -112,3 +133,26 @@ export type {
   DuplicateSource,
   AggregatePortfolioOptions,
 } from "./portfolioAggregation";
+
+// ─── Account attestation and credential management (#508) ─────────────────────
+export {
+  issueAttestation,
+  verifyAttestation,
+  revokeAttestation,
+  isAttestationRevoked,
+  clearAttestationState,
+} from "./attestationCore";
+export {
+  getAccountAttestations,
+  storeAccountAttestation,
+  removeAccountAttestation,
+  clearAccountAttestations,
+} from "./attestationQueries";
+export type {
+  AccountAttestation,
+  CredentialMetadata,
+  GetAccountAttestationsFilter,
+  AttestationVerificationResult,
+  IssueAttestationOptions,
+  RevocationEntry,
+} from "./attestationTypes";
