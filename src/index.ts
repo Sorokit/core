@@ -820,6 +820,20 @@ export type {
   SorobanPollConfig,
 } from "./soroban/types";
 
+// ─── Storage expiration tracking (#502) ──────────────────────────────────────
+export {
+  calculateStorageRent,
+  renewContractStorage,
+  renewMultipleContractStorage,
+} from "./soroban/storageExpiration";
+export type {
+  StorageRentEstimate,
+  StorageEntryExpiration,
+  StorageRenewalOptions,
+  StorageRenewalOperation,
+  StorageExpirationConfig,
+} from "./soroban/storageExpiration";
+
 // ─── Response system ──────────────────────────────────────────────────────────
 
 // ─── Transaction scheduler (#453) ────────────────────────────────────────────
