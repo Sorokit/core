@@ -623,3 +623,42 @@ export type {
   ContractAuditFilter,
   ContractAuditStatus,
 } from "./contractAuditTrail";
+
+// ─── Contract dependency resolution (#498) ─────────────────────────────────────
+export {
+  ContractDependencyResolver,
+  createDependencyResolver,
+  getDefaultResolver,
+  parseVersionConstraint,
+  satisfiesVersion,
+} from "./contractDependencyResolver";
+export type {
+  ContractDependency,
+  ContractMetadata,
+  DependencyNode,
+  DependencyGraph,
+  VersionConflict,
+  ResolutionResult,
+  VersionConstraint,
+  DependencyResolverConfig,
+} from "./contractDependencyResolver";
+
+// ─── Contract storage migration (#519) ────────────────────────────────────────
+export {
+  StorageMigrationManager,
+  createStorageMigrationManager,
+  getDefaultStorageMigrationManager,
+  registerStorageMigration,
+  applyStorageMigration,
+  rollbackStorageMigration,
+  getStorageMigrationStatus,
+  listStorageMigrations,
+} from "./storageMigration";
+export type {
+  StorageVersion,
+  StorageMigration,
+  MigrationStatus,
+  MigrationResult,
+  MigrationRegistry,
+  MigrationConfig,
+} from "./storageMigration";
