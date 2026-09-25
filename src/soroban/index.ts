@@ -623,3 +623,53 @@ export type {
   ContractAuditFilter,
   ContractAuditStatus,
 } from "./contractAuditTrail";
+
+// ─── SAC Token Helpers (#580) ──────────────────────────────────────────────────
+export {
+  getSacBalance,
+  buildSacTransfer,
+  buildSacApprove,
+} from "./sacHelpers";
+
+// ─── Multi-Contract Sequence Executor (#581) ───────────────────────────────────
+export {
+  ContractSequencer,
+  executeSequence,
+} from "./contractSequencer";
+export type {
+  ContractSequenceStep,
+  StepExecutionResult,
+  SequenceExecutionResult,
+  SequenceExecutionConfig,
+  DependencyValidationResult,
+  DependencyErrorType,
+} from "./contractSequencer";
+
+// ─── Resource and Fee Estimation Explainer (#582) ───────────────────────────────
+export {
+  explainContractFees,
+  compareFeeExplanations,
+} from "./feeExplainer";
+export type {
+  FeeComponent,
+  ResourceMetrics,
+  FeeBreakdown,
+  FeeExplanation,
+} from "./feeExplainer";
+
+// ─── Contract Event Filter and Aggregation Engine (#583) ───────────────────────
+export {
+  EventAnalytics,
+  filterEvents,
+  groupEventsByTime,
+  countEventsByType,
+  aggregateEventMetrics,
+} from "./eventAnalytics";
+export type {
+  TimeInterval,
+  EventPredicate,
+  EventMetrics,
+  EventTypeDistribution,
+  TimeGroupedEvents,
+  TimeGroupedMetrics,
+} from "./eventAnalytics";

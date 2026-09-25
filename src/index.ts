@@ -1126,6 +1126,57 @@ export type {
   StorageRecommendation,
   StorageAnalysisReport,
 } from "./soroban/storageAnalysis";
+
+// ─── SAC Token Helpers (#580) ──────────────────────────────────────────────────
+export {
+  getSacBalance,
+  buildSacTransfer,
+  buildSacApprove,
+} from "./soroban/sacHelpers";
+
+// ─── Multi-Contract Sequence Executor (#581) ───────────────────────────────────
+export {
+  ContractSequencer,
+  executeSequence,
+} from "./soroban/contractSequencer";
+export type {
+  ContractSequenceStep,
+  StepExecutionResult,
+  SequenceExecutionResult,
+  SequenceExecutionConfig,
+  DependencyValidationResult,
+  DependencyErrorType,
+} from "./soroban/contractSequencer";
+
+// ─── Resource and Fee Estimation Explainer (#582) ───────────────────────────────
+export {
+  explainContractFees,
+  compareFeeExplanations,
+} from "./soroban/feeExplainer";
+export type {
+  FeeComponent,
+  ResourceMetrics,
+  FeeBreakdown,
+  FeeExplanation,
+} from "./soroban/feeExplainer";
+
+// ─── Contract Event Filter and Aggregation Engine (#583) ───────────────────────
+export {
+  EventAnalytics,
+  filterEvents,
+  groupEventsByTime,
+  countEventsByType,
+  aggregateEventMetrics,
+} from "./soroban/eventAnalytics";
+export type {
+  TimeInterval,
+  EventPredicate,
+  EventMetrics,
+  EventTypeDistribution,
+  TimeGroupedEvents,
+  TimeGroupedMetrics,
+} from "./soroban/eventAnalytics";
+
 export { CongestionMonitor, createCongestionMonitor } from "./network/congestionMonitor";
 export type {
   CongestionSample,
