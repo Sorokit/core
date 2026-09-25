@@ -152,3 +152,20 @@ export type {
   CongestionLevel,
   CongestionSnapshot,
 } from "./congestionMonitor";
+
+// ─── Stellar federation resolution (#517) ───────────────────────────────────────
+export {
+  FederationResolver,
+  createFederationResolver,
+  getDefaultFederationResolver,
+  resolveAddress,
+  parseFederationAddress,
+  clearFederationCache,
+  verifyIdentity,
+} from "./federationResolver";
+export type {
+  FederationAddress,
+  FederationResponse,
+  ResolvedFederationAddress,
+  FederationResolverConfig,
+} from "./federationResolver";

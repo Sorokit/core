@@ -645,3 +645,27 @@ export type {
   DecodingResult,
   TransactionDelta,
 } from "./xdrEncodingTypes";
+
+// ─── Transaction draft versioning (#518) ───────────────────────────────────────
+export {
+  DraftVersionManager,
+  createDraftVersionManager,
+  getDefaultDraftVersionManager,
+  createDraftVersion,
+  getDraftVersion,
+  getCurrentDraftVersion,
+  listDraftVersions,
+  compareDraftVersions,
+  revertDraft,
+  deleteDraft,
+  validateDraftVersion,
+} from "./draftVersioning";
+export type {
+  DraftVersion,
+  DraftMetadata,
+  DraftVersionDiff,
+  OperationDiff,
+  MetadataChange,
+  DraftVersionStore,
+  DraftVersioningConfig,
+} from "./draftVersioning";

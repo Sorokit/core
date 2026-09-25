@@ -782,6 +782,43 @@ export type {
   ContractAuditFilter,
   ContractAuditStatus,
 } from "./soroban/contractAuditTrail";
+// ─── Contract dependency resolution (#498) ─────────────────────────────────────
+export {
+  ContractDependencyResolver,
+  createDependencyResolver,
+  getDefaultResolver,
+  parseVersionConstraint,
+  satisfiesVersion,
+} from "./soroban/contractDependencyResolver";
+export type {
+  ContractDependency,
+  ContractMetadata,
+  DependencyNode,
+  DependencyGraph,
+  VersionConflict,
+  ResolutionResult,
+  VersionConstraint,
+  DependencyResolverConfig,
+} from "./soroban/contractDependencyResolver";
+// ─── Contract storage migration (#519) ────────────────────────────────────────
+export {
+  StorageMigrationManager,
+  createStorageMigrationManager,
+  getDefaultStorageMigrationManager,
+  registerStorageMigration,
+  applyStorageMigration,
+  rollbackStorageMigration,
+  getStorageMigrationStatus,
+  listStorageMigrations,
+} from "./soroban/storageMigration";
+export type {
+  StorageVersion,
+  StorageMigration,
+  MigrationStatus,
+  MigrationResult,
+  MigrationRegistry,
+  MigrationConfig,
+} from "./soroban/storageMigration";
 export { buildContractDeploy } from "./soroban/deployContract";
 export {
   validateDeployConfig,
@@ -1274,6 +1311,29 @@ export type {
   DecodingResult,
   TransactionDelta,
 } from "./transaction/xdrEncodingTypes";
+// ─── Transaction draft versioning (#518) ───────────────────────────────────────
+export {
+  DraftVersionManager,
+  createDraftVersionManager,
+  getDefaultDraftVersionManager,
+  createDraftVersion,
+  getDraftVersion,
+  getCurrentDraftVersion,
+  listDraftVersions,
+  compareDraftVersions,
+  revertDraft,
+  deleteDraft,
+  validateDraftVersion,
+} from "./transaction/draftVersioning";
+export type {
+  DraftVersion,
+  DraftMetadata,
+  DraftVersionDiff,
+  OperationDiff,
+  MetadataChange,
+  DraftVersionStore,
+  DraftVersioningConfig,
+} from "./transaction/draftVersioning";
 
 // ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
 export {
