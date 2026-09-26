@@ -2,12 +2,14 @@ import { Horizon, TransactionBuilder, Keypair, FeeBumpTransaction, StrKey } from
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import {
+  checkMainnetSafety,
   isNetworkConnectivityError,
   isTimeoutError,
   isXdrInvalidError,
   retryWithBackoff,
   toMessage,
 } from "../shared";
+import type { MainnetSafetyOptions, SorokitLogger } from "../shared";
 import type { TransactionResult } from "./types";
 import { dispatchTransactionEvent } from "./webhooks";
 import type { SorokitCache } from "../shared/cache";
@@ -164,7 +166,7 @@ export async function submitTransaction(
   networkPassphrase: string,
   signedXdr: string,
   cache?: SorokitCache,
-  options?: { signal?: AbortSignal | undefined },
+  options?: MainnetSafetyOptions & { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<TransactionResult>> {
   if (isXdrInvalidError(signedXdr)) {
     return err(
@@ -172,6 +174,11 @@ export async function submitTransaction(
       "Transaction submission failed because the signed XDR is malformed.",
       signedXdr,
     );
+  }
+
+  const safetyCheck = checkMainnetSafety(signedXdr, networkPassphrase, options);
+  if (safetyCheck.status === "error") {
+    return safetyCheck;
   }
 
   let txHash: string | undefined;

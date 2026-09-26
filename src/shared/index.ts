@@ -38,3 +38,4 @@ export {
   MAX_STROOPS,
   MAX_AMOUNT,
 } from "./amountValidation";
+export * from "./mainnetSafety";

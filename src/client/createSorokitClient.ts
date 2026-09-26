@@ -94,6 +94,7 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
 import { wrapCache } from "../shared/cache";
+import type { MainnetSafetyOptions } from "../shared/mainnetSafety";
 import type { SorokitCache } from "../shared/cache";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ErrorHandler, ErrorContext } from "../shared/errors";
@@ -436,7 +437,12 @@ export interface SorokitClient {
     /** Submit a signed transaction XDR */
     submit(
       signedXdr: string,
-      timeoutMs?: number,
+      options?: number | (MainnetSafetyOptions & { timeoutMs?: number }),
+    ): Promise<SorokitResult<TransactionResult>>;
+    /** Alias for submit; accepts the same Mainnet safety options. */
+    submitTransaction(
+      signedXdr: string,
+      options?: number | (MainnetSafetyOptions & { timeoutMs?: number }),
     ): Promise<SorokitResult<TransactionResult>>;
     /** Fetch the status of a transaction by hash */
     getStatus(
@@ -525,6 +531,7 @@ export interface SorokitClient {
       signedXdr: string,
       pollConfig?: SorobanPollConfig,
       timeoutMs?: number,
+      safetyOptions?: MainnetSafetyOptions,
     ): Promise<SorokitResult<string>>;
     /**
      * Full invoke pipeline: prepare → sign → execute.
@@ -536,6 +543,7 @@ export interface SorokitClient {
       signFn: (xdr: string) => Promise<string>,
       pollConfig?: SorobanPollConfig,
       timeoutMs?: number,
+      safetyOptions?: MainnetSafetyOptions,
     ): Promise<SorokitResult<string>>;
     /** Read contract data — no signing required */
     read(
@@ -814,6 +822,13 @@ export function createSorokitClient(
       ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
     });
   const logger = createTracedLogger(baseLogger, { traceId });
+  const safetyLogger = createTracedLogger(
+    config.logger ?? createLogger({
+      logLevel: "warn",
+      ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
+    }),
+    { traceId },
+  );
 
   // Set up distributed tracing with correlation IDs (#212).
   const traceContext = createTraceContext(traceId);
@@ -1397,8 +1412,12 @@ export function createSorokitClient(
         logger.debug("transaction.compose", { sourcePublicKey });
         return compose(sourcePublicKey, networkConfig, options);
       },
-      submit: async (signedXdr, timeoutMs) =>
-        guard("tx_submit", timeoutMs, (signal) =>
+      submit: async (signedXdr, optionsOrTimeoutMs) => {
+        const submitOptions = typeof optionsOrTimeoutMs === "number"
+          ? { timeoutMs: optionsOrTimeoutMs }
+          : optionsOrTimeoutMs;
+        const timeoutMs = submitOptions?.timeoutMs;
+        return guard("tx_submit", timeoutMs, (signal) =>
           withErrorHandling(
             errorHandler,
             { functionName: "transaction.submit" },
@@ -1410,11 +1429,13 @@ export function createSorokitClient(
                 networkPassphrase,
                 signedXdr,
                 cache,
-                { signal },
+                { ...submitOptions, signal, logger: submitOptions?.logger ?? safetyLogger },
               );
             },
           ).then(applyTx),
-        ),
+        );
+      },
+      submitTransaction: (signedXdr, options) => client.transaction.submit(signedXdr, options),
       getStatus: (hash, timeoutMs) =>
         guard("tx_status", timeoutMs, (signal) =>
           deduplicator.deduplicate(
@@ -1582,7 +1603,7 @@ export function createSorokitClient(
               ),
           ).then(applyTx),
         ),
-      execute: (signedXdr, pollConfig, timeoutMs) =>
+      execute: (signedXdr, pollConfig, timeoutMs, safetyOptions) =>
         guard("soroban_execute", timeoutMs, () =>
           withErrorHandling(
             errorHandler,
@@ -1595,10 +1616,11 @@ export function createSorokitClient(
                 pollConfig ?? defaultPollConfig,
                 logger,
                 contractStateTracker,
+                { ...safetyOptions, logger: safetyOptions?.logger ?? safetyLogger },
               ),
           ).then(applyTx),
         ),
-      invoke: (params, signFn, pollConfig, timeoutMs) =>
+      invoke: (params, signFn, pollConfig, timeoutMs, safetyOptions) =>
         guard("soroban_invoke", timeoutMs, () =>
           withErrorHandling(
             errorHandler,
@@ -1626,6 +1648,7 @@ export function createSorokitClient(
                     signFn,
                     pollConfig ?? defaultPollConfig,
                     logger,
+                    { ...safetyOptions, logger: safetyOptions?.logger ?? safetyLogger },
                   ),
               ),
           ).then(applyTx),

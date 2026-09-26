@@ -91,6 +91,7 @@ export enum SorokitErrorCode {
   OPERATION_TIMEOUT = "OPERATION_TIMEOUT",
   INVALID_CONFIG = "INVALID_CONFIG",
   INVALID_ADDRESS = "INVALID_ADDRESS",
+  MAINNET_SAFETY_LIMIT = "MAINNET_SAFETY_LIMIT",
   VALIDATION = "VALIDATION",
   INTERNAL = "INTERNAL",
   UNKNOWN = "UNKNOWN",
@@ -132,7 +133,8 @@ export function sanitizeErrorContext(
 export function classifyError(code: SorokitErrorCode): SorokitErrorCategory {
   if (
     code === SorokitErrorCode.INVALID_CONFIG ||
-    code === SorokitErrorCode.INVALID_ADDRESS
+    code === SorokitErrorCode.INVALID_ADDRESS ||
+    code === SorokitErrorCode.MAINNET_SAFETY_LIMIT
   ) {
     return SorokitErrorCategory.VALIDATION;
   }
