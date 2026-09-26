@@ -50,6 +50,7 @@ export interface BatchSubmissionResult {
   transactions: BatchTransactionStatus[];
   rollbackInstructions?: string[];
   atomic: boolean;
+  rollbackOnFailure: boolean;
 }
 
 /**
@@ -104,6 +105,7 @@ export function submitBatch(
     status: "all_success",
     transactions: batchStatus,
     atomic,
+    rollbackOnFailure,
   };
 
   return ok(result);
@@ -137,7 +139,15 @@ export function getTransactionStatus(
     );
   }
 
-  return ok(batchResult.transactions[transactionIndex]);
+  const transaction = batchResult.transactions[transactionIndex];
+  if (!transaction) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Transaction index ${transactionIndex} out of range`,
+    );
+  }
+
+  return ok(transaction);
 }
 
 /**

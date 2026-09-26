@@ -44,23 +44,23 @@ export interface OptimizationSuggestion {
 
 const OPERATION_COSTS: Record<string, number> = {
   payment: 1,
-  createAccount: 2,
-  pathPaymentStrictReceive: 2,
-  pathPaymentStrictSend: 2,
-  manageSellOffer: 3,
-  manageBuyOffer: 3,
-  createPassiveSellOffer: 3,
-  setOptions: 1,
-  changeTrust: 1,
-  allowTrust: 1,
-  accountMerge: 1,
-  manageData: 1,
-  bumpSequence: 1,
-  invokeHostFunction: 10,
-  claimClaimableBalance: 1,
-  createClaimableBalance: 2,
-  liquidityPoolDeposit: 2,
-  liquidityPoolWithdraw: 2,
+  createaccount: 2,
+  pathpaymentstrictreceive: 2,
+  pathpaymentstrictsend: 2,
+  manageselloffer: 3,
+  managebuyoffer: 3,
+  createpassiveselloffer: 3,
+  setoptions: 1,
+  changetrust: 1,
+  allowtrust: 1,
+  accountmerge: 1,
+  managedata: 1,
+  bumpsequence: 1,
+  invokehostfunction: 10,
+  claimclaimablebalance: 1,
+  createclaimablebalance: 2,
+  liquiditypooldeposit: 2,
+  liquiditypoolwithdraw: 2,
 };
 
 /**
@@ -84,6 +84,8 @@ export function forecastTransactionCost(
   operationType: string,
   params?: Record<string, unknown>,
 ): SorokitResult<CostForecast> {
+  void params;
+
   if (!operationType || typeof operationType !== "string") {
     return err(
       SorokitErrorCode.VALIDATION,
@@ -151,9 +153,22 @@ export function compareCosts(
     });
   }
 
+  let cheapest = costs[0]?.operationType ?? "";
+  let mostExpensive = costs[0]?.operationType ?? "";
+  let minFee = BigInt(costs[0]?.estimatedFee ?? "0");
+  let maxFee = minFee;
   const fees = costs.map((c) => BigInt(c.estimatedFee));
-  const cheapest = costs[fees.indexOf(Math.min(...fees.map(Number)))].operationType;
-  const mostExpensive = costs[fees.indexOf(Math.max(...fees.map(Number)))].operationType;
+  costs.forEach((cost, index) => {
+    const fee = fees[index] ?? 0n;
+    if (fee < minFee) {
+      minFee = fee;
+      cheapest = cost.operationType;
+    }
+    if (fee > maxFee) {
+      maxFee = fee;
+      mostExpensive = cost.operationType;
+    }
+  });
   const avgFee =
     String(fees.reduce((a, b) => a + b, 0n) / BigInt(fees.length));
 
@@ -219,7 +234,7 @@ export function suggestOptimization(
     });
   }
 
-  if (normalizedType === "invokehost" || normalizedType === "invokehost") {
+  if (normalizedType === "invokehostfunction") {
     suggestions.push({
       suggestion: "Optimize contract invocation parameters to reduce resource usage",
       potentialSavings: String(parseInt(BASE_FEE) * 5),

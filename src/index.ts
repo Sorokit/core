@@ -385,7 +385,7 @@ export {
   analyzeBatchCost,
 } from "./transaction/costForecasting";
 export type {
-  CostForecast,
+  CostForecast as TransactionCostForecast,
   CostComparison,
   OptimizationSuggestion,
 } from "./transaction/costForecasting";
@@ -393,7 +393,7 @@ export type {
 // ─── Batch transaction submission (#589) ──────────────────────────────────────
 export {
   submitBatch,
-  getTransactionStatus,
+  getTransactionStatus as getBatchTransactionStatus,
   generateRollbackInstructions,
   wasAtomicExecuted,
   suggestRetryStrategy,

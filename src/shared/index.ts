@@ -40,4 +40,10 @@ export {
 } from "./amountValidation";
 export * from "./mainnetSafety";
 
-export * from './structuredLogging.js';
+export {
+  StructuredLogger,
+} from "./structuredLogging.js";
+export type {
+  LogConfig,
+  LogLevel as StructuredLogLevel,
+} from "./structuredLogging.js";
