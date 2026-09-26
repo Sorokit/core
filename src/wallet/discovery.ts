@@ -1,4 +1,5 @@
-import { SorokitResult } from '../shared/errors.js';
+import { err, ok, SorokitErrorCode } from "../shared/response";
+import type { SorokitResult } from "../shared/response";
 
 export interface WalletInfo {
     id: string;
@@ -39,8 +40,12 @@ export async function discoverAvailableWallets(): Promise<SorokitResult<WalletIn
             return 0;
         });
 
-        return { success: true, data: wallets };
-    } catch (e: any) {
-        return { success: false, error: e };
+        return ok(wallets);
+    } catch (cause) {
+        return err(
+            SorokitErrorCode.WALLET_NOT_FOUND,
+            cause instanceof Error ? cause.message : "Unable to discover wallets",
+            cause,
+        );
     }
 }

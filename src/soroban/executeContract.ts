@@ -8,6 +8,7 @@ import {
   sleep,
   toMessage,
 } from "../shared";
+import { checkMainnetSafety, type MainnetSafetyOptions } from "../shared/mainnetSafety";
 import type { SorokitLogger } from "../shared/logger";
 import {
   DEFAULT_POLL_MAX_ATTEMPTS,
@@ -97,6 +98,7 @@ export async function executeContract(
   pollConfig?: SorobanPollConfig,
   logger?: SorokitLogger,
   stateTracker?: ContractStateTracker,
+  safetyOptions?: MainnetSafetyOptions,
 ): Promise<SorokitResult<string>> {
   logger?.debug("soroban.execute", {
     operation: "soroban.execute",
@@ -113,6 +115,12 @@ export async function executeContract(
       signedXdr,
     );
   }
+
+  const safetyCheck = checkMainnetSafety(signedXdr, networkConfig.networkPassphrase, {
+    ...safetyOptions,
+    ...(safetyOptions?.logger ? {} : logger ? { logger } : {}),
+  });
+  if (safetyCheck.status === "error") return safetyCheck;
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   let hash: string;

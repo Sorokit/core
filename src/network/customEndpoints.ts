@@ -1,4 +1,5 @@
-import { SorokitResult } from '../shared/errors.js';
+import { err, ok, SorokitErrorCode } from "../shared/response";
+import type { SorokitResult } from "../shared/response";
 
 export interface EndpointConfig {
     url: string;
@@ -13,15 +14,16 @@ export interface NetworkConfig {
 export function createCustomEndpoint(config: EndpointConfig): SorokitResult<EndpointConfig> {
     try {
         const url = new URL(config.url);
-        return {
-            success: true,
-            data: {
-                url: url.toString(),
-                headers: config.headers || {},
-            }
-        };
-    } catch (e: any) {
-        return { success: false, error: e };
+        return ok({
+            url: url.toString(),
+            headers: config.headers || {},
+        });
+    } catch (cause) {
+        return err(
+            SorokitErrorCode.INVALID_CONFIG,
+            cause instanceof Error ? cause.message : "Invalid endpoint URL",
+            cause,
+        );
     }
 }
 

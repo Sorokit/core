@@ -101,6 +101,16 @@ describe("invokeContract", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
     );
   });
+  it("forwards explicit Mainnet confirmation to execution", async () => {
+    mockExecuteContract.mockResolvedValue({ status: "ok", data: "tx-hash" });
+    const safety = { bypassMainnetSafety: true, mainnetSafetyThresholdXlm: 500 };
+    await invokeContract(networkConfig.rpcUrl, networkConfig, networkConfig.horizonUrl,
+      params, async () => "signed-xdr", undefined, undefined, safety);
+    expect(mockExecuteContract).toHaveBeenCalledWith(networkConfig.rpcUrl,
+      networkConfig, "signed-xdr", undefined, undefined, undefined, safety);
+  });
+
 });

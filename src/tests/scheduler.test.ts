@@ -144,12 +144,12 @@ describe("transaction scheduler", () => {
       const createAt = Date.now();
       scheduleTransaction(payload, createAt + 1000, null, config);
 
-      vi.spyOn(Date, "now").mockReturnValue(createAt + 2000);
+      const dateSpy = vi.spyOn(Date, "now").mockReturnValue(createAt + 2000);
 
       const execute = vi.fn().mockResolvedValue(undefined);
       const count = await processDueSchedules(config, execute);
 
-      vi.restoreAllMocks();
+      dateSpy.mockRestore();
       expect(count).toBe(1);
       expect(execute).toHaveBeenCalledWith(payload);
     });
@@ -159,12 +159,12 @@ describe("transaction scheduler", () => {
       const createAt = Date.now();
       scheduleTransaction({ op: "recurring" }, createAt + 1000, 5000, config);
 
-      vi.spyOn(Date, "now").mockReturnValue(createAt + 2000);
+      const dateSpy = vi.spyOn(Date, "now").mockReturnValue(createAt + 2000);
 
       const execute = vi.fn().mockResolvedValue(undefined);
       await processDueSchedules(config, execute);
 
-      vi.restoreAllMocks();
+      dateSpy.mockRestore();
       const schedules = listSchedules(config, "pending");
       expect(schedules).toHaveLength(1);
       expect(schedules[0].failureCount).toBe(0);
@@ -175,14 +175,14 @@ describe("transaction scheduler", () => {
       const createAt = Date.now();
       scheduleTransaction({ op: "fail" }, createAt + 1000, null, config);
 
-      vi.spyOn(Date, "now").mockReturnValue(createAt + 2000);
+      const dateSpy = vi.spyOn(Date, "now").mockReturnValue(createAt + 2000);
 
       const execute = vi.fn().mockRejectedValue(new Error("boom"));
 
       await processDueSchedules(config, execute);
       await processDueSchedules(config, execute);
 
-      vi.restoreAllMocks();
+      dateSpy.mockRestore();
       const failed = listSchedules(config, "failed");
       expect(failed).toHaveLength(1);
       expect(failed[0].failureCount).toBe(2);

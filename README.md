@@ -127,6 +127,28 @@ if (tx.status === "ok") {
 
 ## API Reference
 
+The [hosted API reference](https://tochukwujustice.github.io/core/) is published by
+GitHub Actions after a successful deployment. It documents the public exports from
+`src/index.ts`, including parameter descriptions, return values, and examples.
+
+Generate and view it locally:
+
+```bash
+npm ci --legacy-peer-deps
+npm run docs
+```
+
+Open `docs/api/index.html` in a browser. Generated HTML is ignored by Git.
+
+The documentation workflow validates pull requests, and publishes on pushes to
+`main`, published releases, and manual runs. To enable hosting for this repository,
+select **Settings → Pages → Build and deployment → Source → GitHub Actions**,
+then run the workflow. The workflow also preserves generated HTML on `gh-pages`.
+Ensure the `github-pages` environment permits the branches and release tags you
+intend to deploy. For a fork, use
+`https://<owner>.github.io/<repository>/` and update the hosted link above.
+Documentation is only live after the workflow and GitHub Pages deployment succeed.
+
 ### `wallet`
 
 ```ts
@@ -639,3 +661,33 @@ for (const event of events) {
 Pass custom decoders as the second argument to support application-specific
 events. Custom decoders run first, so adding new built-in event types remains
 backward-compatible.
+
+### Mainnet transaction safety
+
+Mainnet submissions require explicit confirmation when native XLM exposure exceeds
+1,000 XLM (configurable). Both `client.transaction.submit` and its
+`submitTransaction` alias return `MAINNET_SAFETY_LIMIT` before contacting Horizon
+unless `bypassMainnetSafety` is exactly `true`:
+
+```ts
+const result = await client.transaction.submitTransaction(signedXdr, {
+  mainnetSafetyThresholdXlm: 1000,
+  bypassMainnetSafety: true, // Set only after reviewing the transaction.
+});
+```
+
+Warnings include the native amount, threshold, source account, operation count,
+and operation types whose exposure cannot be determined from XDR. Account merges,
+balance claims, liquidity pools, and contract calls require confirmation even when
+no large amount is visible in the envelope. Native offers and payment spend limits
+are counted with exact stroop arithmetic. Fees, reserve changes, and non-native
+asset valuations are outside this guard. Other networks are unaffected.
+
+Soroban submissions use the same guard. Pass safety options as the fourth argument
+to `client.soroban.execute`, or the fifth to `client.soroban.invoke`:
+
+```ts
+await client.soroban.execute(signedXdr, undefined, undefined, {
+  bypassMainnetSafety: true,
+});
+```

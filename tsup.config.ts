@@ -18,5 +18,5 @@ export default defineConfig({
   splitting: false,
   treeshake: true,
   minify: true,
-  external: ["vitest", "@stellar/stellar-sdk"],
+  external: ["vitest", "@stellar/stellar-sdk", "@walletconnect/sign-client"],
 });

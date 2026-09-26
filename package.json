@@ -61,6 +61,7 @@
     "bench": "vitest bench",
     "lint": "eslint src --ext .ts",
     "clean": "rimraf dist",
+    "docs": "typedoc",
     "validate:exports": "node scripts/validate-exports.js",
     "size:check": "node scripts/check-bundle-size.mjs"
   },
@@ -77,10 +78,14 @@
   "peerDependencies": {
     "@creit.tech/stellar-wallets-kit": ">=1.0.0",
     "@stellar/stellar-sdk": ">=13.3.0",
+    "@walletconnect/sign-client": ">=2.0.0",
     "vitest": ">=1.0.0"
   },
   "peerDependenciesMeta": {
     "@creit.tech/stellar-wallets-kit": {
+      "optional": true
+    },
+    "@walletconnect/sign-client": {
       "optional": true
     }
   },
@@ -96,6 +101,7 @@
     "msw": "^2.15.0",
     "rimraf": "^5.0.0",
     "tsup": "^8.0.0",
+    "typedoc": "^0.28.20",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   },

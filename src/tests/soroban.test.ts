@@ -173,7 +173,7 @@ const contractAbi: ContractAbi = {
   ],
 };
 
-const arg = {} as xdr.ScVal;
+const arg = xdr.ScVal.scvU32(1);
 
 function contractId(): string {
   return StrKey.encodeContract(Keypair.random().rawPublicKey());
@@ -470,6 +470,7 @@ describe("soroban contract metadata", () => {
       mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
       const res = await getContractMethods("https://rpc-evict.example.com", id, {
         now: () => 1_000,
+        capacity: 100,
       });
       expect(res.status).toBe("ok");
     }
@@ -2085,8 +2086,8 @@ describe("invokeBatchContracts (#104)", () => {
 
   it("returns error for all invocations when all fail", async () => {
     mockInvokeContract
-      .mockResolvedValueOnce(sorokitErr(SC.RPC_ERROR, "contract A failed"))
-      .mockResolvedValueOnce(sorokitErr(SC.RPC_ERROR, "contract B failed"));
+      .mockResolvedValueOnce(sorokitErr(SC.CONTRACT_INVOKE_FAILED, "contract A failed"))
+      .mockResolvedValueOnce(sorokitErr(SC.CONTRACT_INVOKE_FAILED, "contract B failed"));
 
     const results = await invokeBatchContracts(
       RPC,
@@ -2104,7 +2105,7 @@ describe("invokeBatchContracts (#104)", () => {
   it("handles mixed success and failure results", async () => {
     mockInvokeContract
       .mockResolvedValueOnce(sorokitOk("hash-a"))
-      .mockResolvedValueOnce(sorokitErr(SC.RPC_ERROR, "contract B failed"));
+      .mockResolvedValueOnce(sorokitErr(SC.CONTRACT_INVOKE_FAILED, "contract B failed"));
 
     const results = await invokeBatchContracts(
       RPC,

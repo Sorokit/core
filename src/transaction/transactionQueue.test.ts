@@ -329,8 +329,9 @@ describe("TransactionQueue", () => {
       queue.enqueue("tx1", mockEnvelopeXdr, "normal", ["tx2"]);
       const result = queue.enqueue("tx2", mockEnvelopeXdr, "normal", ["tx1"]);
 
-      // tx2 depends on tx1, but tx1 depends on tx2 - should still allow enqueue
-      expect(result.status).toBe("ok");
+      // Reject a cycle so neither transaction can become permanently blocked.
+      expect(result.status).toBe("error");
+      expect(queue.get("tx2")).toBeUndefined();
     });
 
     it("should handle many transactions", () => {

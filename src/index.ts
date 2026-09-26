@@ -385,7 +385,7 @@ export {
   analyzeBatchCost,
 } from "./transaction/costForecasting";
 export type {
-  CostForecast,
+  CostForecast as TransactionCostForecast,
   CostComparison,
   OptimizationSuggestion,
 } from "./transaction/costForecasting";
@@ -393,7 +393,7 @@ export type {
 // ─── Batch transaction submission (#589) ──────────────────────────────────────
 export {
   submitBatch,
-  getTransactionStatus,
+  getTransactionStatus as getBatchTransactionStatus,
   generateRollbackInstructions,
   wasAtomicExecuted,
   suggestRetryStrategy,
@@ -643,6 +643,14 @@ export type {
 } from "./transaction";
 // Standalone transaction functions for use without a client instance
 export { submitTransaction } from "./transaction/submitTransaction";
+export {
+  checkMainnetSafety,
+  extractTransactionTotalXlm,
+  isMainnetNetwork,
+  DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM,
+  MAINNET_NETWORK_PASSPHRASE,
+} from "./shared/mainnetSafety";
+export type { MainnetSafetyOptions } from "./shared/mainnetSafety";
 export { getTransactionStatus } from "./transaction/status";
 export { buildSetOptionsTransaction } from "./transaction/setOptions";
 export type { SetOptionsParams } from "./transaction/types";
