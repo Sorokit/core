@@ -6,7 +6,8 @@ export { signTransactionOffline } from "./signTransactionOffline";
 export { SigningRateLimiter } from "./signingRateLimiter";
 export type { SigningRateLimiterConfig, QueueState } from "./signingRateLimiter";
 export { createSigningChallenge, mergeSignatures } from "./signingDelegation";
-export { FreighterAdapter, XBullAdapter, LobstrAdapter } from "./adapters";
+export { FreighterAdapter, XBullAdapter, LobstrAdapter, HanaAdapter, AlbedoAdapter, RabetAdapter } from "./adapters";
+export type { RabetProvider } from "./adapters";
 export { WalletType } from "./types";
 export { generateDeviceFingerprint, evaluateDeviceTrust, DEFAULT_TRUST_THRESHOLD } from "./deviceTrust";
 export type { DeviceSignals, DeviceFingerprint, TrustHistoryEntry, TrustScoreOptions, TrustEvaluation } from "./deviceTrust";
@@ -102,6 +103,7 @@ const WALLET_FEATURE_MAP: Record<WalletType, WalletFeature[]> = {
   [WalletType.HANA]: [],
   [WalletType.RABET]: [],
   [WalletType.WALLETCONNECT]: ["multisig", "qr"],
+  [WalletType.ALBEDO]: [],
 };
 
 export type EnvelopeSignatureInput = string | xdr.DecoratedSignature;

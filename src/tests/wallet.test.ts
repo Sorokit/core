@@ -31,7 +31,7 @@ import {
   exportSigningHistory,
   type SigningRecord,
 } from "../wallet/signingHistory";
-import { FreighterAdapter, XBullAdapter, LobstrAdapter } from "../wallet/adapters";
+import { FreighterAdapter, XBullAdapter, LobstrAdapter, RabetAdapter } from "../wallet/adapters";
 import { WalletType } from "../wallet/types";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import { createSorokitClient } from "../client/createSorokitClient";
@@ -190,6 +190,109 @@ describe("wallet adapters", () => {
       expect(result.status).toBe("error");
       if (result.status === "error") {
         expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
+      }
+    });
+  });
+
+  describe("RabetAdapter", () => {
+    it("walletType is RABET", () => {
+      expect(new RabetAdapter(mockKit()).walletType).toBe(WalletType.RABET);
+    });
+
+    it("isAvailable() returns false in Node when un-mocked", () => {
+      expect(new RabetAdapter().isAvailable()).toBe(false);
+    });
+
+    it("connect() returns status error with WALLET_BROWSER_ONLY in Node when un-mocked", async () => {
+      const result = await new RabetAdapter().connect();
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
+      }
+    });
+
+    it("connect() succeeds and returns public key when provider resolves", async () => {
+      const mockProvider = {
+        connect: vi.fn().mockResolvedValue({ publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA" }),
+        sign: vi.fn(),
+      };
+      const adapter = new RabetAdapter(mockProvider);
+
+      const result = await adapter.connect();
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      }
+    });
+
+    it("connect() maps user rejection to WALLET_SIGN_REJECTED", async () => {
+      const mockProvider = {
+        connect: vi.fn().mockRejectedValue(new Error("User rejected the request")),
+        sign: vi.fn(),
+      };
+      const adapter = new RabetAdapter(mockProvider);
+
+      const result = await adapter.connect();
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
+      }
+    });
+
+    it("disconnect() returns status ok with undefined data", async () => {
+      const mockProvider = {
+        connect: vi.fn(),
+        disconnect: vi.fn().mockResolvedValue(undefined),
+        sign: vi.fn(),
+      };
+      const adapter = new RabetAdapter(mockProvider);
+      const result = await adapter.disconnect();
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBeUndefined();
+      }
+    });
+
+    it("signTransaction() returns signed XDR on success for testnet and mainnet", async () => {
+      const mockProvider = {
+        connect: vi.fn(),
+        sign: vi.fn().mockResolvedValue({ xdr: "signed-xdr-rabet" }),
+      };
+      const adapter = new RabetAdapter(mockProvider);
+
+      const resultTestnet = await adapter.signTransaction({
+        transactionXdr: "xdr-input",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      });
+      expect(resultTestnet.status).toBe("ok");
+      if (resultTestnet.status === "ok") {
+        expect(resultTestnet.data).toBe("signed-xdr-rabet");
+      }
+
+      const resultMainnet = await adapter.signTransaction({
+        transactionXdr: "xdr-input",
+        networkPassphrase: "Public Global Stellar Network ; September 2015",
+      });
+      expect(resultMainnet.status).toBe("ok");
+      if (resultMainnet.status === "ok") {
+        expect(resultMainnet.data).toBe("signed-xdr-rabet");
+      }
+    });
+
+    it("signTransaction() maps user rejection to WALLET_SIGN_REJECTED", async () => {
+      const mockProvider = {
+        connect: vi.fn(),
+        sign: vi.fn().mockRejectedValue(new Error("User cancelled transaction")),
+      };
+      const adapter = new RabetAdapter(mockProvider);
+
+      const result = await adapter.signTransaction({
+        transactionXdr: "xdr-input",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
       }
     });
   });
