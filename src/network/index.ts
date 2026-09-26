@@ -165,3 +165,5 @@ export type {
   EndpointFailoverOptions,
   EndpointHealthCheckResult,
 } from "./endpointFailover";
+
+export * from './customEndpoints.js';

@@ -648,3 +648,54 @@ export type {
 
 export { buildSetDataEntryTransaction, buildDeleteDataEntryTransaction } from "./dataEntry";
 export type { DataEntryTransactionOptions } from "./dataEntry";
+
+// ─── Transaction signing coordination (#586) ──────────────────────────────────
+export {
+  createSigningRequest,
+  addSignature,
+  isComplete,
+  getSigningStatus,
+} from "./signingCoordinator";
+export type {
+  SigningRequest,
+  SigningStatus,
+} from "./signingCoordinator";
+
+// ─── Time-locked transaction scheduling (#587) ────────────────────────────────
+export {
+  buildTimeLockTransaction,
+  getTimeLockedTransactionStatus,
+  validateTimeBounds,
+} from "./timeLocks";
+export type {
+  TimeBounds,
+  TimeLockExecutionStatus,
+} from "./timeLocks";
+
+// ─── Transaction cost forecasting (#588) ──────────────────────────────────────
+export {
+  forecastTransactionCost,
+  compareCosts,
+  suggestOptimization,
+  analyzeBatchCost,
+} from "./costForecasting";
+export type {
+  CostForecast,
+  CostComparison,
+  OptimizationSuggestion,
+} from "./costForecasting";
+
+// ─── Batch transaction submission (#589) ──────────────────────────────────────
+export {
+  submitBatch,
+  getTransactionStatus,
+  generateRollbackInstructions,
+  wasAtomicExecuted,
+  suggestRetryStrategy,
+} from "./batchSubmitter";
+export type {
+  TransactionBatchStatus,
+  BatchTransactionStatus,
+  BatchSubmissionOptions,
+  BatchSubmissionResult,
+} from "./batchSubmitter";

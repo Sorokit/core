@@ -39,3 +39,5 @@ export {
   MAX_AMOUNT,
 } from "./amountValidation";
 export * from "./mainnetSafety";
+
+export * from './structuredLogging.js';
