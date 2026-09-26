@@ -6,7 +6,10 @@
 /**
  * Encoding strategy for XDR payloads.
  */
-export type EncodingStrategy = "auto" | "none" | "deflate" | "delta";
+export const EncodingStrategy = {
+  AUTO: "auto", NONE: "none", DEFLATE: "deflate", DELTA: "delta",
+} as const;
+export type EncodingStrategy = typeof EncodingStrategy[keyof typeof EncodingStrategy];
 
 /**
  * Metadata describing how a payload was encoded.

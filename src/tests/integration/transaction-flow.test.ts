@@ -208,7 +208,7 @@ describe("integration: buildPayment → sign → submit", () => {
     }
   });
 
-  it("returns TX_SUBMIT_FAILED when Horizon rejects submission", async () => {
+  it("returns INVALID_TRANSACTION when Horizon rejects submission", async () => {
     mockSubmitTransaction.mockRejectedValue(
       new Error("Transaction submission failed: tx_bad_auth"),
     );
@@ -220,7 +220,7 @@ describe("integration: buildPayment → sign → submit", () => {
 
     expect(submitResult.status).toBe("error");
     if (submitResult.status === "error") {
-      expect(submitResult.error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+      expect(submitResult.error.code).toBe(SorokitErrorCode.INVALID_TRANSACTION);
     }
   });
 

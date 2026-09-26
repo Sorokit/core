@@ -180,7 +180,7 @@ describe("subscribePrices", () => {
     const onProviderChange = vi.fn();
 
     // Make p1 always fail to connect
-    p1.failNextConnect = true;
+    vi.spyOn(p1, "connect").mockRejectedValue(new Error("primary unavailable"));
 
     subscribePrices(["XLM"], vi.fn(), {
       providers: [p1, p2],
@@ -292,7 +292,7 @@ describe("subscribePrices property-based", () => {
         fc.array(
           fc.record({
             asset: fc.constantFrom("XLM", "USDC", "XLM"),
-            price: fc.float({ min: 0.0001, max: 1000, noNaN: true }),
+            price: fc.double({ min: 0.0001, max: 1000, noNaN: true }),
             currency: fc.constant("USD"),
             provider: fc.constant("mock"),
             timestamp: fc.constant(new Date().toISOString()),

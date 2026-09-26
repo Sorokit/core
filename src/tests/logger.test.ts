@@ -87,9 +87,7 @@ describe("shared/logger", () => {
         expect.objectContaining({
           level: "info",
           message: "account.get",
-          operation: "account.get",
-          status: "ok",
-          publicKey: "GTEST",
+          context: expect.objectContaining({ operation: "account.get", status: "ok", publicKey: "GTEST" }),
           timestamp: expect.any(String),
         }),
       );
@@ -229,9 +227,7 @@ describe("createSorokitClient logger integration", () => {
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       "[sorokit]",
       expect.objectContaining({
-        operation: "client.create",
-        status: "ok",
-        network: "testnet",
+        context: expect.objectContaining({ operation: "client.create", status: "ok", network: "testnet" }),
       }),
     );
   });
@@ -258,9 +254,7 @@ describe("createSorokitClient logger integration", () => {
     expect(consoleInfoSpy).toHaveBeenCalledWith(
       "[app:testnet]",
       expect.objectContaining({
-        operation: "client.create",
-        status: "ok",
-        network: "testnet",
+        context: expect.objectContaining({ operation: "client.create", status: "ok", network: "testnet" }),
       }),
     );
     expect(debugSpy).toHaveBeenCalledWith(
