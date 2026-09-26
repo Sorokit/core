@@ -1,0 +1,88 @@
+name: Deploy API Documentation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize deployments from pushes, releases and manual runs. PR builds are independent.
+concurrency:
+  group: docs-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'pages' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Generate TypeDoc API Reference
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --legacy-peer-deps --no-fund
+
+      - name: Generate API documentation
+        run: npm run docs
+
+      - name: Verify generated site
+        run: |
+          test -s docs/api/index.html
+          test -f docs/api/.nojekyll
+
+      - name: Upload generated documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-docs
+          path: docs/api
+          include-hidden-files: true
+          if-no-files-found: error
+
+  deploy:
+    name: Publish API Reference
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: api-docs
+          path: docs/api
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Preserve generated site on gh-pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: docs/api
+          branch: gh-pages
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/api
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
