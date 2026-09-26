@@ -723,3 +723,6 @@ export type {
   WebAuthnAuthenticationOptions,
   WebAuthnCredentialData,
 } from "./authentication";
+
+export * from './discovery.js';
+export * from './sessionPersistence.js';
