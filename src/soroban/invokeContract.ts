@@ -1,3 +1,4 @@
+import type { MainnetSafetyOptions } from "../shared/mainnetSafety";
 import { err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { toMessage } from "../shared";
@@ -11,7 +12,7 @@ import { executeContract, validateSorobanPollConfig } from "./executeContract";
 /**
  * Options for invokeContract().
  */
-export interface InvokeContractOptions {
+export interface InvokeContractOptions extends MainnetSafetyOptions {
   /**
    * When true, emits detailed diagnostic logs at every pipeline stage:
    * - prepared call XDR and estimated fee
@@ -196,6 +197,7 @@ async function invokeContractInner(
     pollConfig,
     logger,
     params.stateTracker,
+    invokeOptions,
   );
 
   if (debug) {

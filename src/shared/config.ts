@@ -15,6 +15,8 @@ export type OperationType =
   | "wallet_disconnect"
   | "wallet_sign"
   | "account_get"
+  | "account_get_offers"
+  | "account_get_trades"
   | "account_get_batch"
   | "account_get_balances"
   | "account_stream"
@@ -44,6 +46,8 @@ export const DEFAULT_TIMEOUTS: Record<OperationType, number> = {
   wallet_sign: 60000,         // 60s - user may need time to review
 
   // Account operations - network dependent
+  account_get_offers: 10000,
+  account_get_trades: 10000,
   account_get: 10000,         // 10s - single Horizon query
   account_get_batch: 30000,   // 30s - multiple parallel queries
   account_get_balances: 10000, // 10s - single Horizon query

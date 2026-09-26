@@ -613,8 +613,8 @@ export function compose(
         ...(params.medThreshold !== undefined && { medThreshold: params.medThreshold }),
         ...(params.highThreshold !== undefined && { highThreshold: params.highThreshold }),
         ...(params.homeDomain !== undefined && { homeDomain: params.homeDomain ?? "" }),
-        ...(params.inflationDest !== undefined && { inflationDest: params.inflationDest ?? undefined }),
-        ...(params.clearFlags !== undefined && { clearFlags: params.clearFlags }),
+        ...(params.inflationDest != null && { inflationDest: params.inflationDest }),
+        ...(params.clearFlags !== undefined && { clearFlags: params.clearFlags as NonNullable<Parameters<typeof Operation.setOptions>[0]["clearFlags"]> }),
       };
       push({
         kind: "setOptions",

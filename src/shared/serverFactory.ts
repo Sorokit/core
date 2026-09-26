@@ -13,6 +13,7 @@
 import { Horizon } from "@stellar/stellar-sdk";
 import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
 import type { SorobanSimulator } from "../soroban/simulator";
+import { getEndpointPool, createFailoverFetch } from "../network/endpointFailover";
 import type { ConnectionPool } from "../network/connectionPool";
 
 let tracedFetch: typeof globalThis.fetch | undefined;
@@ -65,7 +66,7 @@ function endpointAwareFetch(
   endpoint: string,
   signal?: AbortSignal,
 ): NonNullable<typeof tracedFetch> {
-  const base = tracedFetch ?? globalThis.fetch.bind(globalThis);
+  const base = connectionPool?.fetch ?? tracedFetch ?? globalThis.fetch.bind(globalThis);
   const pool = getEndpointPool(endpoint);
   const fetcher = pool ? createFailoverFetch(pool, base) : base;
   return signal
@@ -82,6 +83,7 @@ function composeSignals(
 ): AbortSignal {
   if (!a) return b;
   if (a.aborted) return a;
+  if (b.aborted) return b;
   const controller = new AbortController();
   const forward = (from: AbortSignal) => () => controller.abort((from as { reason?: unknown }).reason);
   a.addEventListener("abort", forward(a), { once: true });
@@ -106,7 +108,7 @@ export function createHorizonServer(
               ...init,
               signal: composeSignals(init?.signal, options.signal!),
             })
-        : signalAwareFetch(options.signal),
+        : endpointAwareFetch(horizonUrl, options.signal),
     } as any);
   }
   return pooledFetch || tracedFetch
@@ -135,7 +137,7 @@ export function createSorobanServer(
               ...init,
               signal: composeSignals(init?.signal, options.signal!),
             })
-        : signalAwareFetch(options.signal),
+        : endpointAwareFetch(rpcUrl, options.signal),
     } as any);
   }
   return pooledFetch || tracedFetch
