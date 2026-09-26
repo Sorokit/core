@@ -55,9 +55,13 @@ export {
   FreighterAdapter,
   LobstrAdapter,
   XBullAdapter,
+  HanaAdapter,
+  AlbedoAdapter,
+  RabetAdapter,
   WalletConnectAdapter,
 } from "./wallet/adapters";
 export type { WalletConnectAdapterConfig } from "./wallet/adapters";
+export type { RabetProvider } from "./wallet/adapters";
 
 // ─── Wallet types ─────────────────────────────────────────────────────────────
 export { WalletType } from "./wallet/types";
