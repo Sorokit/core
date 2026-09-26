@@ -350,6 +350,57 @@ export type {
   WitnessValidationResult,
 } from "./transaction/witnessValidation";
 
+// ─── Transaction signing coordination (#586) ──────────────────────────────────
+export {
+  createSigningRequest,
+  addSignature,
+  isComplete,
+  getSigningStatus,
+} from "./transaction/signingCoordinator";
+export type {
+  SigningRequest,
+  SigningStatus,
+} from "./transaction/signingCoordinator";
+
+// ─── Time-locked transaction scheduling (#587) ────────────────────────────────
+export {
+  buildTimeLockTransaction,
+  getTimeLockedTransactionStatus,
+  validateTimeBounds,
+} from "./transaction/timeLocks";
+export type {
+  TimeBounds,
+  TimeLockExecutionStatus,
+} from "./transaction/timeLocks";
+
+// ─── Transaction cost forecasting (#588) ──────────────────────────────────────
+export {
+  forecastTransactionCost,
+  compareCosts,
+  suggestOptimization,
+  analyzeBatchCost,
+} from "./transaction/costForecasting";
+export type {
+  CostForecast,
+  CostComparison,
+  OptimizationSuggestion,
+} from "./transaction/costForecasting";
+
+// ─── Batch transaction submission (#589) ──────────────────────────────────────
+export {
+  submitBatch,
+  getTransactionStatus,
+  generateRollbackInstructions,
+  wasAtomicExecuted,
+  suggestRetryStrategy,
+} from "./transaction/batchSubmitter";
+export type {
+  TransactionBatchStatus,
+  BatchTransactionStatus,
+  BatchSubmissionOptions,
+  BatchSubmissionResult,
+} from "./transaction/batchSubmitter";
+
 // ─── Transaction types ────────────────────────────────────────────────────────
 export type {
   FeeEstimate,
