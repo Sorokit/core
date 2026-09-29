@@ -7,6 +7,30 @@
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 export { createSorokitClient } from "./client/createSorokitClient";
+export {
+  authenticateSep10,
+  clearFederationAddressCache,
+  deriveKey,
+  getSep6TransactionStatus,
+  initiateSep6Transfer,
+  initiateSep24Interactive,
+  resolveFederatedAddress,
+  rotateSecretKey,
+  validateSecretKey,
+  loadIntegration,
+  loadKeyManagement,
+  loadSoroban,
+} from "./lazy";
+export type {
+  AnchorAsset,
+  AnchorRequestOptions,
+  DerivedStellarKey,
+  FederationResolverOptions,
+  ResolvedAddress,
+  RotateSecretKeyOptions,
+  Sep10AuthOptions,
+  Sep24InteractiveResult,
+} from "./integration";
 export type {
   SorokitClient,
   SorokitClientConfig,

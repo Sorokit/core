@@ -51,6 +51,7 @@ export {
 } from "./assetRegistry";
 export type { AssetInfo, AssetMetadata } from "./assetRegistry";
 export * from "./mainnetSafety";
+export * from "./keyManagement";
 
 export {
   StructuredLogger,
