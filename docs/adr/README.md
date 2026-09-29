@@ -14,9 +14,8 @@ history of *why* stays intact.
 
 | ADR | Title | Status |
 |---|---|---|
-| [ADR-001](./001-sorokitresult-no-throw-model.md) | SorokitResult No-Throw Model | Accepted |
-| [ADR-002](./002-stateless-client-design.md) | Stateless Client Design | Accepted |
-| [ADR-003](./003-wallet-adapter-pattern.md) | Wallet Adapter Pattern | Accepted |
-| [ADR-004](./004-error-code-classification.md) | Error Code Classification | Accepted |
-| [ADR-005](./005-streaming-polling-vs-sse.md) | Streaming: Polling by Default, Opt-in SSE for Transactions | Accepted |
-| [ADR-006](./006-module-structure.md) | Module Structure (wallet, account, transaction, soroban, network, shared) | Accepted |
+| [ADR-001](./001-sorokit-result-error-handling-pattern.md) | SorokitResult error handling pattern | Accepted |
+| [ADR-002](./002-wallet-adapter-system.md) | Wallet adapter system | Accepted |
+| [ADR-003](./003-streaming-architecture.md) | Streaming architecture | Accepted |
+| [ADR-004](./004-contract-interaction-patterns.md) | Contract interaction patterns | Accepted |
+| [ADR-005](./005-cache-strategy.md) | Cache strategy | Accepted |
