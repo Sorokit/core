@@ -95,6 +95,7 @@ import {
 } from "../shared/tracing";
 import { setTracedFetch } from "../shared/serverFactory";
 import { configureEndpointFailover, validateEndpointList } from "../network/endpointFailover";
+import { createEndpointRegistry } from "../network/endpointRegistry";
 import type { TraceContext } from "../shared/tracing";
 import {
   formatAddress,
@@ -672,6 +673,29 @@ export interface SorokitClient {
     getConfig(): ResolvedNetworkConfig;
     /** Return the network type identifier string (e.g. "testnet", "mainnet", "futurenet") */
     getId(): NetworkType;
+    /** Register a custom endpoint with optional weight and priority (#672) */
+    registerEndpoint(
+      type: import("../network/endpointRegistry").EndpointType,
+      url: string,
+      weight?: number,
+      priority?: number,
+    ): SorokitResult<import("../network/endpointRegistry").Endpoint>;
+    /** Select the optimal endpoint by weighted score (#672) */
+    getOptimalEndpoint(
+      type: import("../network/endpointRegistry").EndpointType,
+    ): SorokitResult<import("../network/endpointRegistry").Endpoint>;
+    /** Round-robin rotate through endpoints (#672) */
+    rotateEndpoints(
+      type: import("../network/endpointRegistry").EndpointType,
+    ): SorokitResult<import("../network/endpointRegistry").Endpoint>;
+    /** Health-check an endpoint URL (#672) */
+    testEndpoint(
+      url: string,
+    ): Promise<SorokitResult<import("../network/endpointRegistry").EndpointHealthResult>>;
+    /** List all registered endpoints, optionally filtered by type (#672) */
+    getEndpoints(
+      type?: import("../network/endpointRegistry").EndpointType,
+    ): import("../network/endpointRegistry").Endpoint[];
   };
 }
 
@@ -944,6 +968,7 @@ export function createSorokitClient(
   const traceContext = createTraceContext(traceId);
   const deduplicator = createRequestDeduplicator(config.dedupe);
   const tracedFetch = createTracedFetch(traceContext);
+  const endpointRegistry = createEndpointRegistry();
 
   const defaultPollConfig = config.sorobanPoll;
   const errorHandler = config.errorHandler;
@@ -1847,6 +1872,12 @@ export function createSorokitClient(
     network: {
       getConfig: () => networkConfig,
       getId: () => config.network,
+      registerEndpoint: (type, url, weight?, priority?) =>
+        endpointRegistry.registerEndpoint(type, url, weight, priority),
+      getOptimalEndpoint: (type) => endpointRegistry.getOptimalEndpoint(type),
+      rotateEndpoints: (type) => endpointRegistry.rotateEndpoints(type),
+      testEndpoint: (url) => endpointRegistry.testEndpoint(url),
+      getEndpoints: (type?) => endpointRegistry.getEndpoints(type),
     },
   };
 

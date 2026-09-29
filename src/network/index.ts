@@ -176,3 +176,15 @@ export type {
 } from "./endpointFailover";
 
 export * from './customEndpoints.js';
+
+// ─── Custom Endpoint Registry and Load Balancing (#672) ───────────────────────
+export {
+  EndpointRegistry,
+  createEndpointRegistry,
+} from "./endpointRegistry";
+export type {
+  EndpointType,
+  Endpoint,
+  EndpointHealthResult,
+  EndpointRegistryConfig,
+} from "./endpointRegistry";
