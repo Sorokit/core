@@ -740,6 +740,25 @@ export type {
 } from "./authentication";
 
 export * from './discovery.js';
+export {
+  saveSession,
+  restoreSession,
+  clearSession,
+  isSessionValid,
+  saveWalletSession,
+  loadWalletSession,
+  clearWalletSession,
+  DEFAULT_SESSION_KEY,
+  DEFAULT_SESSION_TTL_MS,
+  encryptSessionPayload,
+  decryptSessionPayload,
+} from "./sessionPersistence";
+export type {
+  SessionData,
+  WalletConnection,
+  SessionPersistenceOptions,
+  EncryptedSessionPayload,
+} from "./sessionPersistence";
 export * from './sessionPersistence.js';
 
 // ─── Wallet event emitter and status change notifications (#613) ──────────────

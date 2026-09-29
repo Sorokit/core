@@ -24,6 +24,17 @@ import type {
   AccountStorageAdapter,
 } from "../wallet/accountManager";
 import { createWalletEventEmitter, toConnectedEvent } from "../wallet/eventEmitter";
+import {
+  saveSession,
+  restoreSession,
+  clearSession,
+  isSessionValid,
+} from "../wallet/sessionPersistence";
+import type {
+  SessionData,
+  WalletConnection,
+  SessionPersistenceOptions,
+} from "../wallet/sessionPersistence";
 import type {
   WalletEventName,
   WalletEventListener,
@@ -387,6 +398,21 @@ export interface SorokitClient {
       event: E,
       listener: WalletEventListener<E>,
     ): void;
+    /** Persist wallet connection session to local storage with encryption and TTL (#671) */
+    saveSession(
+      connection: WalletConnection,
+      options?: SessionPersistenceOptions,
+    ): Promise<SorokitResult<SessionData>>;
+    /** Restore persisted wallet session from local storage with auto-recovery (#671) */
+    restoreSession(
+      options?: SessionPersistenceOptions,
+    ): Promise<SorokitResult<SessionData>>;
+    /** Clear persisted wallet session (logout) (#671) */
+    clearSession(
+      options?: Pick<SessionPersistenceOptions, "storage" | "storageKey">,
+    ): SorokitResult<void>;
+    /** Check whether a session is valid and not expired (#671) */
+    isSessionValid(session: SessionData | null | undefined): boolean;
   };
 
   readonly account: {
@@ -1289,6 +1315,10 @@ export function createSorokitClient(
       watchAccountSwitch: (listener) => accountManager.watchAccountSwitch(listener),
       on: (event, listener) => walletEvents.on(event, listener),
       off: (event, listener) => walletEvents.off(event, listener),
+      saveSession: (connection, options) => saveSession(connection, options),
+      restoreSession: (options) => restoreSession(options),
+      clearSession: (options) => clearSession(options),
+      isSessionValid: (session) => isSessionValid(session),
     },
 
     account: {
