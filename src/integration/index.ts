@@ -23,3 +23,24 @@ export type {
   FederationResolverOptions,
   ResolvedAddress,
 } from "./federationResolver";
+export {
+  createDID,
+  resolveDID,
+  linkAccountToDID,
+  verifyDIDOwnership,
+  STELLAR_DID_METHOD,
+} from "./didSupport";
+export type {
+  StellarDIDDocument,
+  DIDVerificationMethod,
+  DIDInfo,
+  DIDLinkRecord,
+  DIDOwnershipProof,
+  DIDVerificationResult,
+  CreateDIDOptions,
+  ResolveDIDOptions,
+  LinkDIDOptions,
+  VerifyDIDOptions,
+  DIDServiceEndpoint,
+  DIDResolver,
+} from "./didSupport";

@@ -1633,3 +1633,26 @@ export type {
   StateChangeNotification,
 } from "./shared/smartCache";
 
+
+// --- DID Support (#687) --------------------------------------------------------
+export {
+  createDID,
+  resolveDID,
+  linkAccountToDID,
+  verifyDIDOwnership,
+  STELLAR_DID_METHOD,
+} from './integration/didSupport';
+export type {
+  StellarDIDDocument,
+  DIDVerificationMethod,
+  DIDInfo,
+  DIDLinkRecord,
+  DIDOwnershipProof,
+  DIDVerificationResult,
+  CreateDIDOptions,
+  ResolveDIDOptions,
+  LinkDIDOptions,
+  VerifyDIDOptions,
+  DIDServiceEndpoint,
+  DIDResolver,
+} from './integration/didSupport';
