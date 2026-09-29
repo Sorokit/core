@@ -59,6 +59,17 @@ export {
   createAccountManager,
   InMemoryAccountStorage,
   createLocalStorageAccountStorage,
+  saveSession,
+  restoreSession,
+  clearSession,
+  isSessionValid,
+  saveWalletSession,
+  loadWalletSession,
+  clearWalletSession,
+  DEFAULT_SESSION_KEY,
+  DEFAULT_SESSION_TTL_MS,
+  encryptSessionPayload,
+  decryptSessionPayload,
 } from "./wallet";
 export type {
   CreateSigningChallengeOptions,
@@ -73,6 +84,10 @@ export type {
   AccountSwitchListener,
   AccountSwitchUnsubscribe,
   AccountStorageAdapter,
+  SessionData,
+  WalletConnection,
+  SessionPersistenceOptions,
+  EncryptedSessionPayload,
 } from "./wallet";
 export {
   discoverHardwareWallets,
