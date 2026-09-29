@@ -294,3 +294,61 @@ export async function simulateAccountMerge(
 
   return ok(simulation);
 }
+
+/**
+ * Validate an account merge using the same pre-flight checks as the
+ * simulation. This named alias is useful when callers only need a
+ * safety decision and do not need to build a merge transaction.
+ */
+export const validateMerge = simulateAccountMerge;
+
+export interface AccountMergeDataLoss {
+  sourceAccount: string;
+  nonNativeTrustlines: MergeTrustlineInfo[];
+  subentryCount: number;
+  warning: string;
+}
+
+/**
+ * Report account state that must be cleared before an account merge.
+ * This is intentionally read-only and never submits a transaction.
+ */
+export async function getDataLoss(
+  horizonUrl: string,
+  sourcePublicKey: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<SorokitResult<AccountMergeDataLoss>> {
+  if (!isValidPublicKey(sourcePublicKey)) {
+    return err(
+      SorokitErrorCode.INVALID_ADDRESS,
+      "Invalid source public key: " + sourcePublicKey + ". Expected a 56-character G-address.",
+    );
+  }
+
+  const result = await getAccount(horizonUrl, sourcePublicKey, options);
+  if (result.status === "error") {
+    return err(result.error.code, result.error.message, result.error.cause);
+  }
+
+  const nonNativeTrustlines = result.data.balances
+    .filter(
+      (balance) =>
+        balance.assetType === "credit_alphanum4" ||
+        balance.assetType === "credit_alphanum12",
+    )
+    .map((balance) => ({
+      assetCode: balance.assetCode,
+      assetIssuer: balance.assetIssuer,
+      balance: balance.balance,
+    }));
+
+  return ok({
+    sourceAccount: sourcePublicKey,
+    nonNativeTrustlines,
+    subentryCount: result.data.subentryCount,
+    warning:
+      nonNativeTrustlines.length > 0
+        ? "Remove all non-native trustlines and settle their balances before merging."
+        : "No non-native trustlines were found; review subentries before merging.",
+  });
+}

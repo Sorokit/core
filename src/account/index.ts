@@ -101,6 +101,7 @@ export { simulateAccountMerge } from "./mergeSafety";
 export type {
   MergeTrustlineInfo,
   AccountMergeSimulation,
+  AccountMergeDataLoss,
   SimulateAccountMergeOptions,
 } from "./mergeSafety";
 
