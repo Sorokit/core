@@ -1617,6 +1617,34 @@ export type {
 } from "./integration/sep7Handler";
 
 
+// ─── OpenTelemetry tracing & metrics (#676) ────────────────────────────────
+export {
+  initTelemetry,
+  getTelemetryManager,
+  getTelemetryData,
+  isTelemetryInitialized,
+  shutdownTelemetry,
+  resetTelemetry,
+  traceSpan,
+  traceWalletConnect,
+  traceTransactionSubmit,
+  traceAccountFetch,
+  recordOperationDuration,
+  recordOperationError,
+  recordCacheHit,
+  getTelemetryMetricsSummary,
+  getTelemetrySpans,
+  validateTelemetryConfig,
+  resolveOpenTelemetryConfig,
+  DatadogHttpTelemetryExporter,
+} from "./performance/telemetry";
+export type {
+  TelemetryConfig,
+  TelemetryData,
+  TelemetryExporterType,
+  TelemetrySpan,
+} from "./performance/telemetry";
+
 // ─── Smart Cache (#604) ──────────────────────────────────────────────────────
 export {
   SmartCache,

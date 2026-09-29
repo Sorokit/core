@@ -2,6 +2,7 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { SorokitCache } from "../shared/cache";
 import type { WalletAdapter, WalletState } from "./types";
+import { traceWalletConnect, type TelemetrySpan } from "../performance/telemetry";
 
 /**
  * Connect a wallet via its adapter and return the resolved `WalletState`.
@@ -25,7 +26,19 @@ export async function connectWallet(
   adapter: WalletAdapter,
   cache?: SorokitCache,
 ): Promise<SorokitResult<WalletState>> {
+  return traceWalletConnect(
+    (span) => connectWalletImpl(adapter, cache, span),
+    { "wallet.type": adapter.walletType },
+  );
+}
+
+async function connectWalletImpl(
+  adapter: WalletAdapter,
+  cache: SorokitCache | undefined,
+  span: TelemetrySpan | undefined,
+): Promise<SorokitResult<WalletState>> {
   if (!adapter.isAvailable()) {
+    span?.setAttribute("wallet.browser_only", true);
     return err(
       SorokitErrorCode.WALLET_BROWSER_ONLY,
       `${adapter.walletType} requires a browser environment.`,
@@ -33,16 +46,18 @@ export async function connectWallet(
   }
 
   const result = await adapter.connect();
-  if (result.status === "error") return result;
+  if (result.status === "error") {
+    span?.recordError(new Error(result.error.message));
+    return result;
+  }
 
   // Validate that the adapter returned a non-empty public key string (#267).
   // An empty string (e.g. from an installed wallet without a configured account)
   // is invalid for downstream Stellar operations and should fail immediately.
   if (!result.data || typeof result.data !== "string" || result.data === "") {
-    return err(
-      SorokitErrorCode.WALLET_CONNECT_FAILED,
-      "Wallet returned an empty public key.",
-    );
+    const message = "Wallet returned an empty public key.";
+    span?.recordError(new Error(message));
+    return err<WalletState>(SorokitErrorCode.WALLET_CONNECT_FAILED, message);
   }
 
   const state: WalletState = {
@@ -55,6 +70,7 @@ export async function connectWallet(
     cache.set("wallet:state", state);
   }
 
+  span?.setStatus("ok");
   return ok(state);
 }
 

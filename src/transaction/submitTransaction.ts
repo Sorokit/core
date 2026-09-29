@@ -17,6 +17,7 @@ import { DEFAULT_TX_CACHE_TTL_MS } from "../shared/constants";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
 import { mapHorizonError } from "../shared/horizonErrorMapper";
+import { traceTransactionSubmit, type TelemetrySpan } from "../performance/telemetry";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -168,6 +169,19 @@ export async function submitTransaction(
   cache?: SorokitCache,
   options?: MainnetSafetyOptions & { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<TransactionResult>> {
+  return traceTransactionSubmit((span) =>
+    submitTransactionImpl(horizonUrl, networkPassphrase, signedXdr, span, cache, options),
+  );
+}
+
+async function submitTransactionImpl(
+  horizonUrl: string,
+  networkPassphrase: string,
+  signedXdr: string,
+  span: TelemetrySpan | undefined,
+  cache?: SorokitCache,
+  options?: MainnetSafetyOptions & { signal?: AbortSignal | undefined },
+): Promise<SorokitResult<TransactionResult>> {
   if (isXdrInvalidError(signedXdr)) {
     return err(
       SorokitErrorCode.TX_SUBMIT_FAILED,
@@ -251,12 +265,15 @@ export async function submitTransaction(
     dispatchTransactionEvent("tx_submitted", result);
     dispatchTransactionEvent("tx_confirmed", result);
 
+    span?.setAttribute("transaction.hash", result.hash);
+    span?.setStatus("ok");
     return ok(result);
   } catch (cause) {
     const mapped = mapHorizonError(cause, {
       resource: "transaction",
       fallbackCode: SorokitErrorCode.TX_SUBMIT_FAILED,
     });
+    span?.recordError(cause);
     if (txHash) {
       // A Horizon timeout leaves the transaction outcome unknown (it may
       // still make it into a ledger), so it is reported as pending timeout
