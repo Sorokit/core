@@ -536,6 +536,8 @@ const adapter = createMockWalletAdapter();
 
 > Requires `vitest` as a peer dependency.
 
+For scenarios that need to run against real, live testnet (account funding, payments, multi-sig, a real Soroban contract invoke, DEX offers, account merge), see `src/tests/e2e.test.ts` and run `npm run test:e2e` — it self-funds every account via Friendbot, so no secrets are required. It's skipped by default in `npm test` and runs nightly in CI (`.github/workflows/e2e.yml`).
+
 ---
 
 ## Examples
@@ -562,6 +564,8 @@ For a side-by-side comparison of `stellar-sdk` patterns vs `sorokit-core`, see [
 **Framework-agnostic** — zero dependency on React, Vue, or any UI framework. Works in Node, the browser, and server-side rendering environments.
 
 **Adapter-based wallets** — wallet integration is delegated to [Stellar Wallets Kit](https://github.com/creit-tech/stellar-wallets-kit), keeping `sorokit-core` decoupled from wallet implementation details.
+
+For the *why* behind these and other design decisions — options considered, trade-offs accepted — see [Architecture Decision Records](docs/adr/README.md).
 
 ---
 
@@ -653,6 +657,7 @@ The documentation now includes task-oriented, executable workflows and a contrib
 | --- | --- |
 | [`docs/workflows.md`](docs/workflows.md) | Complete transaction lifecycle, wallet signing, multisignature signing, Soroban calls, trustline approval, cost planning, refunds, and recovery patterns |
 | [`docs/architecture.md`](docs/architecture.md) | Module boundaries, data flow, result/error conventions, extension guidance, and migration from direct Stellar SDK usage |
+| [`docs/adr/`](docs/adr/README.md) | Architecture Decision Records — the problem, options, decision, and consequences behind major design choices (no-throw results, stateless client, wallet adapters, error classification, streaming transport, module structure) |
 
 Both guides use the current exported API shape and keep policy, construction, signing, submission, and recovery concerns separate.
 

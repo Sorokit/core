@@ -5,6 +5,15 @@ export default defineConfig({
     globals: true,
     environment: "node",
     threads: false,
+    // packages/* are self-contained sub-projects with their own test
+    // runners (see packages/cli's `npm test`, which uses node:test) — they
+    // are not part of this package's vitest suite or coverage gate.
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.git/**",
+      "packages/**",
+    ],
     coverage: {
       // #570: Coverage enforcement — thresholds prevent silent regression.
       enabled: true,

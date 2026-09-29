@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>sorokit-core</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div id="toolbar">
+      <button id="clear">Clear</button>
+      <label><input type="checkbox" id="pause" /> Pause</label>
+      <input id="filter" type="text" placeholder="Filter by operation, module, or error code..." />
+      <span id="count">0 events</span>
+    </div>
+    <div id="layout">
+      <ul id="timeline"></ul>
+      <pre id="details">Select an event to see full context.</pre>
+    </div>
+    <script src="panel.js"></script>
+  </body>
+</html>

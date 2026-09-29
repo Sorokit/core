@@ -73,7 +73,17 @@ const expectedMainExports = [
   'extractTransactionTotalXlm',
   'isMainnetNetwork',
   'DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM',
-  'MAINNET_NETWORK_PASSPHRASE'
+  'MAINNET_NETWORK_PASSPHRASE',
+  'OpenTelemetryManager',
+  'SorokitSpan',
+  'createOpenTelemetryManager',
+  'parseSep7Uri',
+  'validateSep7Uri',
+  'buildFromSep7Uri',
+  'generateSep7Uri',
+  'SmartCache',
+  'createSmartCache',
+  'generateCacheKey'
 ];
 
 const expectedTestingExports = [

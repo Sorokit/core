@@ -24,6 +24,7 @@ export type OperationType =
   | "tx_submit"
   | "tx_status"
   | "tx_estimate_fee"
+  | "tx_preview"
   | "tx_stream"
   | "tx_validate_destination"
   | "tx_query_history"
@@ -58,6 +59,7 @@ export const DEFAULT_TIMEOUTS: Record<OperationType, number> = {
   tx_submit: 30000,           // 30s - network submission
   tx_status: 10000,           // 10s - Horizon query
   tx_estimate_fee: 60000,     // 60s - may require simulation
+  tx_preview: 30000,          // 30s - Horizon balance lookups + optional RPC simulation
   tx_stream: 0,               // 0 = no timeout (streaming)
   tx_validate_destination: 15000, // 15s - Horizon query + validation
   tx_query_history: 20000,    // 20s - may involve pagination

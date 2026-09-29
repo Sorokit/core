@@ -4,6 +4,15 @@ export { resolveNetwork } from "./resolveNetwork";
 export type { NetworkOverrides } from "./resolveNetwork";
 export * from "./fallback";
 
+// ─── Request batching (#611) ────────────────────────────────────────────────
+export { createRequestBatcher } from "./requestBatching";
+export type {
+  RequestBatcher,
+  RequestBatcherConfig,
+  RequestBatcherStats,
+  BatchFetcher,
+} from "./requestBatching";
+
 // ─── Circuit breaker (#186) ────────────────────────────────────────────────────
 export { CircuitBreaker, CircuitBreakerRegistry, CircuitOpenError } from "./circuitBreaker";
 export type {

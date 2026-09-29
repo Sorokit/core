@@ -295,7 +295,7 @@ export class CacheInvalidationManager {
   private horizonUrl: string;
   private strategy: InvalidationStrategy;
   private adaptiveTtlEnabled: boolean;
-  private logger?: SorokitLogger;
+  private logger: SorokitLogger | undefined;
   private stats: InvalidationStats;
   private eventPollingIntervals: Map<string, NodeJS.Timeout>;
   private operationQueue: StateModifyingOperation[];
@@ -436,6 +436,8 @@ export class CacheInvalidationManager {
     for (const key of keys) {
       this.cache.invalidate(key);
     }
+    this.stats.totalInvalidations += keys.length;
+    this.stats.lastInvalidationTime = Date.now();
     this.logger?.debug("cache.invalidation.keys_invalidated", {
       count: keys.length,
     });
@@ -482,7 +484,6 @@ export class CacheInvalidationManager {
         fee_estimate: 0,
         transaction: 0,
       },
-      lastInvalidationTime: undefined,
       eventPollingActive: false,
     };
   }

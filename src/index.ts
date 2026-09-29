@@ -7,6 +7,30 @@
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 export { createSorokitClient } from "./client/createSorokitClient";
+export {
+  authenticateSep10,
+  clearFederationAddressCache,
+  deriveKey,
+  getSep6TransactionStatus,
+  initiateSep6Transfer,
+  initiateSep24Interactive,
+  resolveFederatedAddress,
+  rotateSecretKey,
+  validateSecretKey,
+  loadIntegration,
+  loadKeyManagement,
+  loadSoroban,
+} from "./lazy";
+export type {
+  AnchorAsset,
+  AnchorRequestOptions,
+  DerivedStellarKey,
+  FederationResolverOptions,
+  ResolvedAddress,
+  RotateSecretKeyOptions,
+  Sep10AuthOptions,
+  Sep24InteractiveResult,
+} from "./integration";
 export type {
   SorokitClient,
   SorokitClientConfig,
@@ -1131,6 +1155,31 @@ export {
 } from "./shared/validateToken";
 export type { TokenAsset } from "./shared/validateToken";
 
+// ─── Amount formatting (#616) ──────────────────────────────────────────────
+export { formatAmount, DEFAULT_ASSET_DECIMALS } from "./shared/amountFormatter";
+export type { FormatAmountOptions } from "./shared/amountFormatter";
+
+// ─── Asset registry (#614) ─────────────────────────────────────────────────
+export {
+  getAssetInfo,
+  registerAsset,
+  unregisterAsset,
+  listKnownAssets,
+  canonicalAssetId,
+} from "./shared/assetRegistry";
+export type { AssetInfo, AssetMetadata } from "./shared/assetRegistry";
+
+// ─── Transaction simulation and safe execution preview (#612) ─────────────
+export { previewTransaction } from "./transaction/simulationPreview";
+export type {
+  TransactionPreview,
+  PreviewTransactionOptions,
+  PreviewAsset,
+  BalanceEffect,
+  StateChange,
+  PreviewSummaryLine,
+} from "./transaction/simulationPreview";
+
 // ─── Distributed tracing (#212) ────────────────────────────────────────────
 export {
   getTraceContext,
@@ -1508,6 +1557,62 @@ export type {
   AssessAccountHealthOptions,
 } from "./account/accountHealth";
 
-// ─── Multi-account portfolio dashboard (#592) ────────────────────────────────────────
-export { getPortfolioDashboard } from "./account/portfolioDashboard";
-export type { PortfolioDashboard } from "./account/portfolioDashboard";
+// ─── OpenTelemetry (#600) ───────────────────────────────────────────────────
+export {
+  OpenTelemetryManager,
+  SorokitSpan,
+  InMemorySpanExporter,
+  ConsoleSpanExporter,
+  OtlpSpanExporter,
+  JaegerSpanExporter,
+  createOpenTelemetryManager,
+} from "./shared/openTelemetry";
+export type {
+  OtelSpan,
+  OtelSpanContext,
+  OtelSpanExporter,
+  OtelMetricRecord,
+  OtelMetricSummary,
+  OpenTelemetryConfig,
+  SpanKind,
+  SpanStatus,
+  SpanData,
+} from "./shared/openTelemetry";
+
+// ─── SEP-7 Handler (#602) ────────────────────────────────────────────────────
+export {
+  parseSep7Uri,
+  validateSep7Uri,
+  buildFromSep7Uri,
+  generateSep7Uri,
+} from "./integration/sep7Handler";
+export type {
+  Sep7OperationType,
+  Sep7BaseParams,
+  Sep7PayParams,
+  Sep7TxParams,
+  Sep7ChangeTrustParams,
+  Sep7ManageOfferParams,
+  Sep7PathPaymentParams,
+  Sep7Params,
+  Sep7ValidationResult,
+  Sep7BuildOptions,
+} from "./integration/sep7Handler";
+
+
+// ─── Smart Cache (#604) ──────────────────────────────────────────────────────
+export {
+  SmartCache,
+  createSmartCache,
+  generateCacheKey,
+  hashParams,
+} from "./shared/smartCache";
+export type {
+  CacheDataType,
+  CacheMetrics,
+  SmartCacheConfig,
+  CacheKeyOptions,
+  GetOrSetOptions,
+  StateChangeNotification,
+} from "./shared/smartCache";
+

@@ -1,0 +1,9 @@
+{
+  "name": "@sorokit/devtools-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Manifest V3 browser extension for inspecting sorokit-core SDK operations in real time.",
+  "scripts": {
+    "package:chrome": "cd .. && zip -r devtools-extension/dist/sorokit-devtools-chrome.zip devtools-extension -x 'devtools-extension/dist/*' 'devtools-extension/node_modules/*'"
+  }
+}

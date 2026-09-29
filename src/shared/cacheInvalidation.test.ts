@@ -22,7 +22,7 @@ describe("cacheInvalidation", () => {
     manager = createCacheInvalidationManager({
       cache,
       horizonUrl: "https://horizon-testnet.stellar.org",
-      strategy: "smart",
+      strategy: "default",
       adaptiveTtlEnabled: true,
     });
   });
@@ -255,8 +255,7 @@ describe("cacheInvalidation", () => {
 
       // Advance time to trigger batched invalidation
       vi.advanceTimersByTime(150);
-
-      await new Promise((resolve) => setImmediate(resolve));
+      await vi.runAllTimersAsync();
 
       stats = manager.getStats();
       expect(stats.totalInvalidations).toBeGreaterThan(0);

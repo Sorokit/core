@@ -1,0 +1,93 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  color: #1b1b1b;
+}
+
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #ddd;
+  background: #f6f6f6;
+}
+
+#filter {
+  flex: 1;
+  padding: 3px 6px;
+}
+
+#count {
+  color: #777;
+  white-space: nowrap;
+}
+
+#layout {
+  display: flex;
+  height: calc(100vh - 33px);
+}
+
+#timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 45%;
+  overflow-y: auto;
+  border-right: 1px solid #ddd;
+}
+
+#timeline li {
+  padding: 4px 8px;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+#timeline li:hover {
+  background: #f0f6ff;
+}
+
+#timeline li.selected {
+  background: #d9ecff;
+}
+
+#timeline li .badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.badge.start {
+  background: #e0e0e0;
+  color: #444;
+}
+
+.badge.ok {
+  background: #d7f5dd;
+  color: #1a7431;
+}
+
+.badge.error {
+  background: #fbdada;
+  color: #9c1c1c;
+}
+
+#timeline li .duration {
+  color: #888;
+  margin-left: auto;
+}
+
+#details {
+  flex: 1;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

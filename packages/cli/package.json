@@ -1,0 +1,24 @@
+{
+  "name": "@sorokit/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Command-line tool for common sorokit-core / Stellar operations: account inspection, transaction status, testnet funding, payments, and Soroban contract deployment.",
+  "type": "module",
+  "bin": {
+    "sorokit": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "npm run build && node --test dist/lib/*.test.js"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "sorokit-core": "file:../.."
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0"
+  }
+}

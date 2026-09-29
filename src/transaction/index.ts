@@ -699,3 +699,14 @@ export type {
   BatchSubmissionOptions,
   BatchSubmissionResult,
 } from "./batchSubmitter";
+
+// ─── Transaction simulation and safe execution preview (#612) ─────────────────
+export { previewTransaction } from "./simulationPreview";
+export type {
+  TransactionPreview,
+  PreviewTransactionOptions,
+  PreviewAsset,
+  BalanceEffect,
+  StateChange,
+  PreviewSummaryLine,
+} from "./simulationPreview";

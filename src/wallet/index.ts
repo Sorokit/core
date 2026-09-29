@@ -741,3 +741,20 @@ export type {
 
 export * from './discovery.js';
 export * from './sessionPersistence.js';
+
+// ─── Wallet event emitter and status change notifications (#613) ──────────────
+export {
+  WalletEventEmitter,
+  createWalletEventEmitter,
+  toConnectedEvent,
+} from "./eventEmitter";
+export type {
+  WalletEventMap,
+  WalletEventName,
+  WalletEventListener,
+  WalletEventUnsubscribe,
+  WalletConnectedEvent,
+  WalletDisconnectedEvent,
+  WalletAccountChangedEvent,
+  WalletNetworkChangedEvent,
+} from "./eventEmitter";
