@@ -77,7 +77,6 @@ export {
   buildSwapTransaction,
   buildReverseTransaction,
   buildPathPayment,
-  buildAtomicSwap,
   buildAccountMerge,
   checkTrustlines,
   buildBulkTrustlines,
@@ -87,6 +86,7 @@ export {
   clearSequenceCache,
   validateMemoPolicy,
 } from "./buildTransaction";
+export { buildAtomicSwap } from "./atomicSwap";
 export { buildSetOptionsTransaction } from "./setOptions";
 export type { SetOptionsParams } from "./types";
 export type { AccountMergeOptions, TrustlineState } from "./buildTransaction";
