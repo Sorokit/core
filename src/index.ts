@@ -686,6 +686,7 @@ export {
 export type { MainnetSafetyOptions } from "./shared/mainnetSafety";
 export { getTransactionStatus } from "./transaction/status";
 export { buildSetOptionsTransaction } from "./transaction/setOptions";
+export { buildAtomicSwap } from "./transaction/atomicSwap";
 export type { SetOptionsParams } from "./transaction/types";
 
 // ─── Claimable balances (#543) ─────────────────────────────────────────────────
