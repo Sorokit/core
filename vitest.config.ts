@@ -9,4 +9,5 @@ export default defineConfig({
       enabled: false,
     },
   },
+  css: false,
 });

@@ -1389,3 +1389,65 @@ export {
   STELLAR_MAX_ASSET_CODE_LENGTH,
   STELLAR_MIN_ASSET_CODE_LENGTH,
 } from "./shared/validation";
+
+// ─── SEP Integrations ─────────────────────────────────────────────────────────
+export {
+  quoteDirectPayment,
+  sendDirectPayment,
+  trackDirectPayment,
+  validateReceiver,
+} from "./integration/sep31DirectPayment";
+export type {
+  DirectPaymentQuoteRequest,
+  DirectPaymentQuoteResponse,
+  DirectPaymentRequest,
+  DirectPaymentResponse,
+  DirectPaymentStatusResponse,
+} from "./integration/sep31DirectPayment";
+export {
+  getAssetInfo,
+  initiateDeposit,
+  initiateWithdraw,
+  trackTransaction,
+  getTransactions,
+} from "./integration/sep6Flow";
+export type {
+  AssetInfo,
+  DepositRequest,
+  DepositResponse,
+  WithdrawalRequest,
+  WithdrawalResponse,
+  TransactionInfo,
+} from "./integration/sep6Flow";
+export {
+  getKycFields,
+  submitKycInfo,
+  getKycStatus,
+  deleteKycInfo,
+  uploadKycDocument,
+} from "./integration/sep12Kyc";
+export type {
+  KycField,
+  KycFieldsResponse,
+  KycInfo,
+  KycSubmissionResponse,
+  KycStatusResponse,
+} from "./integration/sep12Kyc";
+export {
+  getInteractiveAssetInfo,
+  initiateInteractiveDeposit,
+  initiateInteractiveWithdraw,
+  monitorTransaction,
+  getInteractiveTransactions,
+  openInteractivePopup,
+  pollTransactionStatus,
+} from "./integration/sep24Flow";
+export type {
+  InteractiveAssetInfo,
+  InteractiveDepositRequest,
+  InteractiveDepositResponse,
+  InteractiveWithdrawalRequest,
+  InteractiveWithdrawalResponse,
+  InteractiveTransactionInfo,
+  InteractiveFlowConfig,
+} from "./integration/sep24Flow";
