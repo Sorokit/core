@@ -1502,6 +1502,26 @@ export type {
   AggregatePortfolioOptions,
 } from "./account/portfolioAggregation";
 
+// ─── Portfolio dashboard and asset allocation tracker ─────────────────────────
+export {
+  getPortfolio,
+  getAssetAllocation,
+  getPortfolioHistory,
+  watchPortfolio,
+} from "./account/portfolioDashboard";
+export type {
+  PortfolioAsset,
+  PortfolioAllocation,
+  PortfolioHistoryPoint,
+  PortfolioData,
+  PortfolioHistory,
+  PortfolioUpdateCallback,
+  PortfolioWatchUnsubscribe,
+  WatchPortfolioOptions,
+  GetPortfolioOptions,
+  GetPortfolioHistoryOptions,
+} from "./account/portfolioDashboard";
+
 // ─── Account merge simulation & safety checks ─────────────────────────────────
 export { simulateAccountMerge, validateMerge, getDataLoss } from "./account/mergeSafety";
 export type {
