@@ -37,6 +37,13 @@ export type {
   HealthCheckReport,
 } from "./client/createSorokitClient";
 
+export { createRateLimiter, deduplicateRequest } from "./utility";
+export type { RateLimiter, RateLimiterOptions } from "./utility";
+export { createDID, resolveDID, linkAccountToDID, verifyDIDOwnership, clearDIDLinks } from "./integration/didSupport";
+export type { DIDData, DIDDocument } from "./integration/didSupport";
+export { createAuditTrail, recordOperation, getAuditTrail, generateComplianceReport } from "./compliance";
+export type { AuditContext, AuditFilters, AuditRecord, AuditTrail, ComplianceAuditReport, ComplianceDateRange } from "./compliance";
+
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
 export {
   addSignatureToEnvelope,
@@ -1632,4 +1639,3 @@ export type {
   GetOrSetOptions,
   StateChangeNotification,
 } from "./shared/smartCache";
-

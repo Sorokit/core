@@ -69,6 +69,7 @@
     "test:coverage": "vitest --run --coverage",
     "test:e2e": "cross-env RUN_E2E=1 vitest run src/tests/e2e.test.ts",
     "test:watch": "vitest",
+    "test:stress": "vitest --run tests/stress/concurrent.test.ts --reporter=verbose",
     "bench": "vitest bench",
     "lint": "eslint src --ext .ts",
     "clean": "rimraf dist",
