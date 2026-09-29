@@ -37,6 +37,22 @@ export type {
   HealthCheckReport,
 } from "./client/createSorokitClient";
 
+// ─── Wallet discovery & account linking ───────────────────────────────────────
+export {
+  discoverWallet,
+  listLinkedAccounts,
+  linkWallet,
+  unlinkWallet,
+  clearLinkedAccounts,
+} from "./wallet/discovery";
+export type {
+  DiscoveryData,
+  LinkedAccount,
+  DiscoverWalletOptions,
+  ListLinkedAccountsOptions,
+  LinkWalletOptions,
+} from "./wallet/discovery";
+
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
 export {
   addSignatureToEnvelope,
