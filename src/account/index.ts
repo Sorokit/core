@@ -187,3 +187,7 @@ export type {
   AccountHealthLevel,
   AssessAccountHealthOptions,
 } from "./accountHealth";
+
+// ─── Multi-account portfolio dashboard (#592) ────────────────────────────────────────
+export { getPortfolioDashboard } from "./portfolioDashboard";
+export type { PortfolioDashboard } from "./portfolioDashboard";
