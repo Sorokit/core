@@ -75,7 +75,8 @@
     "docs": "typedoc",
     "validate:exports": "node scripts/validate-exports.js",
     "size:check": "node scripts/check-bundle-size.mjs",
-    "analyze:unused": "node scripts/analyzeUnused.js"
+    "analyze:unused": "node scripts/analyzeUnused.js",
+    "analyze:bundle": "node scripts/analyze-bundle.js"
   },
   "keywords": [
     "stellar",
