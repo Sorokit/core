@@ -647,6 +647,11 @@ The [`docs/recipes/`](docs/recipes/) directory contains 15 practical, copy-paste
 | 13 | [Real-time balance alerts and streaming](docs/recipes/13-balance-alerts-streaming.md) | React to balance changes without polling yourself |
 | 14 | [Contract deployment with validation](docs/recipes/14-contract-deployment.md) | Deploy a Soroban WASM with pre-flight checks |
 | 15 | [Fee estimation and surge pricing](docs/recipes/15-fee-estimation.md) | Estimate fees accurately before building a transaction |
+| 16 | [Flash Loan Pattern](docs/recipes/16-flash-loan-pattern.md) | Borrow, use, repay in one tx |
+| 17 | [Bridge Integration](docs/recipes/17-bridge-integration.md) | Cross-chain pattern |
+| 18 | [Staking and Rewards](docs/recipes/18-staking-rewards.md) | Stake assets and claim rewards |
+| 19 | [DEX Routing](docs/recipes/19-dex-routing.md) | Route trades across multiple pools |
+| 20 | [NFT Minting](docs/recipes/20-nft-minting.md) | Mint unique tokens via contracts |
 
 ---
 

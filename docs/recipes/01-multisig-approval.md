@@ -183,3 +183,8 @@ expect(badEnvelope.status).toBe("error");
 
 - [Account key rotation](./08-key-rotation.md) — change the signing keys themselves
 - [Workflows reference](../workflows.md#multisignature-signing) — lifecycle diagram
+
+## Edge Cases
+- **Threshold Not Met:** If a transaction is submitted before enough signatures are gathered, the network will reject it with `txBAD_AUTH_EXTRA` or similar authentication errors.
+- **Signer Weight Changes:** If the account's signers or weights change while gathering signatures, previously valid signatures might become invalid or insufficient.
+- **Sequence Number Collision:** If another transaction is submitted for the account while gathering signatures, the sequence number will increment, invalidating the multi-sig transaction.

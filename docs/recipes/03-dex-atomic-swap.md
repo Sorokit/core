@@ -215,3 +215,8 @@ client.transaction.submit.mockResolvedValueOnce(mockResult);
 - [Path payment (cross-asset)](./12-path-payment.md) — strict-receive variant
 - [Offer management on DEX](./07-offer-management.md) — place limit orders instead of market orders
 - [Portfolio rebalancing](./06-portfolio-rebalancing.md) — orchestrate multiple swaps
+
+## Edge Cases
+- **Price Slippage:** The market price may move while the transaction is pending. Ensure you use `pathPaymentStrictReceive` or `pathPaymentStrictSend` with bounds to prevent being front-run or receiving a bad rate.
+- **Missing Trustlines:** The receiving account must have a trustline established for the destination asset, otherwise the atomic swap will fail.
+- **Zero Liquidity:** If the orderbook or liquidity pools do not have enough depth to fulfill the swap, the transaction will revert entirely.
