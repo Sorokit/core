@@ -53,6 +53,7 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 - [Examples](#examples)
 - [Recipes and Cookbook](#recipes-and-cookbook)
 - [Workflow and Architecture Guides](#workflow-and-architecture-guides)
+- [Video Tutorials](#video-tutorials)
 - [New in This Release](#new-in-this-release)
 - [Design Principles](#design-principles)
 - [License](#license)
@@ -660,6 +661,24 @@ The documentation now includes task-oriented, executable workflows and a contrib
 | [`docs/adr/`](docs/adr/README.md) | Architecture Decision Records — the problem, options, decision, and consequences behind major design choices (no-throw results, stateless client, wallet adapters, error classification, streaming transport, module structure) |
 
 Both guides use the current exported API shape and keep policy, construction, signing, submission, and recovery concerns separate.
+
+---
+
+## Video Tutorials
+
+[`docs/videos.md`](docs/videos.md) is a 7-part video tutorial series covering the common workflows below. Each entry lists its target length and links to the full script/transcript and code examples ready to record against.
+
+| # | Tutorial | Length |
+| --- | --- | --- |
+| 1 | [Wallet Connection](docs/videos.md#1-wallet-connection-2-min) | 2 min |
+| 2 | [Building a Payment](docs/videos.md#2-building-a-payment-2-min) | 2 min |
+| 3 | [Multi-Sig Approval](docs/videos.md#3-multi-sig-approval-4-min) | 4 min |
+| 4 | [Soroban Contract Invoke](docs/videos.md#4-soroban-contract-invoke-3-min) | 3 min |
+| 5 | [Error Handling](docs/videos.md#5-error-handling-2-min) | 2 min |
+| 6 | [Testing](docs/videos.md#6-testing-3-min) | 3 min |
+| 7 | [Deployment Guide](docs/videos.md#7-deployment-guide-3-min) | 3 min |
+
+See [`docs/videos.md`](docs/videos.md) for recorded video links once they're published.
 
 ---
 
