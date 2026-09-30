@@ -702,6 +702,14 @@ export type {
   LedgerAccount,
 } from "./adapters/ledgerAdapter";
 
+export { connectTrezor, TrezorSession, trezorAccountPath, STELLAR_TREZOR_BIP32_PATH_PREFIX } from "./adapters/trezorAdapter";
+export type {
+  TrezorStellarApi,
+  TrezorTransportKind,
+  TrezorConnectOptions,
+  TrezorAccount,
+} from "./adapters/trezorAdapter";
+
 export { auditWalletSecurity, isHighRiskConnection } from "./securityAudit";
 export type {
   RiskSeverity,

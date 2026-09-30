@@ -122,6 +122,13 @@ export type {
   LedgerConnectOptions,
   LedgerAccount,
 } from "./wallet/adapters/ledgerAdapter";
+export { connectTrezor, TrezorSession, trezorAccountPath, STELLAR_TREZOR_BIP32_PATH_PREFIX } from "./wallet/adapters/trezorAdapter";
+export type {
+  TrezorStellarApi,
+  TrezorTransportKind,
+  TrezorConnectOptions,
+  TrezorAccount,
+} from "./wallet/adapters/trezorAdapter";
 export {
   FreighterAdapter,
   LobstrAdapter,
