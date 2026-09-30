@@ -1633,3 +1633,11 @@ export type {
   StateChangeNotification,
 } from "./shared/smartCache";
 
+// ─── Cache invalidation & expiration strategies (#675) ─────────────────────────
+export { createCache, CacheBuilder } from "./performance/cacheStrategy";
+export type {
+  CachedData,
+  CacheStats,
+  CacheFetcher,
+} from "./performance/cacheStrategy";
+
