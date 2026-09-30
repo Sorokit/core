@@ -108,6 +108,22 @@ import { setTracedFetch } from "../shared/serverFactory";
 import { configureEndpointFailover, validateEndpointList } from "../network/endpointFailover";
 import { createEndpointRegistry } from "../network/endpointRegistry";
 import type { TraceContext } from "../shared/tracing";
+import { createDID } from "../integration/didSupport";
+import type { DIDData } from "../integration/didSupport";
+import type {
+  GovernanceCallOptions,
+  GovernanceNetwork,
+  GovernanceProposal,
+  ProposalId,
+  ProposalStatus,
+  ProposalTracker,
+  TrackProposalOptions,
+  VoteChoice,
+  VoteReceipt,
+  VotingPower,
+} from "../integration/governance";
+import { createAuditTrail } from "../compliance/auditTrail";
+import type { AuditTrail } from "../compliance/auditTrail";
 import {
   formatAddress,
   generateTraceId,
@@ -319,6 +335,15 @@ export interface SorokitClient {
     initiateSep6Transfer(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Record<string, unknown>>>;
     initiateSep24Interactive(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Sep24InteractiveResult>>;
     getSep6TransactionStatus(anchorUrl: string, id: string, options?: AnchorRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    createDID(publicKey: string): SorokitResult<DIDData>;
+    resolveDID(did: string): Promise<SorokitResult<DIDData>>;
+    linkAccountToDID(publicKey: string, did: string): Promise<SorokitResult<DIDData>>;
+    verifyDIDOwnership(did: string, signature: string): Promise<SorokitResult<boolean>>;
+    /** #686: governance — active proposals on `network` (defaults to the client's network). */
+    getProposals(network?: GovernanceNetwork, options?: GovernanceCallOptions & { status?: ProposalStatus | "all" }): Promise<SorokitResult<GovernanceProposal[]>>;
+    voteOnProposal(proposalId: ProposalId, vote: VoteChoice | string, options?: GovernanceCallOptions & { voter?: string }): Promise<SorokitResult<VoteReceipt>>;
+    getVotingPower(publicKey: string, options?: GovernanceCallOptions): Promise<SorokitResult<VotingPower>>;
+    trackProposal(proposalId: ProposalId, options?: TrackProposalOptions): Promise<SorokitResult<ProposalTracker>>;
   };
 
   /** Key derivation and signer rotation utilities, loaded on first use. */
@@ -327,6 +352,9 @@ export interface SorokitClient {
     validateSecretKey(secretKey: string): Promise<SorokitResult<{ publicKey: string }>>;
     rotateSecretKey(options: RotateSecretKeyOptions): Promise<SorokitResult<Transaction>>;
   };
+
+  /** Append-only operation auditing and compliance reports for this client. */
+  readonly compliance: AuditTrail;
 
   /**
    * Check the health status of the client and its network connections.
@@ -339,7 +367,7 @@ export interface SorokitClient {
     /** Connect and return WalletState */
     connect(
       adapter: WalletAdapter,
-      timeoutMs?: number,
+        optionsOrTimeoutMs?: number | import("../wallet/types").WalletConnectOptions,
     ): Promise<SorokitResult<WalletState>>;
     /** Generate a privacy-conscious fingerprint for the current runtime. */
     fingerprintDevice(signals?: DeviceSignals): DeviceFingerprint;
@@ -1116,6 +1144,19 @@ export function createSorokitClient(
         (await import("../integration/anchors")).initiateSep24Interactive(anchorUrl, asset, options),
       getSep6TransactionStatus: async (anchorUrl, id, options) =>
         (await import("../integration/anchors")).getSep6TransactionStatus(anchorUrl, id, options),
+      createDID,
+      resolveDID: async (did) => (await import("../integration/didSupport")).resolveDID(did),
+      linkAccountToDID: async (publicKey, did) => (await import("../integration/didSupport")).linkAccountToDID(publicKey, did),
+      verifyDIDOwnership: async (did, signature) => (await import("../integration/didSupport")).verifyDIDOwnership(did, signature),
+      // #686: governance, loaded on first use.
+      getProposals: async (network, options) =>
+        (await import("../integration/governance")).getProposals(network ?? (networkConfig.network), options),
+      voteOnProposal: async (proposalId, vote, options) =>
+        (await import("../integration/governance")).voteOnProposal(proposalId, vote, { network: networkConfig.network, ...options }),
+      getVotingPower: async (publicKey, options) =>
+        (await import("../integration/governance")).getVotingPower(publicKey, { network: networkConfig.network, ...options }),
+      trackProposal: async (proposalId, options) =>
+        (await import("../integration/governance")).trackProposal(proposalId, { network: networkConfig.network, ...options }),
     },
 
     shared: {
@@ -1126,6 +1167,8 @@ export function createSorokitClient(
       rotateSecretKey: async (options) =>
         (await import("../shared/keyManagement")).rotateSecretKey(options),
     },
+
+    compliance: createAuditTrail(),
 
     healthCheck: async () => {
       const networkHealthResult = await checkNetworkHealth(horizonUrl, rpcUrl);
@@ -1164,7 +1207,13 @@ export function createSorokitClient(
       evaluateTrust: (fingerprint, history) => evaluateDeviceTrust(fingerprint, history, {
         threshold: config.deviceTrustThreshold ?? DEFAULT_TRUST_THRESHOLD,
       }),
-      connect: (adapter, timeoutMs) => {
+      connect: (adapter, optionsOrTimeoutMs) => {
+        const connectOpts: import("../wallet/types").WalletConnectOptions | undefined =
+          typeof optionsOrTimeoutMs === "number"
+            ? { timeoutMs: optionsOrTimeoutMs }
+            : optionsOrTimeoutMs;
+        const timeoutMs = connectOpts?.timeoutMs;
+
         const action = () => {
           // Try cache-based recovery first
           if (cache) {
@@ -1258,7 +1307,7 @@ export function createSorokitClient(
             logger,
             "wallet.connect",
             { walletType: adapter.walletType },
-            () => connectWallet(adapter, cache),
+            () => connectWallet(adapter, cache, connectOpts),
           ).then((result) => {
             // Persist successful connection via the persistence adapter
             if (result.status === "ok" && persistenceAdapter) {

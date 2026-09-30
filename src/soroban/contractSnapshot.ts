@@ -26,12 +26,64 @@ export interface SnapshotDiff {
   changed: Record<string, { from: unknown; to: unknown }>;
 }
 
-// In-memory snapshot store indexed by label
+// In-memory snapshot store indexed by label, bounded by a retention policy
+// (#707). Without bounds, long-running apps tracking many contracts grew
+// memory without limit.
 const _snapshots = new Map<string, ContractSnapshot>();
+const _snapshotInsertedAt = new Map<string, number>();
+
+export interface ContractSnapshotRetention {
+  /** Max snapshots retained. Oldest (by insertion) evicted first. Default: 200. */
+  maxSnapshots?: number;
+  /** Max age (ms) before a snapshot is evicted on prune. Omit for no age limit. */
+  maxAgeMs?: number;
+}
+
+let _snapshotRetention: ContractSnapshotRetention = { maxSnapshots: 200 };
+
+/** Configure retention for the in-memory contract snapshot store (#707). */
+export function setContractSnapshotRetention(retention: ContractSnapshotRetention): void {
+  _snapshotRetention = { ...retention };
+  pruneContractSnapshots();
+}
+
+/** Evict snapshots exceeding the retention policy. Returns evicted count. */
+export function pruneContractSnapshots(now: number = Date.now()): number {
+  let evicted = 0;
+  const maxAgeMs = _snapshotRetention.maxAgeMs;
+  if (maxAgeMs !== undefined) {
+    for (const [label, insertedAt] of _snapshotInsertedAt) {
+      if (now - insertedAt > maxAgeMs) {
+        _snapshots.delete(label);
+        _snapshotInsertedAt.delete(label);
+        evicted++;
+      }
+    }
+  }
+  const maxSnapshots = _snapshotRetention.maxSnapshots ?? 200;
+  if (_snapshots.size > maxSnapshots) {
+    const ordered = [..._snapshotInsertedAt.entries()].sort((a, b) => a[1] - b[1]);
+    const excess = _snapshots.size - maxSnapshots;
+    for (let i = 0; i < excess; i++) {
+      const entry = ordered[i];
+      if (!entry) break;
+      _snapshots.delete(entry[0]);
+      _snapshotInsertedAt.delete(entry[0]);
+      evicted++;
+    }
+  }
+  return evicted;
+}
+
+/** Number of snapshots currently retained. */
+export function getContractSnapshotCount(): number {
+  return _snapshots.size;
+}
 
 /** Clear all stored snapshots. Useful for test isolation. */
 export function clearSnapshots(): void {
   _snapshots.clear();
+  _snapshotInsertedAt.clear();
 }
 
 /** Return all stored snapshots, optionally filtered by contractId. */
@@ -119,6 +171,9 @@ export async function snapshotContractState(
 
     const snapshot: ContractSnapshot = { id, contractId, label: snapshotLabel, timestamp, state };
     _snapshots.set(snapshotLabel, snapshot);
+    _snapshotInsertedAt.set(snapshotLabel, Date.now());
+    // Enforce retention so the store cannot grow unbounded (#707).
+    pruneContractSnapshots();
     return ok(snapshot);
   } catch (cause) {
     return err(
