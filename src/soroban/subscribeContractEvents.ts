@@ -324,6 +324,7 @@ export function subscribeContractEvents(
   let polling = false;
   let active = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
 
   /**
    * Deduplicate a batch of events against the seen set, returning only
@@ -440,13 +441,81 @@ export function subscribeContractEvents(
 
   scheduleNextPoll();
 
-  return () => {
+  const unsubscribe = (): void => {
+    // Idempotent teardown (#707): stop scheduling, drop the pending timer,
+    // release the deduplication map and deregister so SPAs don't leak.
+    if (settled) return;
+    settled = true;
     active = false;
     if (timer) {
       clearTimeout(timer);
       timer = undefined;
     }
+    seenEventIds.clear();
+    activeSubscriptions.delete(unsubscribe as () => void);
   };
+  activeSubscriptions.add(unsubscribe as () => void);
+  maybeWarnSubscriptions();
+  return unsubscribe;
+}
+
+/** Registry of live callback subscriptions (#707 — leak detection). */
+const activeSubscriptions = new Set<() => void>();
+let subscriptionWarned = false;
+
+/** Number of currently active `subscribeContractEvents` subscriptions. */
+export function getActiveContractEventSubscriptionCount(): number {
+  return activeSubscriptions.size;
+}
+
+/** Unsubscribe every active contract-event subscription. Returns count removed. */
+export function unsubscribeAllContractEvents(): number {
+  const subs = [...activeSubscriptions];
+  for (const unsub of subs) {
+    try {
+      unsub();
+    } catch {
+      activeSubscriptions.delete(unsub);
+    }
+  }
+  return subs.length;
+}
+
+function maybeWarnSubscriptions(): void {
+  if (subscriptionWarned) return;
+  if (activeSubscriptions.size > 50 && typeof console !== "undefined") {
+    subscriptionWarned = true;
+    console.warn(
+      `[sorokit] ${activeSubscriptions.size} active contract-event subscriptions; ` +
+      "ensure unsubscribe() is called on unmount to avoid leaks (see unsubscribeAllContractEvents).",
+    );
+  }
+}
+
+/** Reset subscription leak tracking (tests / dev). */
+export function resetContractEventSubscriptionTracking(): void {
+  activeSubscriptions.clear();
+  subscriptionWarned = false;
+}
+
+/**
+ * Sleep that resolves early on abort without leaking listeners (#707).
+ * The abort listener is always removed exactly once, whether the timer
+ * fires, the signal aborts, or the signal was already aborted.
+ */
+export function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /**
@@ -575,14 +644,10 @@ export async function* streamContractEvents(
 
     if (signal?.aborted) return;
 
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, intervalMs);
-      signal?.addEventListener("abort", () => {
-        clearTimeout(timer);
-        resolve();
-      }, { once: true });
-    });
-  }
+    await sleepWithAbort(intervalMs, signal);
+  };
+  // Release deduplication memory when the generator terminates (#707).
+  seenEventIds.clear();
 }
 
 export async function queryContractEvents(

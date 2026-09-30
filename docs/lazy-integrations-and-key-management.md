@@ -17,7 +17,7 @@ const { invokeContract } = await import("sorokit-core/soroban");
 const { resolveFederatedAddress } = await import("sorokit-core/integration");
 ```
 
-`loadSoroban()`, `loadIntegration()`, and `loadKeyManagement()` are also exported from `sorokit-core/lazy` and the package root for typed on-demand loading.
+`loadSoroban()`, `loadIntegration()`, `loadKeyManagement()` and `loadGovernance()` are exported from `sorokit-core/lazy` and the package root for typed on-demand loading, alongside the generic `loadModule(name)` registry. See [lazy-loading.md](./lazy-loading.md).
 
 ## Anchor transfer flows
 

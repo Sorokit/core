@@ -12,7 +12,7 @@ export default defineConfig({
     "src/network/index.ts",
     "src/shared/index.ts",
     "src/integration/index.ts",
-    "src/lazy.ts",
+    "src/lazy/index.ts",
     "src/shared/keyManagement.ts",
   ],
   format: ["cjs", "esm"],

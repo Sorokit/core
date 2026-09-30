@@ -134,7 +134,8 @@ export function classifyError(code: SorokitErrorCode): SorokitErrorCategory {
   if (
     code === SorokitErrorCode.INVALID_CONFIG ||
     code === SorokitErrorCode.INVALID_ADDRESS ||
-    code === SorokitErrorCode.MAINNET_SAFETY_LIMIT
+    code === SorokitErrorCode.MAINNET_SAFETY_LIMIT ||
+    code === SorokitErrorCode.VALIDATION
   ) {
     return SorokitErrorCategory.VALIDATION;
   }
