@@ -20,7 +20,48 @@ export {
   loadIntegration,
   loadKeyManagement,
   loadSoroban,
+  // #682: named-module lazy loading with load tracking.
+  loadGovernance,
+  loadModule,
+  preloadModules,
+  isModuleLoaded,
+  getLoadedModules,
+  isLazyModuleName,
+  LAZY_MODULES,
 } from "./lazy";
+export type { LazyModule, LazyModuleName } from "./lazy";
+
+// ─── On-chain governance (#686) ──────────────────────────────────────────────
+// `getVotingPower` is already exported above by the #456 governance helpers
+// (object-parameter signature), so the #686 variant is re-exported here as
+// `getGovernanceVotingPower`; it is also available unaliased as
+// `getVotingPower` from "sorokit-core/integration" and on client.integration.
+export {
+  configureGovernance,
+  createHttpGovernanceProvider,
+  getProposal,
+  getProposals,
+  getVotingPower as getGovernanceVotingPower,
+  trackProposal,
+  voteOnProposal,
+  PROPOSAL_STATUSES,
+  TERMINAL_PROPOSAL_STATUSES,
+} from "./integration/governance";
+export type {
+  GovernanceCallOptions,
+  GovernanceNetwork,
+  GovernanceProposal,
+  GovernanceProvider,
+  HttpGovernanceProviderOptions,
+  ProposalId,
+  ProposalStatus,
+  ProposalTally,
+  ProposalTracker,
+  TrackProposalOptions,
+  VoteChoice,
+  VoteReceipt,
+  VotingPower,
+} from "./integration/governance";
 export type {
   AnchorAsset,
   AnchorRequestOptions,
