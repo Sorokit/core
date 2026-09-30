@@ -25,7 +25,7 @@ interface CacheEntry {
 
 const addressCache = new Map<string, CacheEntry>();
 
-function parseFederatedAddress(value: string): { username: string; domain: string } | null {
+export function parseFederatedAddress(value: string): { username: string; domain: string } | null {
   const match = /^([^*\s@]+)\*([^*\s@]+)$/.exec(value.trim());
   if (match?.[1] && match[2] && !match[2].includes("/")) {
     return { username: match[1], domain: match[2].toLowerCase() };
@@ -47,7 +47,7 @@ export async function resolveFederatedAddress(
     return err(SorokitErrorCode.INVALID_ADDRESS, "Expected a federation address in name*domain or name@domain form.");
   }
 
-  const cacheKey = `${parsed.username}*${parsed.domain}`;
+  const cacheKey = `${parsed.username}*`${parsed.domain}`;
   const cached = addressCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return ok(cached.value);
   if (cached) addressCache.delete(cacheKey);
@@ -59,7 +59,7 @@ export async function resolveFederatedAddress(
     });
     const record = await federation.resolveAddress(parsed.username);
     const publicKey = record.account_id;
-    if (typeof publicKey !== "string" || !/^G[A-Z2-7]{55}$/.test(publicKey)) {
+    if (typeof publicKey !== "string" || !/^G[A-Z2-7]{56}$/.test(publicKey)) {
       return err(SorokitErrorCode.INVALID_ADDRESS, "Federation server returned an invalid Stellar account ID.");
     }
 

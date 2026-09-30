@@ -108,6 +108,10 @@ import { setTracedFetch } from "../shared/serverFactory";
 import { configureEndpointFailover, validateEndpointList } from "../network/endpointFailover";
 import { createEndpointRegistry } from "../network/endpointRegistry";
 import type { TraceContext } from "../shared/tracing";
+import { createDID } from "../integration/didSupport";
+import type { DIDData } from "../integration/didSupport";
+import { createAuditTrail } from "../compliance/auditTrail";
+import type { AuditTrail } from "../compliance/auditTrail";
 import {
   formatAddress,
   generateTraceId,
@@ -319,6 +323,10 @@ export interface SorokitClient {
     initiateSep6Transfer(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Record<string, unknown>>>;
     initiateSep24Interactive(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Sep24InteractiveResult>>;
     getSep6TransactionStatus(anchorUrl: string, id: string, options?: AnchorRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    createDID(publicKey: string): SorokitResult<DIDData>;
+    resolveDID(did: string): Promise<SorokitResult<DIDData>>;
+    linkAccountToDID(publicKey: string, did: string): Promise<SorokitResult<DIDData>>;
+    verifyDIDOwnership(did: string, signature: string): Promise<SorokitResult<boolean>>;
   };
 
   /** Key derivation and signer rotation utilities, loaded on first use. */
@@ -327,6 +335,9 @@ export interface SorokitClient {
     validateSecretKey(secretKey: string): Promise<SorokitResult<{ publicKey: string }>>;
     rotateSecretKey(options: RotateSecretKeyOptions): Promise<SorokitResult<Transaction>>;
   };
+
+  /** Append-only operation auditing and compliance reports for this client. */
+  readonly compliance: AuditTrail;
 
   /**
    * Check the health status of the client and its network connections.
@@ -1116,6 +1127,10 @@ export function createSorokitClient(
         (await import("../integration/anchors")).initiateSep24Interactive(anchorUrl, asset, options),
       getSep6TransactionStatus: async (anchorUrl, id, options) =>
         (await import("../integration/anchors")).getSep6TransactionStatus(anchorUrl, id, options),
+      createDID,
+      resolveDID: async (did) => (await import("../integration/didSupport")).resolveDID(did),
+      linkAccountToDID: async (publicKey, did) => (await import("../integration/didSupport")).linkAccountToDID(publicKey, did),
+      verifyDIDOwnership: async (did, signature) => (await import("../integration/didSupport")).verifyDIDOwnership(did, signature),
     },
 
     shared: {
@@ -1126,6 +1141,8 @@ export function createSorokitClient(
       rotateSecretKey: async (options) =>
         (await import("../shared/keyManagement")).rotateSecretKey(options),
     },
+
+    compliance: createAuditTrail(),
 
     healthCheck: async () => {
       const networkHealthResult = await checkNetworkHealth(horizonUrl, rpcUrl);

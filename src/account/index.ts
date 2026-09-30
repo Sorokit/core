@@ -189,6 +189,10 @@ export type {
   AssessAccountHealthOptions,
 } from "./accountHealth";
 
+// ─── Wallet discovery and account linking (#wallet-discovery) ─────────────────
+export { discoverWallet, listLinkedAccounts, linkWallet } from "../wallet/discovery";
+export type { DiscoveryData, LinkedAccount } from "../wallet/discovery";
+
 // ─── Multi-account portfolio dashboard (#592) ────────────────────────────────────────
 export { getPortfolioDashboard } from "./portfolioDashboard";
 export type { PortfolioDashboard } from "./portfolioDashboard";
