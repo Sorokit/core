@@ -107,7 +107,6 @@ export async function connectWallet(
     const isRetry = attempt > 1;
 
     notifyProgress("connecting", attempt, isRetry);
-    notifyProgress("authenticating", attempt, isRetry);
 
     let timerId: ReturnType<typeof setTimeout> | null = null;
     let timedOut = false;
@@ -126,6 +125,8 @@ export async function connectWallet(
 
     try {
       const connectPromise = adapter.connect();
+      // Attach no-op catch handler to prevent unhandled rejection warnings if adapter promise rejects after timeout
+      connectPromise.catch(() => {});
       const rawResult = await Promise.race([connectPromise, timeoutPromise]);
 
       if (timerId !== null) {
@@ -133,13 +134,19 @@ export async function connectWallet(
         timerId = null;
       }
 
+        if (timedOut) {
+          const timeoutErrorMsg = `The wallet connection timed out after ${Math.round(timeoutMs / 1000)} seconds. Make sure your wallet is open and try again.`;
+          lastError = err(SorokitErrorCode.WALLET_CONNECT_FAILED, timeoutErrorMsg);
+          notifyProgress("failed", attempt, isRetry, timeoutErrorMsg, true);
+          return lastError;
+        }
+
       if (rawResult.status === "error") {
         const errorMsg = rawResult.error.message;
-        const isTimeout = timedOut || (errorMsg && errorMsg.includes("timed out"));
         lastError = rawResult as SorokitResult<WalletState>;
 
-        if (isNonRetryableError(rawResult.error.code, errorMsg, rawResult.error.cause) || isTimeout) {
-          notifyProgress("failed", attempt, isRetry, errorMsg, isTimeout);
+          if (isNonRetryableError(rawResult.error.code, errorMsg, rawResult.error.cause)) {
+            notifyProgress("failed", attempt, isRetry, errorMsg, false);
           return rawResult as SorokitResult<WalletState>;
         }
 
@@ -148,7 +155,6 @@ export async function connectWallet(
           return rawResult as SorokitResult<WalletState>;
         }
 
-        // Delay for exponential backoff before next attempt
         const delay = backoffMs * Math.pow(2, attempt - 1);
         await sleep(delay);
         continue;
@@ -180,6 +186,13 @@ export async function connectWallet(
         clearTimeout(timerId);
         timerId = null;
       }
+
+        if (timedOut) {
+          const timeoutErrorMsg = `The wallet connection timed out after ${Math.round(timeoutMs / 1000)} seconds. Make sure your wallet is open and try again.`;
+          lastError = err(SorokitErrorCode.WALLET_CONNECT_FAILED, timeoutErrorMsg);
+          notifyProgress("failed", attempt, isRetry, timeoutErrorMsg, true);
+          return lastError;
+        }
 
       const errorMsg = `${adapterName} connection failed: ${cause instanceof Error ? cause.message : String(cause)}`;
       lastError = err(SorokitErrorCode.WALLET_CONNECT_FAILED, errorMsg, cause);
