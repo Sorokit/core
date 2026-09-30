@@ -9,14 +9,19 @@
 export { createSorokitClient } from "./client/createSorokitClient";
 export {
   authenticateSep10,
+  clearStellarTomlCache,
   clearFederationAddressCache,
+  completeSep10Auth,
   deriveKey,
+  fetchStellarToml,
   getSep6TransactionStatus,
+  initiateSep10Auth,
   initiateSep6Transfer,
   initiateSep24Interactive,
   resolveFederatedAddress,
   rotateSecretKey,
   validateSecretKey,
+  validateSep10Token,
   loadIntegration,
   loadKeyManagement,
   loadSoroban,
@@ -24,12 +29,16 @@ export {
 export type {
   AnchorAsset,
   AnchorRequestOptions,
+  AuthToken,
   DerivedStellarKey,
+  FetchStellarTomlOptions,
   FederationResolverOptions,
+  InitiateSep10AuthOptions,
   ResolvedAddress,
   RotateSecretKeyOptions,
   Sep10AuthOptions,
   Sep24InteractiveResult,
+  StellarToml,
 } from "./integration";
 export type {
   SorokitClient,
@@ -1586,6 +1595,16 @@ export type {
   AccountHealthLevel,
   AssessAccountHealthOptions,
 } from "./account/accountHealth";
+export { assessHealthScore, calculateHealthScore } from "./account/healthScore";
+export type { HealthData, HealthRiskLevel } from "./account/healthScore";
+export {
+  addRecoverySigner,
+  getRecoveryPlan,
+  removeOldSigner,
+  rotateKeys,
+  DEFAULT_RECOVERY_WAIT_MS,
+} from "./account/recoveryHelper";
+export type { RecoveryPlan, RecoveryPlanStep } from "./account/recoveryHelper";
 
 // ─── OpenTelemetry (#600) ───────────────────────────────────────────────────
 export {

@@ -25,3 +25,7 @@ export type {
   FederationResolverOptions,
   ResolvedAddress,
 } from "./federationResolver";
+export { clearStellarTomlCache, fetchStellarToml, DEFAULT_STELLAR_TOML_CACHE_TTL_MS } from "./sep1Toml";
+export type { FetchStellarTomlOptions, StellarToml } from "./sep1Toml";
+export { completeSep10Auth, initiateSep10Auth, validateSep10Token } from "./sep10Auth";
+export type { AuthToken, InitiateSep10AuthOptions } from "./sep10Auth";

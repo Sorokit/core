@@ -188,6 +188,16 @@ export type {
   AccountHealthLevel,
   AssessAccountHealthOptions,
 } from "./accountHealth";
+export { assessHealthScore, calculateHealthScore } from "./healthScore";
+export type { HealthData, HealthRiskLevel } from "./healthScore";
+export {
+  addRecoverySigner,
+  getRecoveryPlan,
+  removeOldSigner,
+  rotateKeys,
+  DEFAULT_RECOVERY_WAIT_MS,
+} from "./recoveryHelper";
+export type { RecoveryPlan, RecoveryPlanStep } from "./recoveryHelper";
 
 // ─── Wallet discovery and account linking (#wallet-discovery) ─────────────────
 export { discoverWallet, listLinkedAccounts, linkWallet } from "../wallet/discovery";
