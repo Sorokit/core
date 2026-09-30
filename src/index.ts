@@ -1027,6 +1027,23 @@ export type {
 
 // ─── Response system ──────────────────────────────────────────────────────────
 
+// ─── Security & Key Management ───────────────────────────────────────────────
+export {
+  generateKeypair,
+  generateMnemonic,
+  deriveFromMnemonic,
+  encryptKey,
+  decryptKey,
+  exportKey,
+} from "./security";
+export type {
+  GeneratedKeypair,
+  DerivedKey,
+  EncryptedKey,
+  KeyExportFormat,
+  ExportedKey,
+} from "./security";
+
 // ─── Transaction scheduler (#453) ────────────────────────────────────────────
 export {
   scheduleTransaction,
