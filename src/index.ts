@@ -37,12 +37,21 @@ export type {
   HealthCheckReport,
 } from "./client/createSorokitClient";
 
-export { createRateLimiter, deduplicateRequest } from "./utility";
-export type { RateLimiter, RateLimiterOptions } from "./utility";
-export { createDID, resolveDID, linkAccountToDID, verifyDIDOwnership, clearDIDLinks } from "./integration/didSupport";
-export type { DIDData, DIDDocument } from "./integration/didSupport";
-export { createAuditTrail, recordOperation, getAuditTrail, generateComplianceReport } from "./compliance";
-export type { AuditContext, AuditFilters, AuditRecord, AuditTrail, ComplianceAuditReport, ComplianceDateRange } from "./compliance";
+// ─── Wallet discovery & account linking ───────────────────────────────────────
+export {
+  discoverWallet,
+  listLinkedAccounts,
+  linkWallet,
+  unlinkWallet,
+  clearLinkedAccounts,
+} from "./wallet/discovery";
+export type {
+  DiscoveryData,
+  LinkedAccount,
+  DiscoverWalletOptions,
+  ListLinkedAccountsOptions,
+  LinkWalletOptions,
+} from "./wallet/discovery";
 
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
 export {
