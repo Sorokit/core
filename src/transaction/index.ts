@@ -118,6 +118,39 @@ export { reverseTransaction, issueRefund } from "./refunds";
 export type { RefundParams, RefundDetails } from "./refunds";
 export { streamTransactions } from "./streamTransactions";
 export { streamTransactionsSSE, buildTransactionSSEUrl } from "./streamTransactionsSSE";
+// ─── Real-time transaction status dashboard (#708) ───────────────────────────
+export {
+  TransactionStatusAggregator,
+  createTransactionStatusAggregator,
+  categorizeTransaction,
+  categoryFromOperationType,
+  filterDashboardTransactions,
+  streamTransactionStatus,
+  attachTransactionStreamToDashboard,
+  createWebSocketTransactionFeed,
+  REACT_DASHBOARD_EXAMPLE,
+  VUE_DASHBOARD_EXAMPLE,
+} from "./transactionDashboard";
+export type {
+  TransactionCategory,
+  DashboardTimeRange,
+  DashboardTimeWindow,
+  DashboardEntryHints,
+  DashboardTransactionEntry,
+  DashboardFilter,
+  DashboardMetrics,
+  DashboardChartPoint,
+  DashboardFeePoint,
+  DashboardChartData,
+  DashboardSnapshot,
+  DashboardListener,
+  TransactionStatusAggregatorOptions,
+  TransactionStatusStreamOptions,
+  TransactionStatusStreamHandle,
+  WebSocketTransactionFeedOptions,
+  WebSocketTransactionFeedHandle,
+  WebSocketLike,
+} from "./transactionDashboard";
 
 // ─── Claimable balances (#543) ─────────────────────────────────────────────────
 export {

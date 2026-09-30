@@ -816,6 +816,10 @@ export {
   getContractMethods,
   parseContractSchema,
   validateContractArgs,
+  setMetadataCacheCapacity,
+  setContractSchemaCacheCapacity,
+  pruneMetadataCache,
+  pruneSchemaCache,
 } from "./soroban/contractMetadata";
 export type {
   ContractSchema,
@@ -958,6 +962,8 @@ export {
   queryContractEvents,
   streamContractEvents,
   subscribeContractEvents,
+  getActiveContractEventSubscriptionCount,
+  unsubscribeAllContractEvents,
   DEFAULT_RECOVERY_WINDOW_MS,
 } from "./soroban/subscribeContractEvents";
 export { analyzeCallOptimization } from "./soroban/callOptimization";
@@ -967,6 +973,8 @@ export {
   diffContractState,
   diffSnapshots,
   inspectContractInvocation,
+  createStateSnapshotStore,
+  StateSnapshotStore,
 } from "./soroban/stateSnapshots";
 export type {
   ContractStateEntry,
@@ -974,7 +982,62 @@ export type {
   ContractStateChange,
   ContractStateDiff,
   ContractStateReader,
+  SnapshotRetentionPolicy,
+  SnapshotStoreStats,
 } from "./soroban/stateSnapshots";
+// ─── Contract memory-leak fixes (#707) ───────────────────────────────────────
+export {
+  setContractSnapshotRetention,
+  pruneContractSnapshots,
+  getContractSnapshotCount,
+  setContractSchemaCacheCapacity,
+  getContractSchemaCacheSize,
+  pruneSchemaCache,
+  clearContractSchemaCache,
+  pruneMetadataCache,
+  getContractMetadataCacheStats,
+  getActiveContractEventSubscriptionCount,
+  unsubscribeAllContractEvents,
+  resetContractEventSubscriptionTracking,
+  sleepWithAbort,
+  checkMemoryUsage,
+  resetMemoryMonitorWarnings,
+  estimateValueBytes,
+} from "./soroban/contractMemory";
+export type {
+  ContractStateHistoryRetention,
+  ContractStateHistoryStats,
+} from "./soroban/contractStateHistory";
+export type { MemoryUsageSample, MemoryMonitorOptions } from "./soroban/contractMemory";
+// ─── Real-time transaction status dashboard (#708) ───────────────────────────
+export {
+  TransactionStatusAggregator,
+  createTransactionStatusAggregator,
+  categorizeTransaction,
+  categoryFromOperationType,
+  filterDashboardTransactions,
+  streamTransactionStatus,
+  attachTransactionStreamToDashboard,
+  createWebSocketTransactionFeed,
+  REACT_DASHBOARD_EXAMPLE,
+  VUE_DASHBOARD_EXAMPLE,
+} from "./transaction/transactionDashboard";
+export type {
+  TransactionCategory,
+  DashboardTimeRange,
+  DashboardEntryHints,
+  DashboardTransactionEntry,
+  DashboardFilter,
+  DashboardMetrics,
+  DashboardChartData,
+  DashboardSnapshot,
+  DashboardListener,
+  TransactionStatusAggregatorOptions,
+  TransactionStatusStreamOptions,
+  TransactionStatusStreamHandle,
+  WebSocketTransactionFeedOptions,
+  WebSocketTransactionFeedHandle,
+} from "./transaction/transactionDashboard";
 export { optimizeContractArgs, analyzeArgumentEncoding } from "./soroban/optimizeArgs";
 export type { ArgumentEncodingStats, OptimizedContractArgs } from "./soroban/optimizeArgs";
 export {
