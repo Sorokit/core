@@ -1,6 +1,8 @@
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { SorokitCache } from "../shared/cache";
+import type { WalletAdapter, WalletState } from "./types";
+import { traceWalletConnect, type TelemetrySpan } from "../performance/telemetry";
 import type { WalletAdapter, WalletState, WalletConnectOptions, WalletConnectionProgress } from "./types";
 import { isUserRejection } from "../shared/errors";
 
@@ -50,6 +52,19 @@ export async function connectWallet(
   cacheOrOptions?: SorokitCache | WalletConnectOptions,
   optionsArg?: WalletConnectOptions,
 ): Promise<SorokitResult<WalletState>> {
+  return traceWalletConnect(
+    (span) => connectWalletImpl(adapter, cache, span),
+    { "wallet.type": adapter.walletType },
+  );
+}
+
+async function connectWalletImpl(
+  adapter: WalletAdapter,
+  cache: SorokitCache | undefined,
+  span: TelemetrySpan | undefined,
+): Promise<SorokitResult<WalletState>> {
+  if (!adapter.isAvailable()) {
+    span?.setAttribute("wallet.browser_only", true);
   let cache: SorokitCache | undefined;
   let options: WalletConnectOptions | undefined;
 
@@ -99,6 +114,20 @@ export async function connectWallet(
     );
   }
 
+  const result = await adapter.connect();
+  if (result.status === "error") {
+    span?.recordError(new Error(result.error.message));
+    return result;
+  }
+
+  // Validate that the adapter returned a non-empty public key string (#267).
+  // An empty string (e.g. from an installed wallet without a configured account)
+  // is invalid for downstream Stellar operations and should fail immediately.
+  if (!result.data || typeof result.data !== "string" || result.data === "") {
+    const message = "Wallet returned an empty public key.";
+    span?.recordError(new Error(message));
+    return err<WalletState>(SorokitErrorCode.WALLET_CONNECT_FAILED, message);
+  }
   let attempt = 0;
   let lastError: SorokitResult<WalletState> | null = null;
 
@@ -207,6 +236,8 @@ export async function connectWallet(
     }
   }
 
+  span?.setStatus("ok");
+  return ok(state);
   return (
     lastError ??
     err(
