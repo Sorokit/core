@@ -19,6 +19,8 @@ export {
   clearFederationAddressCache,
   resolveFederatedAddress,
 } from "./federationResolver";
+export { createDID, resolveDID, linkAccountToDID, verifyDIDOwnership, clearDIDLinks } from "./didSupport";
+export type { DIDData, DIDDocument } from "./didSupport";
 export type {
   FederationResolverOptions,
   ResolvedAddress,

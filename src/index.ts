@@ -37,6 +37,22 @@ export type {
   HealthCheckReport,
 } from "./client/createSorokitClient";
 
+// ─── Wallet discovery & account linking ───────────────────────────────────────
+export {
+  discoverWallet,
+  listLinkedAccounts,
+  linkWallet,
+  unlinkWallet,
+  clearLinkedAccounts,
+} from "./wallet/discovery";
+export type {
+  DiscoveryData,
+  LinkedAccount,
+  DiscoverWalletOptions,
+  ListLinkedAccountsOptions,
+  LinkWalletOptions,
+} from "./wallet/discovery";
+
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
 export {
   addSignatureToEnvelope,
@@ -800,6 +816,10 @@ export {
   getContractMethods,
   parseContractSchema,
   validateContractArgs,
+  setMetadataCacheCapacity,
+  setContractSchemaCacheCapacity,
+  pruneMetadataCache,
+  pruneSchemaCache,
 } from "./soroban/contractMetadata";
 export type {
   ContractSchema,
@@ -942,6 +962,8 @@ export {
   queryContractEvents,
   streamContractEvents,
   subscribeContractEvents,
+  getActiveContractEventSubscriptionCount,
+  unsubscribeAllContractEvents,
   DEFAULT_RECOVERY_WINDOW_MS,
 } from "./soroban/subscribeContractEvents";
 export { analyzeCallOptimization } from "./soroban/callOptimization";
@@ -951,6 +973,8 @@ export {
   diffContractState,
   diffSnapshots,
   inspectContractInvocation,
+  createStateSnapshotStore,
+  StateSnapshotStore,
 } from "./soroban/stateSnapshots";
 export type {
   ContractStateEntry,
@@ -958,7 +982,62 @@ export type {
   ContractStateChange,
   ContractStateDiff,
   ContractStateReader,
+  SnapshotRetentionPolicy,
+  SnapshotStoreStats,
 } from "./soroban/stateSnapshots";
+// ─── Contract memory-leak fixes (#707) ───────────────────────────────────────
+export {
+  setContractSnapshotRetention,
+  pruneContractSnapshots,
+  getContractSnapshotCount,
+  setContractSchemaCacheCapacity,
+  getContractSchemaCacheSize,
+  pruneSchemaCache,
+  clearContractSchemaCache,
+  pruneMetadataCache,
+  getContractMetadataCacheStats,
+  getActiveContractEventSubscriptionCount,
+  unsubscribeAllContractEvents,
+  resetContractEventSubscriptionTracking,
+  sleepWithAbort,
+  checkMemoryUsage,
+  resetMemoryMonitorWarnings,
+  estimateValueBytes,
+} from "./soroban/contractMemory";
+export type {
+  ContractStateHistoryRetention,
+  ContractStateHistoryStats,
+} from "./soroban/contractStateHistory";
+export type { MemoryUsageSample, MemoryMonitorOptions } from "./soroban/contractMemory";
+// ─── Real-time transaction status dashboard (#708) ───────────────────────────
+export {
+  TransactionStatusAggregator,
+  createTransactionStatusAggregator,
+  categorizeTransaction,
+  categoryFromOperationType,
+  filterDashboardTransactions,
+  streamTransactionStatus,
+  attachTransactionStreamToDashboard,
+  createWebSocketTransactionFeed,
+  REACT_DASHBOARD_EXAMPLE,
+  VUE_DASHBOARD_EXAMPLE,
+} from "./transaction/transactionDashboard";
+export type {
+  TransactionCategory,
+  DashboardTimeRange,
+  DashboardEntryHints,
+  DashboardTransactionEntry,
+  DashboardFilter,
+  DashboardMetrics,
+  DashboardChartData,
+  DashboardSnapshot,
+  DashboardListener,
+  TransactionStatusAggregatorOptions,
+  TransactionStatusStreamOptions,
+  TransactionStatusStreamHandle,
+  WebSocketTransactionFeedOptions,
+  WebSocketTransactionFeedHandle,
+} from "./transaction/transactionDashboard";
 export { optimizeContractArgs, analyzeArgumentEncoding } from "./soroban/optimizeArgs";
 export type { ArgumentEncodingStats, OptimizedContractArgs } from "./soroban/optimizeArgs";
 export {
@@ -1540,11 +1619,8 @@ export type {
 export {
   validateStellarAddress,
   validatePublicKey,
-  validateAssetCode,
   validateAssetIssuer,
-  validateAmount,
   STELLAR_MAX_DECIMAL_PLACES,
-  STELLAR_MAX_AMOUNT,
   STELLAR_MAX_ASSET_CODE_LENGTH,
   STELLAR_MIN_ASSET_CODE_LENGTH,
 } from "./shared/validation";
@@ -1632,27 +1708,3 @@ export type {
   GetOrSetOptions,
   StateChangeNotification,
 } from "./shared/smartCache";
-
-
-// --- DID Support (#687) --------------------------------------------------------
-export {
-  createDID,
-  resolveDID,
-  linkAccountToDID,
-  verifyDIDOwnership,
-  STELLAR_DID_METHOD,
-} from './integration/didSupport';
-export type {
-  StellarDIDDocument,
-  DIDVerificationMethod,
-  DIDInfo,
-  DIDLinkRecord,
-  DIDOwnershipProof,
-  DIDVerificationResult,
-  CreateDIDOptions,
-  ResolveDIDOptions,
-  LinkDIDOptions,
-  VerifyDIDOptions,
-  DIDServiceEndpoint,
-  DIDResolver,
-} from './integration/didSupport';

@@ -175,17 +175,23 @@ export async function* streamContractEventsRealTime(
         }),
         ...(options.jitter !== undefined && { jitter: options.jitter }),
       });
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(resolve, delay);
-        options.signal?.addEventListener(
-          "abort",
-          () => {
-            clearTimeout(timer);
-            resolve();
-          },
-          { once: true },
-        );
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          options.signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, delay);
+        const onAbort = (): void => {
+          clearTimeout(timer);
+          resolve();
+        };
+        if (options.signal?.aborted) {
+          clearTimeout(timer);
+          resolve();
+          return;
+        }
+        options.signal?.addEventListener("abort", onAbort, { once: true });
       });
     }
   }
+  // EventIndex is GC'd with the generator scope; nothing retained (#707).
 }
