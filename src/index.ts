@@ -1556,11 +1556,8 @@ export type {
 export {
   validateStellarAddress,
   validatePublicKey,
-  validateAssetCode,
   validateAssetIssuer,
-  validateAmount,
   STELLAR_MAX_DECIMAL_PLACES,
-  STELLAR_MAX_AMOUNT,
   STELLAR_MAX_ASSET_CODE_LENGTH,
   STELLAR_MIN_ASSET_CODE_LENGTH,
 } from "./shared/validation";
@@ -1648,4 +1645,3 @@ export type {
   GetOrSetOptions,
   StateChangeNotification,
 } from "./shared/smartCache";
-

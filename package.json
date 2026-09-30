@@ -69,13 +69,15 @@
     "test:coverage": "vitest --run --coverage",
     "test:e2e": "cross-env RUN_E2E=1 vitest run src/tests/e2e.test.ts",
     "test:watch": "vitest",
+    "test:stress": "vitest --run tests/stress/concurrent.test.ts --reporter=verbose",
     "bench": "vitest bench",
     "lint": "eslint src --ext .ts",
     "clean": "rimraf dist",
     "docs": "typedoc",
     "validate:exports": "node scripts/validate-exports.js",
     "size:check": "node scripts/check-bundle-size.mjs",
-    "analyze:unused": "node scripts/analyzeUnused.js"
+    "analyze:unused": "node scripts/analyzeUnused.js",
+    "analyze:bundle": "node scripts/analyze-bundle.js"
   },
   "keywords": [
     "stellar",

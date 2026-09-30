@@ -1,0 +1,27 @@
+name: Nightly Stress Tests
+
+on:
+  schedule:
+    - cron: "31 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci --legacy-peer-deps --no-fund
+      - name: Run concurrent stress suite
+        run: npm run test:stress | tee stress-results.txt
+      - name: Upload stress metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-results
+          path: stress-results.txt
+          retention-days: 30
