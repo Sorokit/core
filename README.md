@@ -671,19 +671,22 @@ Both guides use the current exported API shape and keep policy, construction, si
 
 ## Video Tutorials
 
-[`docs/videos.md`](docs/videos.md) is a 7-part video tutorial series covering the common workflows below. Each entry lists its target length and links to the full script/transcript and code examples ready to record against.
+[`docs/videos.md`](docs/videos.md) is a 10-part video tutorial series covering the common workflows below. Each entry links to the full timestamped script, verbatim transcript, and working code examples — all ready to record against. Full-length transcripts are available in each tutorial's **Transcript** subsection inside [`docs/videos.md`](docs/videos.md).
 
-| # | Tutorial | Length |
-| --- | --- | --- |
-| 1 | [Wallet Connection](docs/videos.md#1-wallet-connection-2-min) | 2 min |
-| 2 | [Building a Payment](docs/videos.md#2-building-a-payment-2-min) | 2 min |
-| 3 | [Multi-Sig Approval](docs/videos.md#3-multi-sig-approval-4-min) | 4 min |
-| 4 | [Soroban Contract Invoke](docs/videos.md#4-soroban-contract-invoke-3-min) | 3 min |
-| 5 | [Error Handling](docs/videos.md#5-error-handling-2-min) | 2 min |
-| 6 | [Testing](docs/videos.md#6-testing-3-min) | 3 min |
-| 7 | [Deployment Guide](docs/videos.md#7-deployment-guide-3-min) | 3 min |
+| #  | Tutorial                                                                                                              | Length |
+|----|-----------------------------------------------------------------------------------------------------------------------|:------:|
+| 1  | [Getting Started & Wallet Connection](docs/videos.md#tutorial-1--getting-started--wallet-connection-2-min)           | 2 min  |
+| 2  | [Building and Submitting a Payment](docs/videos.md#tutorial-2--building-and-submitting-a-payment-2-min)              | 2 min  |
+| 3  | [Multi-Sig Approval (Setup)](docs/videos.md#tutorial-3--multi-sig-approval-setup-4-min)                              | 4 min  |
+| 4  | [Soroban Contract Read & Invoke](docs/videos.md#tutorial-4--soroban-contract-read--invoke-3-min)                     | 3 min  |
+| 5  | [The SorokitResult No-Throw Model](docs/videos.md#tutorial-5--the-sorokitresult-no-throw-model-2-min)                | 2 min  |
+| 6  | [Unit Testing with Sorokit Mocks](docs/videos.md#tutorial-6--unit-testing-with-sorokit-mocks-3-min)                  | 3 min  |
+| 7  | [Deploying a Soroban Contract](docs/videos.md#tutorial-7--deploying-a-soroban-contract-3-min)                        | 3 min  |
+| 8  | [Debugging with DevTools & Diagnostics](docs/videos.md#tutorial-8--debugging-with-devtools--sorokit-diagnostics-3-min) | 3 min  |
+| 9  | [Multi-Signature Workflows End-to-End](docs/videos.md#tutorial-9--multi-signature-workflows-end-to-end-4-min)        | 4 min  |
+| 10 | [Error Handling Patterns & Recovery](docs/videos.md#tutorial-10--error-handling-patterns--recovery-2-min)            | 2 min  |
 
-See [`docs/videos.md`](docs/videos.md) for recorded video links once they're published.
+See [`docs/videos.md`](docs/videos.md) for recorded video links once they're published, and for the full production recording checklist and YouTube hosting guide.
 
 ---
 
