@@ -120,7 +120,21 @@ export function fingerprintState(state: Record<string, unknown>): string {
   return hash.toString(16).padStart(8, "0");
 }
 
-// ─── History ───
+/** Retention policy bounding {@link ContractStateHistory} memory (#707). */
+export interface ContractStateHistoryRetention {
+  /** Max snapshots kept per contract. Default: 100. */
+  maxSnapshotsPerContract?: number;
+  /** Max snapshots kept in total. Default: 1000. */
+  maxTotalSnapshots?: number;
+  /** Max age (ms) before a snapshot is evicted. Omit for no age limit. */
+  maxAgeMs?: number;
+}
+
+export interface ContractStateHistoryStats {
+  totalSnapshots: number;
+  contractsTracked: number;
+  pins: number;
+}
 
 /**
  * Registry of SDK-managed contract state snapshots.
@@ -136,6 +150,8 @@ export class ContractStateHistory {
   private readonly snapshots = new Map<string, ContractStateSnapshotRecord>();
   private readonly pins = new Map<string, ContractStatePin>();
   private sequence = 0;
+
+  constructor(private readonly retention: ContractStateHistoryRetention = {}) {}
 
   /**
    * Record a snapshot of contract state at a given ledger.
@@ -170,7 +186,73 @@ export class ContractStateHistory {
     };
 
     this.snapshots.set(record.id, record);
+    this.enforceRetention();
     return ok(record);
+  }
+
+  /**
+   * Evict snapshots exceeding the retention policy (#707).
+   * Pinned snapshots are never evicted. Returns the number evicted.
+   */
+  prune(now: number = Date.now()): number {
+    let evicted = 0;
+    const pinnedIds = new Set([...this.pins.values()].map((p) => p.snapshotId));
+    const maxAgeMs = this.retention.maxAgeMs;
+    if (maxAgeMs !== undefined) {
+      for (const [id, snap] of this.snapshots) {
+        if (pinnedIds.has(id)) continue;
+        if (now - snap.timestamp > maxAgeMs) {
+          this.snapshots.delete(id);
+          evicted++;
+        }
+      }
+    }
+    this.enforceRetention();
+    return evicted;
+  }
+
+  /** Current memory footprint summary (#707). */
+  stats(): ContractStateHistoryStats {
+    return {
+      totalSnapshots: this.snapshots.size,
+      contractsTracked: new Set([...this.snapshots.values()].map((s) => s.contractId)).size,
+      pins: this.pins.size,
+    };
+  }
+
+  private enforceRetention(): void {
+    const pinnedIds = new Set([...this.pins.values()].map((p) => p.snapshotId));
+    const maxPerContract = this.retention.maxSnapshotsPerContract ?? 100;
+    const maxTotal = this.retention.maxTotalSnapshots ?? 1000;
+
+    const byContract = new Map<string, ContractStateSnapshotRecord[]>();
+    for (const snap of this.snapshots.values()) {
+      const list = byContract.get(snap.contractId) ?? [];
+      list.push(snap);
+      byContract.set(snap.contractId, list);
+    }
+    for (const list of byContract.values()) {
+      if (list.length <= maxPerContract) continue;
+      list.sort((a, b) => a.timestamp - b.timestamp);
+      for (const snap of list) {
+        if (this.snapshots.size <= maxTotal && list.filter((s) => this.snapshots.has(s.id)).length <= maxPerContract) break;
+        if (pinnedIds.has(snap.id)) continue;
+        if (this.snapshots.delete(snap.id)) {
+          const idx = list.indexOf(snap);
+          if (idx >= 0) list.splice(idx, 1);
+        }
+        if (list.filter((s) => this.snapshots.has(s.id)).length <= maxPerContract) break;
+      }
+    }
+
+    if (this.snapshots.size > maxTotal) {
+      const ordered = [...this.snapshots.values()].sort((a, b) => a.timestamp - b.timestamp);
+      for (const snap of ordered) {
+        if (this.snapshots.size <= maxTotal) break;
+        if (pinnedIds.has(snap.id)) continue;
+        this.snapshots.delete(snap.id);
+      }
+    }
   }
 
   /**
@@ -361,6 +443,6 @@ export class ContractStateHistory {
 }
 
 /** Construct a {@link ContractStateHistory}. */
-export function createContractStateHistory(): ContractStateHistory {
-  return new ContractStateHistory();
+export function createContractStateHistory(retention?: ContractStateHistoryRetention): ContractStateHistory {
+  return new ContractStateHistory(retention);
 }
