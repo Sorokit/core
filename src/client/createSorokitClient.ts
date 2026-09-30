@@ -77,6 +77,40 @@ import { buildBumpSequenceTransaction } from "../transaction/bumpSequence";
 import { buildSetDataEntryTransaction, buildDeleteDataEntryTransaction } from "../transaction/dataEntry";
 import { compose } from "../transaction/compose";
 import type { ComposeOptions } from "../transaction/compose";
+import { orchestrate } from "../transaction/atomicOrchestrator";
+import type { AtomicOrchestratorOptions } from "../transaction/atomicOrchestrator";
+import {
+  aggregateEvents as aggregateContractEvents,
+  filterEvents as filterContractEvents,
+  streamEvents as streamContractEvents,
+} from "../soroban/eventAnalytics";
+import type {
+  ContractEventAnalyticsFilter,
+  EventAggregate,
+  EventGroupBy,
+} from "../soroban/eventAnalytics";
+import { decodeContractResult as decodeSorobanResult } from "../soroban/resultDecoder";
+import type {
+  ContractResultInput,
+  ContractResultSchema,
+  DecodedContractResult,
+} from "../soroban/resultDecoder";
+import {
+  getContractState as readContractState,
+  getContractStateAt as readContractStateAt,
+  getStateChanges as compareContractState,
+  watchContractState as streamContractState,
+} from "../soroban/stateHistory";
+import type {
+  ContractStateSource,
+  WatchContractStateOptions,
+} from "../soroban/stateHistory";
+import type {
+  ContractStateComparison,
+  ContractStateSnapshotRecord,
+} from "../soroban/contractStateHistory";
+import { createContractStateHistory } from "../soroban/contractStateHistory";
+import type { StreamContractEventsRealTimeOptions } from "../soroban/streamContractEventsRealTime";
 import { submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
 import { previewTransaction } from "../transaction/simulationPreview";
@@ -92,7 +126,6 @@ import type {
   ValidateDestinationOptions,
 } from "../transaction/validateDestination";
 import type { UpgradeEvent } from "../soroban/upgradeDetection";
-import type { StreamContractEventsRealTimeOptions } from "../soroban/streamContractEventsRealTime";
 import {
   createLogger,
   createTracedLogger,
@@ -547,6 +580,8 @@ export interface SorokitClient {
       sourcePublicKey: string,
       options?: ComposeOptions,
     ): ReturnType<typeof compose>;
+    /** Create a sequential multi-step orchestration with compensating rollback. */
+    orchestrate(options?: AtomicOrchestratorOptions): ReturnType<typeof orchestrate>;
     /** Submit a signed transaction XDR */
     submit(
       signedXdr: string,
@@ -692,6 +727,42 @@ export interface SorokitClient {
       contractId: string,
       options?: Omit<StreamContractEventsRealTimeOptions, "rpcUrl">,
     ): AsyncGenerator<ContractEvent[]>;
+    filterEvents(
+      contractId: string,
+      filters: ContractEventAnalyticsFilter,
+    ): Promise<SorokitResult<ContractEvent[]>>;
+    aggregateEvents(
+      contractId: string,
+      groupBy: EventGroupBy,
+      filters?: ContractEventAnalyticsFilter,
+    ): Promise<SorokitResult<Record<string, EventAggregate>>>;
+    streamEvents(
+      contractId: string,
+      filters: ContractEventAnalyticsFilter,
+      options?: Omit<StreamContractEventsRealTimeOptions, "rpcUrl">,
+    ): AsyncGenerator<SorokitResult<ContractEvent[]>>;
+    decodeContractResult<S extends ContractResultSchema>(
+      result: ContractResultInput,
+      schema: S,
+    ): SorokitResult<DecodedContractResult<S>>;
+    getContractState(
+      contractId: string,
+      source: ContractStateSource,
+    ): Promise<SorokitResult<ContractStateSnapshotRecord>>;
+    getContractStateAt(
+      contractId: string,
+      ledger: number,
+    ): SorokitResult<ContractStateSnapshotRecord>;
+    getStateChanges(
+      contractId: string,
+      fromLedger: number,
+      toLedger: number,
+    ): SorokitResult<ContractStateComparison>;
+    watchContractState(
+      contractId: string,
+      source: ContractStateSource,
+      options?: WatchContractStateOptions,
+    ): AsyncGenerator<SorokitResult<ContractStateSnapshotRecord>>;
   };
 
   readonly network: {
@@ -1095,6 +1166,7 @@ export function createSorokitClient(
   accountManager.watchAccountSwitch((activeAccount, previousAccount) => {
     walletEvents.emit("accountChanged", { activeAccount, previousAccount });
   });
+  const contractStateHistory = createContractStateHistory();
 
   const client: SorokitClient = {
     i18n,
@@ -1659,6 +1731,7 @@ export function createSorokitClient(
         logger.debug("transaction.compose", { sourcePublicKey });
         return compose(sourcePublicKey, networkConfig, options);
       },
+      orchestrate: (options) => orchestrate(options),
       submit: async (signedXdr, optionsOrTimeoutMs) => {
         const submitOptions = typeof optionsOrTimeoutMs === "number"
           ? { timeoutMs: optionsOrTimeoutMs }
@@ -1897,6 +1970,25 @@ export function createSorokitClient(
           ...options,
         });
       },
+      filterEvents: (contractId, filters) =>
+        filterContractEvents(contractId, filters, { rpcUrl }),
+      aggregateEvents: (contractId, groupBy, filters) =>
+        aggregateContractEvents(contractId, groupBy, { rpcUrl }, filters),
+      streamEvents: async function* (contractId, filters, options) {
+        yield* streamContractEvents(contractId, filters, {
+          rpcUrl,
+          ...(options !== undefined ? { streamOptions: options } : {}),
+        });
+      },
+      decodeContractResult: (result, schema) => decodeSorobanResult(result, schema),
+      getContractState: (contractId, source) =>
+        readContractState(contractId, source, contractStateHistory),
+      getContractStateAt: (contractId, ledger) =>
+        readContractStateAt(contractId, ledger, contractStateHistory),
+      getStateChanges: (contractId, fromLedger, toLedger) =>
+        compareContractState(contractId, fromLedger, toLedger, contractStateHistory),
+      watchContractState: (contractId, source, options) =>
+        streamContractState(contractId, source, options, contractStateHistory),
     },
 
     network: {

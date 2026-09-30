@@ -512,6 +512,13 @@ export type { TrustlineState } from "./transaction/index";
 export { compareFeeAcrossNetworks } from "./transaction/index";
 export type { NetworkFeeResult } from "./transaction/index";
 export { compose } from "./transaction/compose";
+export { AtomicOrchestrator, orchestrate } from "./transaction/atomicOrchestrator";
+export type {
+  AtomicExecutionResult,
+  AtomicFailureContext,
+  AtomicOrchestratorOptions,
+  AtomicStepContext,
+} from "./transaction/atomicOrchestrator";
 export type {
   TransactionPage,
   TransactionStreamConfig,
@@ -1323,6 +1330,8 @@ export type {
 export {
   EventAnalytics,
   filterEvents,
+  aggregateEvents,
+  streamEvents,
   groupEventsByTime,
   countEventsByType,
   aggregateEventMetrics,
@@ -1334,7 +1343,30 @@ export type {
   EventTypeDistribution,
   TimeGroupedEvents,
   TimeGroupedMetrics,
+  ContractEventAnalyticsFilter,
+  ContractEventLoader,
+  EventAnalyticsOptions,
+  EventAggregate,
+  EventGroupBy,
 } from "./soroban/eventAnalytics";
+export { decodeContractResult, createDecoder } from "./soroban/resultDecoder";
+export type {
+  ContractResultPrimitive,
+  ContractResultSchema,
+  ContractResultInput,
+  DecodedContractResult,
+} from "./soroban/resultDecoder";
+export {
+  getContractState,
+  getContractStateAt,
+  getStateChanges,
+  watchContractState,
+} from "./soroban/stateHistory";
+export type {
+  ContractStateRead,
+  ContractStateSource,
+  WatchContractStateOptions,
+} from "./soroban/stateHistory";
 
 export { CongestionMonitor, createCongestionMonitor } from "./network/congestionMonitor";
 export type {
