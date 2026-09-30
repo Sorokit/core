@@ -149,6 +149,14 @@ export class WalletStatusTracker {
     const combinedOptions: WalletConnectOptions = {
       ...options,
       onProgress: (progress: WalletConnectionProgress) => {
+        if (progress.state === "connected") {
+          // 'connected' final status update will be emitted at the end of connect() with resolved state
+          if (options?.onProgress) {
+            options.onProgress(progress);
+          }
+          return;
+        }
+
         const mappedStatus: WalletConnectionStatus =
           progress.state === "failed" ? "failed" : progress.state;
 
@@ -187,6 +195,9 @@ export class WalletStatusTracker {
 
     const state = result.data;
     this._setStatus({
+      status: "connected",
+      walletType: state.walletType,
+      adapterName: state.walletType ? getAdapterName(state.walletType) : null,
       publicKey: state.publicKey,
       truncatedAddress: state.publicKey ? truncatePublicKey(state.publicKey) : null,
       error: null,

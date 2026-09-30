@@ -32,10 +32,10 @@ describe("wallet status tracker", () => {
     const snapshot = tracker.status;
     snapshot.publicKey = "changed";
     expect(tracker.status.publicKey).toBe(key);
-    expect(second).toHaveBeenCalledTimes(3);
+    expect(second).toHaveBeenCalledTimes(2);
     unsubscribe();
     await tracker.disconnect(wallet);
-    expect(listener.mock.calls.map(([state]) => state.status)).toEqual(["connecting", "connected", "connected", "connecting", "disconnected"]);
+    expect(listener.mock.calls.map(([state]) => state.status)).toEqual(["connecting", "connected", "connecting", "disconnected"]);
     expect(getAriaLabel(tracker.status)).toBe("No wallet connected");
   });
 
