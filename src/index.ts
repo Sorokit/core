@@ -37,6 +37,22 @@ export type {
   HealthCheckReport,
 } from "./client/createSorokitClient";
 
+// ─── Wallet discovery & account linking ───────────────────────────────────────
+export {
+  discoverWallet,
+  listLinkedAccounts,
+  linkWallet,
+  unlinkWallet,
+  clearLinkedAccounts,
+} from "./wallet/discovery";
+export type {
+  DiscoveryData,
+  LinkedAccount,
+  DiscoverWalletOptions,
+  ListLinkedAccountsOptions,
+  LinkWalletOptions,
+} from "./wallet/discovery";
+
 // ─── Wallet adapters ──────────────────────────────────────────────────────────
 export {
   addSignatureToEnvelope,
@@ -1540,11 +1556,8 @@ export type {
 export {
   validateStellarAddress,
   validatePublicKey,
-  validateAssetCode,
   validateAssetIssuer,
-  validateAmount,
   STELLAR_MAX_DECIMAL_PLACES,
-  STELLAR_MAX_AMOUNT,
   STELLAR_MAX_ASSET_CODE_LENGTH,
   STELLAR_MIN_ASSET_CODE_LENGTH,
 } from "./shared/validation";
@@ -1632,4 +1645,3 @@ export type {
   GetOrSetOptions,
   StateChangeNotification,
 } from "./shared/smartCache";
-
