@@ -367,7 +367,7 @@ export interface SorokitClient {
     /** Connect and return WalletState */
     connect(
       adapter: WalletAdapter,
-      timeoutMs?: number,
+        optionsOrTimeoutMs?: number | import("../wallet/types").WalletConnectOptions,
     ): Promise<SorokitResult<WalletState>>;
     /** Generate a privacy-conscious fingerprint for the current runtime. */
     fingerprintDevice(signals?: DeviceSignals): DeviceFingerprint;
@@ -1207,7 +1207,13 @@ export function createSorokitClient(
       evaluateTrust: (fingerprint, history) => evaluateDeviceTrust(fingerprint, history, {
         threshold: config.deviceTrustThreshold ?? DEFAULT_TRUST_THRESHOLD,
       }),
-      connect: (adapter, timeoutMs) => {
+      connect: (adapter, optionsOrTimeoutMs) => {
+        const connectOpts: import("../wallet/types").WalletConnectOptions | undefined =
+          typeof optionsOrTimeoutMs === "number"
+            ? { timeoutMs: optionsOrTimeoutMs }
+            : optionsOrTimeoutMs;
+        const timeoutMs = connectOpts?.timeoutMs;
+
         const action = () => {
           // Try cache-based recovery first
           if (cache) {
@@ -1301,7 +1307,7 @@ export function createSorokitClient(
             logger,
             "wallet.connect",
             { walletType: adapter.walletType },
-            () => connectWallet(adapter, cache),
+            () => connectWallet(adapter, cache, connectOpts),
           ).then((result) => {
             // Persist successful connection via the persistence adapter
             if (result.status === "ok" && persistenceAdapter) {
