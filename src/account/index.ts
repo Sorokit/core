@@ -196,3 +196,22 @@ export type { DiscoveryData, LinkedAccount } from "../wallet/discovery";
 // ─── Multi-account portfolio dashboard (#592) ────────────────────────────────────────
 export { getPortfolioDashboard } from "./portfolioDashboard";
 export type { PortfolioDashboard } from "./portfolioDashboard";
+
+// ─── Portfolio dashboard and asset allocation tracker (#593) ──────────────────
+export {
+  getPortfolio,
+  getAssetAllocation,
+  getPortfolioHistory,
+  watchPortfolio,
+} from "./portfolioDashboard";
+export type {
+  PortfolioAsset,
+  PortfolioAllocation,
+  PortfolioAllocationEntry,
+  PortfolioData,
+  PortfolioHistoryPoint,
+  PortfolioHistory,
+  PortfolioWatchOptions,
+  PortfolioUpdate,
+  PortfolioUpdateCallback,
+} from "./portfolioDashboard";
