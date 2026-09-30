@@ -58,7 +58,7 @@ function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   const len = bytes.byteLength;
   for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i] ?? 0);
+    binary += String.fromCharCode(bytes[i]!);
   }
   return btoa(binary);
 }
@@ -116,7 +116,7 @@ export async function encryptSessionPayload(
   const secretBytes = enc.encode(secret);
   const xorBytes = new Uint8Array(bytes.length);
   for (let i = 0; i < bytes.length; i++) {
-    xorBytes[i] = (bytes[i] ?? 0) ^ (secretBytes[i % secretBytes.length] ?? 0);
+    xorBytes[i] = bytes[i]! ^ (secretBytes[i % secretBytes.length] ?? 0);
   }
   return {
     __sorokit_encrypted: true,
@@ -136,9 +136,9 @@ export async function decryptSessionPayload(
     const iv = base64ToBytes(payload.iv);
     const ciphertext = base64ToBytes(payload.ciphertext);
     const decryptedBuf = await crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: iv as unknown as BufferSource },
+      { name: "AES-GCM", iv: iv.buffer.slice(iv.byteOffset, iv.byteOffset + iv.byteLength) as ArrayBuffer },
       key,
-      ciphertext as unknown as BufferSource,
+      ciphertext.buffer.slice(ciphertext.byteOffset, ciphertext.byteOffset + ciphertext.byteLength) as ArrayBuffer,
     );
     return new TextDecoder().decode(decryptedBuf);
   }
@@ -148,7 +148,7 @@ export async function decryptSessionPayload(
   const secretBytes = enc.encode(secret);
   const plainBytes = new Uint8Array(xorBytes.length);
   for (let i = 0; i < xorBytes.length; i++) {
-    plainBytes[i] = (xorBytes[i] ?? 0) ^ (secretBytes[i % secretBytes.length] ?? 0);
+    plainBytes[i] = xorBytes[i]! ^ (secretBytes[i % secretBytes.length] ?? 0);
   }
   return new TextDecoder().decode(plainBytes);
 }
