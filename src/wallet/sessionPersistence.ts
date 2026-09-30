@@ -116,6 +116,7 @@ export async function encryptSessionPayload(
   const secretBytes = enc.encode(secret);
   const xorBytes = new Uint8Array(bytes.length);
   for (let i = 0; i < bytes.length; i++) {
+    xorBytes[i] = bytes[i]! ^ secretBytes[i % secretBytes.length]!;
     xorBytes[i] = bytes[i]! ^ (secretBytes[i % secretBytes.length] ?? 0);
   }
   return {
