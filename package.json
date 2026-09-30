@@ -55,6 +55,11 @@
       "types": "./dist/integration/index.d.ts",
       "import": "./dist/integration/index.mjs",
       "require": "./dist/integration/index.js"
+    },
+    "./lazy": {
+      "types": "./dist/lazy/index.d.ts",
+      "import": "./dist/lazy/index.mjs",
+      "require": "./dist/lazy/index.js"
     }
   },
   "files": [

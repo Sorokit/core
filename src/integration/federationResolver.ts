@@ -47,7 +47,7 @@ export async function resolveFederatedAddress(
     return err(SorokitErrorCode.INVALID_ADDRESS, "Expected a federation address in name*domain or name@domain form.");
   }
 
-  const cacheKey = `${parsed.username}*`${parsed.domain}`;
+  const cacheKey = `${parsed.username}*${parsed.domain}`;
   const cached = addressCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return ok(cached.value);
   if (cached) addressCache.delete(cacheKey);
