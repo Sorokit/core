@@ -32,9 +32,9 @@ describe("wallet status tracker", () => {
     const snapshot = tracker.status;
     snapshot.publicKey = "changed";
     expect(tracker.status.publicKey).toBe(key);
+    expect(second).toHaveBeenCalledTimes(2);
     unsubscribe();
     await tracker.disconnect(wallet);
-    expect(second).toHaveBeenCalledTimes(2);
     expect(listener.mock.calls.map(([state]) => state.status)).toEqual(["connecting", "connected", "connecting", "disconnected"]);
     expect(getAriaLabel(tracker.status)).toBe("No wallet connected");
   });
@@ -43,7 +43,7 @@ describe("wallet status tracker", () => {
     const tracker = new WalletStatusTracker();
     const wallet = adapter();
     vi.mocked(wallet.connect).mockResolvedValue(err(SorokitErrorCode.WALLET_CONNECT_FAILED, "denied"));
-    expect((await tracker.connect(wallet)).status).toBe("error");
+    expect((await tracker.connect(wallet, { maxRetries: 1 })).status).toBe("error");
     expect(tracker.hasError).toBe(true);
     expect(getAriaLabel(tracker.status)).toBe("Wallet error: denied");
     tracker.restoreState({ connected: true, publicKey: key, walletType: WalletType.FREIGHTER });
@@ -57,6 +57,145 @@ describe("wallet status tracker", () => {
     tracker.destroy();
     tracker.setError("after destroy");
     expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("handles 30-second connection timeout gracefully on the FIRST attempt", async () => {
+    vi.useFakeTimers();
+    const tracker = new WalletStatusTracker();
+    let connectCalls = 0;
+    const hangingWallet: WalletAdapter = {
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: () => {
+        connectCalls++;
+        return new Promise(() => {}); // never resolves
+      },
+      disconnect: async () => ok(undefined),
+      signTransaction: async () => ok(""),
+    };
+
+    const connectPromise = tracker.connect(hangingWallet, { timeoutMs: 30000, maxRetries: 1 });
+    await vi.advanceTimersByTimeAsync(30000);
+
+    const result = await connectPromise;
+    expect(connectCalls).toBe(1);
+    expect(result.status).toBe("error");
+    expect(result.error.message).toContain("timed out after 30 seconds");
+    expect(tracker.status.status).toBe("failed");
+    expect(tracker.status.isTimeout).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("invokes adapter.connect() exactly ONCE on a successful first attempt", async () => {
+    const tracker = new WalletStatusTracker();
+    let connectCalls = 0;
+    const quickWallet: WalletAdapter = {
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: async () => {
+        connectCalls++;
+        return ok(key);
+      },
+      disconnect: async () => ok(undefined),
+      signTransaction: async () => ok(""),
+    };
+
+    const progressStates: string[] = [];
+    const result = await tracker.connect(quickWallet, {
+      onProgress: (p) => progressStates.push(p.state),
+    });
+
+    expect(connectCalls).toBe(1);
+    expect(result.status).toBe("ok");
+    expect(tracker.isConnected).toBe(true);
+    expect(progressStates).toEqual(["connecting", "connected"]);
+  });
+
+  it("handles retries with exponential backoff and exactly N calls", async () => {
+    vi.useFakeTimers();
+    const tracker = new WalletStatusTracker();
+    let connectCalls = 0;
+    const failingWallet: WalletAdapter = {
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: async () => {
+        connectCalls++;
+        if (connectCalls < 3) {
+          return err(SorokitErrorCode.WALLET_CONNECT_FAILED, "Transient network issue");
+        }
+        return ok(key);
+      },
+      disconnect: async () => ok(undefined),
+      signTransaction: async () => ok(""),
+    };
+
+    const progressStates: string[] = [];
+    const connectPromise = tracker.connect(failingWallet, {
+      maxRetries: 3,
+      backoffMs: 100,
+      onProgress: (p) => progressStates.push(`${p.state}:attempt${p.attempt}`),
+    });
+
+    await vi.advanceTimersByTimeAsync(100); // 1st retry delay
+    await vi.advanceTimersByTimeAsync(200); // 2nd retry delay
+
+    const result = await connectPromise;
+    expect(result.status).toBe("ok");
+    expect(connectCalls).toBe(3);
+    expect(tracker.isConnected).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("prevents late promise resolution from corrupting state after timeout", async () => {
+    vi.useFakeTimers();
+    const tracker = new WalletStatusTracker();
+    let resolveLateConnect: (value: any) => void;
+    const slowWallet: WalletAdapter = {
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: () =>
+        new Promise((resolve) => {
+          resolveLateConnect = resolve;
+        }),
+      disconnect: async () => ok(undefined),
+      signTransaction: async () => ok(""),
+    };
+
+    const connectPromise = tracker.connect(slowWallet, { timeoutMs: 30000, maxRetries: 1 });
+    await vi.advanceTimersByTimeAsync(30000);
+
+    const result = await connectPromise;
+    expect(result.status).toBe("error");
+    expect(tracker.status.status).toBe("failed");
+
+    // Late resolution fires after timeout
+    resolveLateConnect!(ok(key));
+    await Promise.resolve();
+
+    // Verify state was NOT overwritten by late resolution
+    expect(tracker.status.status).toBe("failed");
+    expect(tracker.isConnected).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("bypasses retries for non-retryable user rejection errors", async () => {
+    const tracker = new WalletStatusTracker();
+    let connectCalls = 0;
+    const rejectingWallet: WalletAdapter = {
+      walletType: WalletType.FREIGHTER,
+      isAvailable: () => true,
+      connect: async () => {
+        connectCalls++;
+        return err(SorokitErrorCode.WALLET_SIGN_REJECTED, "User rejected request");
+      },
+      disconnect: async () => ok(undefined),
+      signTransaction: async () => ok(""),
+    };
+
+    const result = await tracker.connect(rejectingWallet, { maxRetries: 3 });
+    expect(connectCalls).toBe(1);
+    expect(result.status).toBe("error");
+    expect(tracker.status.status).toBe("failed");
   });
 
   it.each([

@@ -75,6 +75,7 @@ function setCachedMethods(
 
   options?.cache?.set(key, entry, ttlMs);
 
+  pruneMetadataCache(expiresAt - ttlMs);
   if (memoryCache.has(key)) {
     memoryCache.delete(key);
   } else if (memoryCache.size >= capacity) {
@@ -83,6 +84,13 @@ function setCachedMethods(
   }
 
   memoryCache.set(key, entry);
+  if (!metadataCacheWarned && memoryCache.size >= capacity && typeof console !== "undefined") {
+    metadataCacheWarned = true;
+    console.warn(
+      `[sorokit] contract metadata cache at capacity (${memoryCache.size}); ` +
+      "oldest entries evicted (LRU). Increase via setMetadataCacheCapacity() if needed.",
+    );
+  }
 }
 
 /**
@@ -91,6 +99,23 @@ function setCachedMethods(
 export function resetMetadataCache(): void {
   memoryCache.clear();
   inFlightRequests.clear();
+  clearContractSchemaCache();
+  metadataCacheWarned = false;
+}
+
+let metadataCacheWarned = false;
+
+/** Evict expired metadata entries. Returns evicted count (#707). */
+export function pruneMetadataCache(now: number = Date.now()): number {
+  let evicted = 0;
+  for (const [key, entry] of memoryCache) {
+    if (entry.expiresAt <= now) {
+      memoryCache.delete(key);
+      evicted++;
+    }
+  }
+  if (memoryCache.size < defaultMaxMemoryCacheCapacity) metadataCacheWarned = false;
+  return evicted;
 }
 
 /**
@@ -434,18 +459,85 @@ export interface ContractSchema {
 }
 
 // ─── Schema cache (in-memory, keyed by contractId) ────────────────────────────
+// Bounded LRU + TTL (#707). Previously unbounded, so long-running apps
+// tracking many contracts leaked memory.
 
 const schemaCache = new Map<string, { schema: ContractSchema; expiresAt: number }>();
+const DEFAULT_SCHEMA_CACHE_CAPACITY = 500;
+let schemaCacheCapacity = DEFAULT_SCHEMA_CACHE_CAPACITY;
+let schemaCacheWarned = false;
+
+/** Configure max entries for the in-memory contract schema cache (#707). */
+export function setContractSchemaCacheCapacity(capacity: number): void {
+  if (capacity > 0) {
+    schemaCacheCapacity = capacity;
+    pruneSchemaCache();
+  }
+}
+
+/** Current number of entries in the schema cache. */
+export function getContractSchemaCacheSize(): number {
+  return schemaCache.size;
+}
+
+/** Evict expired entries and enforce LRU capacity. Returns evicted count. */
+export function pruneSchemaCache(now: number = Date.now()): number {
+  let evicted = 0;
+  for (const [key, entry] of schemaCache) {
+    if (entry.expiresAt <= now) {
+      schemaCache.delete(key);
+      evicted++;
+    }
+  }
+  if (schemaCache.size > schemaCacheCapacity) {
+    const excess = schemaCache.size - schemaCacheCapacity;
+    const keys = schemaCache.keys();
+    for (let i = 0; i < excess; i++) {
+      const oldest = keys.next().value as string | undefined;
+      if (!oldest) break;
+      schemaCache.delete(oldest);
+      evicted++;
+    }
+  }
+  if (schemaCache.size < schemaCacheCapacity) schemaCacheWarned = false;
+  return evicted;
+}
+
+/** Clear the schema cache (both memory pressure relief and test isolation). */
+export function clearContractSchemaCache(): void {
+  schemaCache.clear();
+  schemaCacheWarned = false;
+}
+
+/** Memory footprint summary for metadata caches (#707). */
+export function getContractMetadataCacheStats(): {
+  metadataEntries: number;
+  schemaEntries: number;
+  inFlightRequests: number;
+} {
+  return {
+    metadataEntries: memoryCache.size,
+    schemaEntries: schemaCache.size,
+    inFlightRequests: inFlightRequests.size,
+  };
+}
 
 function schemaCacheKey(contractId: string): string {
   return `sorokit:contract-schema:${contractId}`;
 }
 
 function getCachedSchema(contractId: string, now: number): ContractSchema | null {
-  const entry = schemaCache.get(schemaCacheKey(contractId));
+  pruneSchemaCache(now);
+  const key = schemaCacheKey(contractId);
+  const entry = schemaCache.get(key);
   if (!entry) return null;
-  if (entry.expiresAt > now) return entry.schema;
-  schemaCache.delete(schemaCacheKey(contractId));
+  if (entry.expiresAt > now) {
+    // Touch for LRU ordering.
+    schemaCache.delete(key);
+    schemaCache.set(key, entry);
+    return entry.schema;
+  }
+  schemaCache.delete(key);
   return null;
 }
 
@@ -455,7 +547,23 @@ function setCachedSchema(
   ttlMs: number,
   now: number,
 ): void {
-  schemaCache.set(schemaCacheKey(contractId), { schema, expiresAt: now + ttlMs });
+  const key = schemaCacheKey(contractId);
+  // Prune expired entries opportunistically so the map cannot grow unbounded.
+  pruneSchemaCache(now);
+  if (schemaCache.has(key)) {
+    schemaCache.delete(key);
+  } else if (schemaCache.size >= (schemaCacheCapacity)) {
+    const oldestKey = schemaCache.keys().next().value as string | undefined;
+    if (oldestKey) schemaCache.delete(oldestKey);
+  }
+  schemaCache.set(key, { schema, expiresAt: now + ttlMs });
+  if (!schemaCacheWarned && schemaCache.size >= schemaCacheCapacity && typeof console !== "undefined") {
+    schemaCacheWarned = true;
+    console.warn(
+      `[sorokit] contract schema cache at capacity (${schemaCache.size}); ` +
+      "oldest entries evicted (LRU). Increase via setContractSchemaCacheCapacity() if needed.",
+    );
+  }
 }
 
 export async function getContractMethods(
