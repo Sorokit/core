@@ -188,7 +188,40 @@ export type {
   AccountHealthLevel,
   AssessAccountHealthOptions,
 } from "./accountHealth";
+export { assessHealthScore, calculateHealthScore } from "./healthScore";
+export type { HealthData, HealthRiskLevel } from "./healthScore";
+export {
+  addRecoverySigner,
+  getRecoveryPlan,
+  removeOldSigner,
+  rotateKeys,
+  DEFAULT_RECOVERY_WAIT_MS,
+} from "./recoveryHelper";
+export type { RecoveryPlan, RecoveryPlanStep } from "./recoveryHelper";
+
+// ─── Wallet discovery and account linking (#wallet-discovery) ─────────────────
+export { discoverWallet, listLinkedAccounts, linkWallet } from "../wallet/discovery";
+export type { DiscoveryData, LinkedAccount } from "../wallet/discovery";
 
 // ─── Multi-account portfolio dashboard (#592) ────────────────────────────────────────
 export { getPortfolioDashboard } from "./portfolioDashboard";
 export type { PortfolioDashboard } from "./portfolioDashboard";
+
+// ─── Portfolio dashboard and asset allocation tracker (#593) ──────────────────
+export {
+  getPortfolio,
+  getAssetAllocation,
+  getPortfolioHistory,
+  watchPortfolio,
+} from "./portfolioDashboard";
+export type {
+  PortfolioAsset,
+  PortfolioAllocation,
+  PortfolioAllocationEntry,
+  PortfolioData,
+  PortfolioHistoryPoint,
+  PortfolioHistory,
+  PortfolioWatchOptions,
+  PortfolioUpdate,
+  PortfolioUpdateCallback,
+} from "./portfolioDashboard";

@@ -51,8 +51,15 @@ import type { DexActivityOptions, DexActivityResult, OfferInfo, TradeInfo } from
 import { streamAccount } from "../account/streamAccount";
 import { setSponsor, removeSponsor } from "../account/sponsorship";
 import { getSigners, getThresholds, analyzeSigningRequirement } from "../account/signers";
-import { getAccountHealthScore } from "../account/accountHealth";
-import type { AccountHealthReport } from "../account/accountHealth";
+import { calculateHealthScore } from "../account/healthScore";
+import type { HealthData } from "../account/healthScore";
+import {
+  addRecoverySigner,
+  getRecoveryPlan,
+  removeOldSigner,
+  rotateKeys,
+} from "../account/recoveryHelper";
+import type { RecoveryPlan } from "../account/recoveryHelper";
 import { getPaymentHistory } from "../account/paymentHistory";
 import { getEffects } from "../account/getEffects";
 import { getDataEntries } from "../account/dataEntries";
@@ -141,6 +148,22 @@ import { setTracedFetch } from "../shared/serverFactory";
 import { configureEndpointFailover, validateEndpointList } from "../network/endpointFailover";
 import { createEndpointRegistry } from "../network/endpointRegistry";
 import type { TraceContext } from "../shared/tracing";
+import { createDID } from "../integration/didSupport";
+import type { DIDData } from "../integration/didSupport";
+import type {
+  GovernanceCallOptions,
+  GovernanceNetwork,
+  GovernanceProposal,
+  ProposalId,
+  ProposalStatus,
+  ProposalTracker,
+  TrackProposalOptions,
+  VoteChoice,
+  VoteReceipt,
+  VotingPower,
+} from "../integration/governance";
+import { createAuditTrail } from "../compliance/auditTrail";
+import type { AuditTrail } from "../compliance/auditTrail";
 import {
   formatAddress,
   generateTraceId,
@@ -222,6 +245,8 @@ import type {
 } from "../soroban/types";
 import type { ContractEvent } from "../soroban/subscribeContractEvents";
 import type { AnchorAsset, AnchorRequestOptions, Sep10AuthOptions, Sep24InteractiveResult } from "../integration/anchors";
+import type { AuthToken, InitiateSep10AuthOptions } from "../integration/sep10Auth";
+import type { FetchStellarTomlOptions, StellarToml } from "../integration/sep1Toml";
 import type { FederationResolverOptions, ResolvedAddress } from "../integration/federationResolver";
 import type { DerivedStellarKey, RotateSecretKeyOptions } from "../shared/keyManagement";
 import type { Transaction } from "@stellar/stellar-sdk";
@@ -348,10 +373,24 @@ export interface SorokitClient {
   /** SEP-2 federation lookup and SEP-6/10/24 anchor APIs, loaded on first use. */
   readonly integration: {
     resolveFederatedAddress(address: string, options?: FederationResolverOptions): Promise<SorokitResult<ResolvedAddress>>;
+    fetchStellarToml(domain: string, options?: FetchStellarTomlOptions): Promise<SorokitResult<StellarToml>>;
+    clearStellarTomlCache(domain?: string): Promise<void>;
     authenticateSep10(anchorUrl: string, options: Sep10AuthOptions): Promise<SorokitResult<string>>;
+    initiateSep10Auth(serverUrl: string, publicKey: string, options?: InitiateSep10AuthOptions): Promise<SorokitResult<string>>;
+    completeSep10Auth(challengeXdr: string, signedChallengeXdr: string, options?: { now?: number; timeoutMs?: number }): Promise<SorokitResult<AuthToken>>;
+    validateSep10Token(token: string, now?: number): Promise<SorokitResult<AuthToken>>;
     initiateSep6Transfer(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Record<string, unknown>>>;
     initiateSep24Interactive(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Sep24InteractiveResult>>;
     getSep6TransactionStatus(anchorUrl: string, id: string, options?: AnchorRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    createDID(publicKey: string): SorokitResult<DIDData>;
+    resolveDID(did: string): Promise<SorokitResult<DIDData>>;
+    linkAccountToDID(publicKey: string, did: string): Promise<SorokitResult<DIDData>>;
+    verifyDIDOwnership(did: string, signature: string): Promise<SorokitResult<boolean>>;
+    /** #686: governance — active proposals on `network` (defaults to the client's network). */
+    getProposals(network?: GovernanceNetwork, options?: GovernanceCallOptions & { status?: ProposalStatus | "all" }): Promise<SorokitResult<GovernanceProposal[]>>;
+    voteOnProposal(proposalId: ProposalId, vote: VoteChoice | string, options?: GovernanceCallOptions & { voter?: string }): Promise<SorokitResult<VoteReceipt>>;
+    getVotingPower(publicKey: string, options?: GovernanceCallOptions): Promise<SorokitResult<VotingPower>>;
+    trackProposal(proposalId: ProposalId, options?: TrackProposalOptions): Promise<SorokitResult<ProposalTracker>>;
   };
 
   /** Key derivation and signer rotation utilities, loaded on first use. */
@@ -360,6 +399,9 @@ export interface SorokitClient {
     validateSecretKey(secretKey: string): Promise<SorokitResult<{ publicKey: string }>>;
     rotateSecretKey(options: RotateSecretKeyOptions): Promise<SorokitResult<Transaction>>;
   };
+
+  /** Append-only operation auditing and compliance reports for this client. */
+  readonly compliance: AuditTrail;
 
   /**
    * Check the health status of the client and its network connections.
@@ -372,7 +414,7 @@ export interface SorokitClient {
     /** Connect and return WalletState */
     connect(
       adapter: WalletAdapter,
-      timeoutMs?: number,
+        optionsOrTimeoutMs?: number | import("../wallet/types").WalletConnectOptions,
     ): Promise<SorokitResult<WalletState>>;
     /** Generate a privacy-conscious fingerprint for the current runtime. */
     fingerprintDevice(signals?: DeviceSignals): DeviceFingerprint;
@@ -474,6 +516,16 @@ export interface SorokitClient {
       filter?: AssetBalanceFilter,
       timeoutMs?: number,
     ): Promise<SorokitResult<AssetBalance[]>>;
+    /** Assess signer security, recovery coverage, and native-balance reserve health. */
+    calculateHealthScore(publicKey: string): Promise<SorokitResult<HealthData>>;
+    /** Return a safe, staged signer recovery plan. */
+    getRecoveryPlan(publicKey: string): Promise<SorokitResult<RecoveryPlan>>;
+    /** Build an unsigned transaction that adds a lower-weight backup signer. */
+    addRecoverySigner(account: string, recoveryKey: string, recoveryWeight?: number): Promise<SorokitResult<string>>;
+    /** Build an unsigned transaction that installs a replacement signer and disables master weight. */
+    rotateKeys(account: string, newKey: string, newKeyWeight?: number): Promise<SorokitResult<string>>;
+    /** Build an unsigned transaction to remove a signer after the recovery delay. */
+    removeOldSigner(account: string, oldKey: string, rotatedAt: number | string | Date, options?: { waitMs?: number; now?: number }): Promise<SorokitResult<string>>;
     /**
      * Stream account state by polling Horizon.
      * Yields SorokitResult<AccountInfo> on every poll.
@@ -1180,14 +1232,37 @@ export function createSorokitClient(
     integration: {
       resolveFederatedAddress: async (address, options) =>
         (await import("../integration/federationResolver")).resolveFederatedAddress(address, options),
+      fetchStellarToml: async (domain, options) =>
+        (await import("../integration/sep1Toml")).fetchStellarToml(domain, options),
+      clearStellarTomlCache: async (domain) =>
+        (await import("../integration/sep1Toml")).clearStellarTomlCache(domain),
       authenticateSep10: async (anchorUrl, options) =>
         (await import("../integration/anchors")).authenticateSep10(anchorUrl, options),
+      initiateSep10Auth: async (serverUrl, publicKey, options) =>
+        (await import("../integration/sep10Auth")).initiateSep10Auth(serverUrl, publicKey, options),
+      completeSep10Auth: async (challengeXdr, signedChallengeXdr, options) =>
+        (await import("../integration/sep10Auth")).completeSep10Auth(challengeXdr, signedChallengeXdr, options),
+      validateSep10Token: async (token, now) =>
+        (await import("../integration/sep10Auth")).validateSep10Token(token, now),
       initiateSep6Transfer: async (anchorUrl, asset, options) =>
         (await import("../integration/anchors")).initiateSep6Transfer(anchorUrl, asset, options),
       initiateSep24Interactive: async (anchorUrl, asset, options) =>
         (await import("../integration/anchors")).initiateSep24Interactive(anchorUrl, asset, options),
       getSep6TransactionStatus: async (anchorUrl, id, options) =>
         (await import("../integration/anchors")).getSep6TransactionStatus(anchorUrl, id, options),
+      createDID,
+      resolveDID: async (did) => (await import("../integration/didSupport")).resolveDID(did),
+      linkAccountToDID: async (publicKey, did) => (await import("../integration/didSupport")).linkAccountToDID(publicKey, did),
+      verifyDIDOwnership: async (did, signature) => (await import("../integration/didSupport")).verifyDIDOwnership(did, signature),
+      // #686: governance, loaded on first use.
+      getProposals: async (network, options) =>
+        (await import("../integration/governance")).getProposals(network ?? (networkConfig.network), options),
+      voteOnProposal: async (proposalId, vote, options) =>
+        (await import("../integration/governance")).voteOnProposal(proposalId, vote, { network: networkConfig.network, ...options }),
+      getVotingPower: async (publicKey, options) =>
+        (await import("../integration/governance")).getVotingPower(publicKey, { network: networkConfig.network, ...options }),
+      trackProposal: async (proposalId, options) =>
+        (await import("../integration/governance")).trackProposal(proposalId, { network: networkConfig.network, ...options }),
     },
 
     shared: {
@@ -1198,6 +1273,8 @@ export function createSorokitClient(
       rotateSecretKey: async (options) =>
         (await import("../shared/keyManagement")).rotateSecretKey(options),
     },
+
+    compliance: createAuditTrail(),
 
     healthCheck: async () => {
       const networkHealthResult = await checkNetworkHealth(horizonUrl, rpcUrl);
@@ -1236,7 +1313,13 @@ export function createSorokitClient(
       evaluateTrust: (fingerprint, history) => evaluateDeviceTrust(fingerprint, history, {
         threshold: config.deviceTrustThreshold ?? DEFAULT_TRUST_THRESHOLD,
       }),
-      connect: (adapter, timeoutMs) => {
+      connect: (adapter, optionsOrTimeoutMs) => {
+        const connectOpts: import("../wallet/types").WalletConnectOptions | undefined =
+          typeof optionsOrTimeoutMs === "number"
+            ? { timeoutMs: optionsOrTimeoutMs }
+            : optionsOrTimeoutMs;
+        const timeoutMs = connectOpts?.timeoutMs;
+
         const action = () => {
           // Try cache-based recovery first
           if (cache) {
@@ -1330,7 +1413,7 @@ export function createSorokitClient(
             logger,
             "wallet.connect",
             { walletType: adapter.walletType },
-            () => connectWallet(adapter, cache),
+            () => connectWallet(adapter, cache, connectOpts),
           ).then((result) => {
             // Persist successful connection via the persistence adapter
             if (result.status === "ok" && persistenceAdapter) {
@@ -1419,6 +1502,14 @@ export function createSorokitClient(
     },
 
     account: {
+      calculateHealthScore: (publicKey) => calculateHealthScore(horizonUrl, publicKey),
+      getRecoveryPlan: (publicKey) => getRecoveryPlan(horizonUrl, publicKey),
+      addRecoverySigner: (account, recoveryKey, recoveryWeight) =>
+        addRecoverySigner(horizonUrl, networkConfig, account, recoveryKey, recoveryWeight),
+      rotateKeys: (account, newKey, newKeyWeight) =>
+        rotateKeys(horizonUrl, networkConfig, account, newKey, newKeyWeight),
+      removeOldSigner: (account, oldKey, rotatedAt, options) =>
+        removeOldSigner(horizonUrl, networkConfig, account, oldKey, rotatedAt, options),
       get: (publicKey, timeoutMs) =>
         guard("account_get", timeoutMs, (signal) =>
           deduplicator.deduplicate(

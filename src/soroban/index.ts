@@ -58,6 +58,10 @@ export {
   subscribeContractEvents,
   queryContractEvents,
   streamContractEvents,
+  sleepWithAbort,
+  getActiveContractEventSubscriptionCount,
+  unsubscribeAllContractEvents,
+  resetContractEventSubscriptionTracking,
   DEFAULT_RECOVERY_WINDOW_MS,
 } from "./subscribeContractEvents";
 export { streamContractEventsRealTime } from "./streamContractEventsRealTime";
@@ -83,6 +87,12 @@ export {
   validateContractArgs,
   preloadContractMetadata,
   setMetadataCacheCapacity,
+  setContractSchemaCacheCapacity,
+  getContractSchemaCacheSize,
+  pruneSchemaCache,
+  clearContractSchemaCache,
+  pruneMetadataCache,
+  getContractMetadataCacheStats,
 } from "./contractMetadata";
 export type {
   ContractSchema,
@@ -189,6 +199,9 @@ export {
   compareSnapshots,
   listSnapshots,
   clearSnapshots,
+  setContractSnapshotRetention,
+  pruneContractSnapshots,
+  getContractSnapshotCount,
 } from "./contractSnapshot";
 export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
 export { getNftMetadata, clearNftMetadataCache } from "./nftMetadata";
@@ -577,6 +590,8 @@ export type {
   ContractStateComparison,
   SnapshotIntegrityReport,
   SnapshotQuery,
+  ContractStateHistoryRetention,
+  ContractStateHistoryStats,
 } from "./contractStateHistory";
 export {
   getContractState,

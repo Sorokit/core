@@ -55,6 +55,11 @@
       "types": "./dist/integration/index.d.ts",
       "import": "./dist/integration/index.mjs",
       "require": "./dist/integration/index.js"
+    },
+    "./lazy": {
+      "types": "./dist/lazy/index.d.ts",
+      "import": "./dist/lazy/index.mjs",
+      "require": "./dist/lazy/index.js"
     }
   },
   "files": [
@@ -68,14 +73,17 @@
     "test": "vitest --run",
     "test:coverage": "vitest --run --coverage",
     "test:e2e": "cross-env RUN_E2E=1 vitest run src/tests/e2e.test.ts",
+    "test:e2e:framework": "vitest run src/tests/e2e/",
     "test:watch": "vitest",
+    "test:stress": "vitest --run tests/stress/concurrent.test.ts --reporter=verbose",
     "bench": "vitest bench",
     "lint": "eslint src --ext .ts",
     "clean": "rimraf dist",
     "docs": "typedoc",
     "validate:exports": "node scripts/validate-exports.js",
     "size:check": "node scripts/check-bundle-size.mjs",
-    "analyze:unused": "node scripts/analyzeUnused.js"
+    "analyze:unused": "node scripts/analyzeUnused.js",
+    "analyze:bundle": "node scripts/analyze-bundle.js"
   },
   "keywords": [
     "stellar",
@@ -119,6 +127,7 @@
   },
   "packageManager": "yarn@4.9.4+sha512.7b1cb0b62abba6a537b3a2ce00811a843bea02bcf53138581a6ae5b1bf563f734872bd47de49ce32a9ca9dcaff995aa789577ffb16811da7c603dcf69e73750b",
   "dependencies": {
-    "@scure/bip39": "^1.6.0"
+    "@scure/bip39": "^1.6.0",
+    "smol-toml": "^1.9.0"
   }
 }
