@@ -23,6 +23,11 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorokitCache } from "../shared/cache";
 import { fetchRecentMedianFee, isFeeSurge } from "./feeSurge";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import {
+  PROTOCOL_BASE_FEE,
+  getNetworkBaseFee,
+  resolveNetworkBaseFee,
+} from "./feePolicy";
 
 /** Minimum adaptive cache TTL: 2 minutes (used during high fee volatility >10% change). */
 export const ADAPTIVE_FEE_TTL_MIN_MS = 2 * 60 * 1000;
@@ -201,14 +206,30 @@ export interface AdaptiveFeeOptions {
   feeHistory?: number[];
   minMultiplier?: number;
   maxMultiplier?: number;
+  /**
+   * Network-aware floor (in stroops) applied to the result. Defaults to the
+   * protocol `BASE_FEE`. Pass a value derived from `feePolicy` to keep the
+   * clamp consistent with the target network (issue #705).
+   */
+  baseFeeFloor?: number;
 }
 
-/** Calculate a bounded fee recommendation from urgency and recent observations. */
+/**
+ * Calculate a bounded fee recommendation from urgency and recent observations.
+ *
+ * The result is always clamped to `options.baseFeeFloor` (defaulting to the
+ * protocol `BASE_FEE`) so callers on networks with a higher effective base fee
+ * are never recommended a fee below that network's floor.
+ */
 export function calculateAdaptiveFee(
   baseFee: number,
   options: AdaptiveFeeOptions = {},
 ): number {
-  if (!Number.isFinite(baseFee) || baseFee <= 0) return parseInt(BASE_FEE, 10);
+  const floor =
+    Number.isFinite(options.baseFeeFloor) && (options.baseFeeFloor ?? 0) > 0
+      ? Math.round(options.baseFeeFloor as number)
+      : parseInt(BASE_FEE, 10);
+  if (!Number.isFinite(baseFee) || baseFee <= 0) return floor;
   const urgency = options.urgency ?? "normal";
   const urgencyMultiplier = DEFAULT_PRIORITY_MULTIPLIERS[urgency];
   const history = (options.feeHistory ?? []).filter((fee) => Number.isFinite(fee) && fee > 0);
@@ -222,7 +243,7 @@ export function calculateAdaptiveFee(
   const minMultiplier = Math.max(0.1, options.minMultiplier ?? 0.5);
   const maxMultiplier = Math.max(minMultiplier, options.maxMultiplier ?? 5);
   const multiplier = Math.max(minMultiplier, Math.min(maxMultiplier, urgencyMultiplier * trendMultiplier));
-  return Math.max(parseInt(BASE_FEE, 10), Math.round(baseFee * multiplier));
+  return Math.max(floor, Math.round(baseFee * multiplier));
 }
 
 export interface FeeEstimateOptions {
@@ -294,11 +315,22 @@ const FEE_TIERS_TX_LIMIT = 50;
 
 /**
  * Compute 10th/50th/90th percentile fee tiers from an array of raw fee values.
- * Invalid and non-positive values are excluded. Falls back to BASE_FEE when
- * no valid fees remain.
+ * Invalid and non-positive values are excluded. Falls back to `fallbackBaseFee`
+ * (the network's effective base fee) when no valid fees remain.
+ *
+ * @param fees            Raw observed fees, in stroops.
+ * @param fallbackBaseFee Network base fee used when there is no usable data.
+ *                        Defaults to the protocol `BASE_FEE` for backwards
+ *                        compatibility; pass `getNetworkBaseFee(network)` so
+ *                        testnet/mainnet/futurenet floors are respected.
  */
-export function calculateFeeTiers(fees: number[]): FeeTiers {
-  const base = parseInt(BASE_FEE, 10);
+export function calculateFeeTiers(
+  fees: number[],
+  fallbackBaseFee: number = PROTOCOL_BASE_FEE,
+): FeeTiers {
+  const base = Number.isFinite(fallbackBaseFee) && fallbackBaseFee > 0
+    ? Math.round(fallbackBaseFee)
+    : PROTOCOL_BASE_FEE;
   const valid = fees.filter((f) => Number.isFinite(f) && f > 0).sort((a, b) => a - b);
 
   if (valid.length === 0) {
@@ -319,11 +351,19 @@ export function calculateFeeTiers(fees: number[]): FeeTiers {
 
 /**
  * Fetch recent transaction fees from Horizon and compute percentile-based
- * fee tiers. Falls back to BASE_FEE for all tiers if no data is available.
- * Results are cached for the default fee TTL when a cache is provided.
+ * fee tiers. Falls back to the target network's effective base fee for all
+ * tiers if no data is available. Results are cached for the default fee TTL
+ * when a cache is provided.
+ *
+ * @param network Optional network identifier used to derive the fallback
+ *                floor (see `feePolicy`). Defaults to the protocol BASE_FEE.
  */
-export async function fetchFeeTiers(horizonUrl: string, cache?: SorokitCache): Promise<FeeTiers> {
-  const base = parseInt(BASE_FEE, 10);
+export async function fetchFeeTiers(
+  horizonUrl: string,
+  cache?: SorokitCache,
+  network?: string,
+): Promise<FeeTiers> {
+  const base = getNetworkBaseFee(network);
   const fallback: FeeTiers = { economy: String(base), standard: String(base), fast: String(base) };
 
   if (cache) {
@@ -339,7 +379,7 @@ export async function fetchFeeTiers(horizonUrl: string, cache?: SorokitCache): P
       (tx) => parseInt((tx as { fee_charged?: string }).fee_charged ?? "", 10),
     );
 
-    const tiers = calculateFeeTiers(fees);
+    const tiers = calculateFeeTiers(fees, base);
 
     if (cache) {
       cache.set(FEE_TIERS_CACHE_KEY, tiers, DEFAULT_FEE_CACHE_TTL_MS);
@@ -363,8 +403,9 @@ export async function fetchCongestionFeeEstimate(
   horizonUrl: string,
   currentFeeStroops: number,
   cache?: SorokitCache,
+  network?: string,
 ): Promise<CongestionFeeEstimate> {
-  const base = parseInt(BASE_FEE, 10);
+  const base = getNetworkBaseFee(network);
   const fallback: CongestionFeeEstimate = {
     minFee: String(base),
     recommendedFee: String(base),
@@ -394,7 +435,7 @@ export async function fetchCongestionFeeEstimate(
       .map((tx) => parseInt((tx as { fee_charged?: string }).fee_charged ?? "", 10))
       .filter((f) => Number.isFinite(f) && f > 0);
 
-    const tiers = calculateFeeTiers(fees);
+    const tiers = calculateFeeTiers(fees, base);
     const median = parseInt(tiers.standard, 10);
 
     const estimate: CongestionFeeEstimate = {
@@ -448,7 +489,13 @@ function describeFeeEstimateFailure(cause: unknown): string {
  * 2. `{ kind: "payment", publicKey, destination, amount }` — builds a sample
  *    payment transaction and simulates it.
  *
- * Falls back to `BASE_FEE` (100 stroops) when RPC simulation is unavailable.
+ * Base fees are network-aware (issue #705): the floor/fallback is derived from
+ * `feePolicy` for the configured network — mainnet/testnet use the protocol
+ * `BASE_FEE` (100 stroops) while futurenet uses 2× that floor — instead of a
+ * single global constant. A custom `networkConfig.baseFeeMultiplier` overrides
+ * the policy. Simulated fees are clamped up to this floor so a low simulation
+ * result can never recommend a fee the network would reject.
+ *
  * When a `cache` is provided, the SHA-256 hash of the XDR is used as the cache
  * key — cache hits skip the RPC round trip entirely.
  *
@@ -490,6 +537,9 @@ export async function estimateFee(
   options?: FeeEstimateOptions,
 ): Promise<SorokitResult<FeeEstimate>> {
   try {
+    // Network-specific base fee (issue #705). All floors, clamps and fallbacks
+    // below derive from this value so mainnet/testnet/futurenet stay consistent.
+    const networkBaseFee = resolveNetworkBaseFee(networkConfig);
     let xdr: string;
 
     if (input.kind === "xdr") {
@@ -528,7 +578,7 @@ export async function estimateFee(
       }
 
       const builtTx = new TransactionBuilder(sourceAccount, {
-        fee: BASE_FEE,
+        fee: String(networkBaseFee),
         networkPassphrase: networkConfig.networkPassphrase,
       })
         .addOperation(
@@ -563,15 +613,20 @@ export async function estimateFee(
     let simulated = true;
 
     if (SorobanRpc.Api.isSimulationSuccess(simResult)) {
-      // minResourceFee already includes inclusion fee; no extra BASE_FEE is added.
-      feeStroops = parseInt(simResult.minResourceFee ?? BASE_FEE, 10);
+      // minResourceFee already includes the inclusion fee; no extra base fee is
+      // added. Clamp to the network floor so a low simulation result can never
+      // suggest a fee the network would reject.
+      const simulatedFee = parseInt(simResult.minResourceFee ?? "", 10);
+      feeStroops = Number.isFinite(simulatedFee)
+        ? Math.max(networkBaseFee, simulatedFee)
+        : networkBaseFee;
     } else if (SorobanRpc.Api.isSimulationError(simResult)) {
-      // Simulation failed. Fall back to BASE_FEE as the floor.
-      feeStroops = parseInt(BASE_FEE, 10);
+      // Simulation failed. Fall back to the network base fee as the floor.
+      feeStroops = networkBaseFee;
       simulated = false;
     } else {
-      // Simulation unavailable. Fall back to BASE_FEE as the floor.
-      feeStroops = parseInt(BASE_FEE, 10);
+      // Simulation unavailable. Fall back to the network base fee as the floor.
+      feeStroops = networkBaseFee;
       simulated = false;
     }
 
@@ -583,12 +638,13 @@ export async function estimateFee(
       const urgencyFee = calculateAdaptiveFee(feeStroops, {
         ...(priority ? { urgency: priority } : {}),
         feeHistory: options?.feeHistory ?? getFeeHistory(networkConfig.networkPassphrase),
+        baseFeeFloor: networkBaseFee,
         ...(options?.minMultiplier !== undefined ? { minMultiplier: options.minMultiplier } : {}),
         ...(options?.maxMultiplier !== undefined ? { maxMultiplier: options.maxMultiplier } : {}),
       });
       if (priority && options?.priorityMultipliers) {
         const customMultiplier = multipliers[priority];
-        feeStroops = Math.max(parseInt(BASE_FEE, 10), Math.round(feeStroops * customMultiplier));
+        feeStroops = Math.max(networkBaseFee, Math.round(feeStroops * customMultiplier));
       } else {
         feeStroops = urgencyFee;
       }
@@ -599,13 +655,17 @@ export async function estimateFee(
       fee: String(feeStroops),
       feeFloat: feeStroops,
       feeXlm,
-      baseFee: BASE_FEE,
+      baseFee: String(networkBaseFee),
       simulated,
       ...(priority ? { priority } : {}),
     };
 
     if (options?.includeTiers) {
-      feeEstimate.tiers = await fetchFeeTiers(horizonUrl, options?.cache ?? cache);
+      feeEstimate.tiers = await fetchFeeTiers(
+        horizonUrl,
+        options?.cache ?? cache,
+        networkConfig.network,
+      );
     }
 
     if (options?.includeCongestionEstimate) {
@@ -613,6 +673,7 @@ export async function estimateFee(
         horizonUrl,
         feeStroops,
         options?.cache ?? cache,
+        networkConfig.network,
       );
     }
 

@@ -247,6 +247,37 @@ for await (const result of client.transaction.stream(publicKey)) {
 }
 ```
 
+#### Network-aware fee estimation
+
+Fee estimates adapt to the target network instead of assuming a single global
+base fee. The floor/fallback used by `estimateFee`, `calculateFeeTiers`,
+`fetchFeeTiers` and `fetchCongestionFeeEstimate` is derived from the network's
+effective base fee:
+
+| Network     | Base-fee multiplier | Effective floor |
+|-------------|---------------------|-----------------|
+| `mainnet`   | 1×                  | 100 stroops     |
+| `testnet`   | 1×                  | 100 stroops     |
+| `futurenet` | 2×                  | 200 stroops     |
+| custom      | 1× (default)        | 100 stroops     |
+
+Simulated `minResourceFee` values are clamped up to this floor so a low
+simulation can never recommend a fee the network would reject, and fee tiers /
+congestion estimates fall back to the same floor when Horizon has no data.
+Custom networks can override the policy with `baseFeeMultiplier` on their
+resolved network config. Surge detection (fee > 2× the recent median) is
+unchanged and still triggers `onFeeSurge`.
+
+```ts
+import {
+  getNetworkBaseFee,
+  NETWORK_BASE_FEE_MULTIPLIERS,
+} from "sorokit-core/transaction";
+
+getNetworkBaseFee("futurenet");              // 200
+NETWORK_BASE_FEE_MULTIPLIERS.futurenet;      // 2
+```
+
 ### Smaller imports
 
 The SDK also exposes module bundles for applications that only need one part of the API:
