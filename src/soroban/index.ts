@@ -68,6 +68,13 @@ export { streamContractEventsRealTime } from "./streamContractEventsRealTime";
 export type {
   StreamContractEventsRealTimeOptions,
 } from "./streamContractEventsRealTime";
+export { decodeContractResult, createDecoder } from "./resultDecoder";
+export type {
+  ContractResultPrimitive,
+  ContractResultSchema,
+  ContractResultInput,
+  DecodedContractResult,
+} from "./resultDecoder";
 export {
   EventIndex,
   filterNewEvents,
@@ -587,14 +594,16 @@ export type {
   ContractStateHistoryStats,
 } from "./contractStateHistory";
 export {
-  captureContractState as captureDeterministicContractState,
-  createStateSnapshotStore,
-  StateSnapshotStore,
-} from "./stateSnapshots";
+  getContractState,
+  getContractStateAt,
+  getStateChanges,
+  watchContractState,
+} from "./stateHistory";
 export type {
-  SnapshotRetentionPolicy,
-  SnapshotStoreStats,
-} from "./stateSnapshots";
+  ContractStateRead,
+  ContractStateSource,
+  WatchContractStateOptions,
+} from "./stateHistory";
 
 // ─── Contract state optimization (#514) ───────────────────────────────────────
 export {
@@ -685,6 +694,8 @@ export type {
 export {
   EventAnalytics,
   filterEvents,
+  aggregateEvents,
+  streamEvents,
   groupEventsByTime,
   countEventsByType,
   aggregateEventMetrics,
@@ -696,6 +707,11 @@ export type {
   EventTypeDistribution,
   TimeGroupedEvents,
   TimeGroupedMetrics,
+  ContractEventAnalyticsFilter,
+  ContractEventLoader,
+  EventAnalyticsOptions,
+  EventAggregate,
+  EventGroupBy,
 } from "./eventAnalytics";
 
 export { detectContractUpgrade } from "./upgradeDetection";

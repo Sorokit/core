@@ -1,4 +1,11 @@
 import { Asset, Memo } from "@stellar/stellar-sdk";
+export { AtomicOrchestrator, orchestrate } from "./atomicOrchestrator";
+export type {
+  AtomicExecutionResult,
+  AtomicFailureContext,
+  AtomicOrchestratorOptions,
+  AtomicStepContext,
+} from "./atomicOrchestrator";
 
 export type SorokitMemo =
   | ReturnType<typeof Memo.text>

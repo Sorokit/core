@@ -6,6 +6,13 @@
  */
 
 import type { ContractEvent } from "./subscribeContractEvents";
+import { xdr } from "@stellar/stellar-sdk";
+import { createSorobanServer } from "../shared/serverFactory";
+import { err, ok, SorokitErrorCode } from "../shared/response";
+import type { SorokitResult } from "../shared/response";
+import { decodeContractValue } from "./contractEncoding";
+import { streamContractEventsRealTime } from "./streamContractEventsRealTime";
+import type { StreamContractEventsRealTimeOptions } from "./streamContractEventsRealTime";
 
 /**
  * Time interval for grouping.
@@ -53,6 +60,32 @@ export interface TimeGroupedEvents {
 export interface TimeGroupedMetrics {
   [timeKey: string]: EventMetrics;
 }
+
+export interface ContractEventAnalyticsFilter {
+  topic?: string | string[];
+  data?: Record<string, unknown>;
+  ledgerRange?: [number, number];
+  timestampRange?: [number | string, number | string];
+}
+
+export type ContractEventLoader = (
+  contractId: string,
+  filter: ContractEventAnalyticsFilter,
+) => Promise<ContractEvent[]>;
+
+export interface EventAnalyticsOptions {
+  rpcUrl?: string;
+  loadEvents?: ContractEventLoader;
+  streamOptions?: Omit<StreamContractEventsRealTimeOptions, "rpcUrl">;
+}
+
+export interface EventAggregate {
+  count: number;
+  sum?: number;
+  average?: number;
+}
+
+export type EventGroupBy = string | ((event: ContractEvent) => string);
 
 /**
  * Contract Event Analytics Engine
@@ -478,9 +511,225 @@ export class EventAnalytics {
 export function filterEvents(
   events: ContractEvent[],
   predicate: EventPredicate,
-): ContractEvent[] {
-  const analytics = new EventAnalytics(events);
-  return analytics.filter(predicate).getEvents();
+): ContractEvent[];
+export function filterEvents(
+  contractId: string,
+  filters: ContractEventAnalyticsFilter,
+  options: EventAnalyticsOptions,
+): Promise<SorokitResult<ContractEvent[]>>;
+export function filterEvents(
+  eventsOrContractId: ContractEvent[] | string,
+  predicateOrFilters: EventPredicate | ContractEventAnalyticsFilter,
+  options?: EventAnalyticsOptions,
+): ContractEvent[] | Promise<SorokitResult<ContractEvent[]>> {
+  if (Array.isArray(eventsOrContractId)) {
+    const analytics = new EventAnalytics(eventsOrContractId);
+    return analytics.filter(predicateOrFilters as EventPredicate).getEvents();
+  }
+  return loadAndFilterEvents(
+    eventsOrContractId,
+    predicateOrFilters as ContractEventAnalyticsFilter,
+    options ?? {},
+  );
+}
+
+function normalizedTimestamp(value: unknown): number | undefined {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+  return undefined;
+}
+
+function decodeEventValue(value: unknown): unknown {
+  if (value instanceof xdr.ScVal) return decodeContractValue(value);
+  if (typeof value === "string") {
+    try {
+      return decodeContractValue(xdr.ScVal.fromXDR(value, "base64"));
+    } catch {
+      return value;
+    }
+  }
+  return value;
+}
+
+function eventTopicValues(event: ContractEvent): string[] {
+  return (event.topics ?? event.topic ?? []).filter(
+    (topic): topic is string => typeof topic === "string",
+  );
+}
+
+function matchesAnalyticsFilter(
+  event: ContractEvent,
+  filter: ContractEventAnalyticsFilter,
+): boolean {
+  const requestedTopics = filter.topic === undefined
+    ? []
+    : Array.isArray(filter.topic) ? filter.topic : [filter.topic];
+  if (requestedTopics.length > 0) {
+    const topics = eventTopicValues(event).map((topic) => {
+      try {
+        const decoded = decodeContractValue(xdr.ScVal.fromXDR(topic, "base64"));
+        return typeof decoded === "string" ? decoded : topic;
+      } catch {
+        return topic;
+      }
+    });
+    if (!requestedTopics.some((requested) => topics.includes(requested))) return false;
+  }
+
+  if (filter.ledgerRange) {
+    const [from, to] = filter.ledgerRange;
+    if (event.ledger === undefined || event.ledger < from || event.ledger > to) return false;
+  }
+  if (filter.timestampRange) {
+    const [fromValue, toValue] = filter.timestampRange;
+    const from = normalizedTimestamp(fromValue);
+    const to = normalizedTimestamp(toValue);
+    const timestamp = normalizedTimestamp(event.timestamp);
+    if (from === undefined || to === undefined || timestamp === undefined || timestamp < from || timestamp > to) {
+      return false;
+    }
+  }
+  if (filter.data) {
+    const rawData = (event as ContractEvent & { data?: unknown }).data ?? event.value;
+    const data = decodeEventValue(rawData);
+    if (typeof data !== "object" || data === null) return false;
+    for (const [key, expected] of Object.entries(filter.data)) {
+      if (!Object.is((data as Record<string, unknown>)[key], expected)) return false;
+    }
+  }
+  return true;
+}
+
+async function loadRpcEvents(
+  contractId: string,
+  filter: ContractEventAnalyticsFilter,
+  rpcUrl: string,
+): Promise<ContractEvent[]> {
+  const server = createSorobanServer(rpcUrl) as unknown as {
+    getEvents: (request: Record<string, unknown>) => Promise<{
+      events: Array<Record<string, any>>;
+      cursor?: string;
+    }>;
+  };
+  const events: ContractEvent[] = [];
+  let cursor: string | undefined;
+  let previousCursor: string | undefined;
+  do {
+    const response = await server.getEvents({
+      filters: [{ type: "contract", contractIds: [contractId] }],
+      ...(filter.ledgerRange ? { startLedger: filter.ledgerRange[0], endLedger: filter.ledgerRange[1] } : {}),
+      ...(cursor ? { cursor } : {}),
+      limit: 100,
+    });
+    for (const event of response.events ?? []) {
+      const topics = Array.isArray(event.topic)
+        ? event.topic.map((topic: unknown) => topic instanceof xdr.ScVal ? topic.toXDR("base64") : String(topic))
+        : [];
+      const value = event.value instanceof xdr.ScVal ? event.value.toXDR("base64") : event.value;
+      events.push({
+        id: event.id,
+        contractId: String(event.contractId ?? contractId),
+        pagingToken: event.pagingToken,
+        ledger: event.ledger,
+        timestamp: event.ledgerClosedAt,
+        txHash: event.txHash,
+        eventType: event.type,
+        topics,
+        topic: topics,
+        value,
+        data: decodeEventValue(event.value),
+      });
+    }
+    previousCursor = cursor;
+    cursor = response.cursor;
+    if (!response.events?.length || cursor === previousCursor) break;
+  } while (cursor);
+  return events;
+}
+
+async function loadAndFilterEvents(
+  contractId: string,
+  filter: ContractEventAnalyticsFilter,
+  options: EventAnalyticsOptions,
+): Promise<SorokitResult<ContractEvent[]>> {
+  if (!contractId.trim()) {
+    return err(SorokitErrorCode.INVALID_CONFIG, "contractId is required.");
+  }
+  if (filter.ledgerRange && (!Number.isInteger(filter.ledgerRange[0]) || !Number.isInteger(filter.ledgerRange[1]) || filter.ledgerRange[0] < 0 || filter.ledgerRange[0] > filter.ledgerRange[1])) {
+    return err(SorokitErrorCode.INVALID_CONFIG, "ledgerRange must be an ordered pair of non-negative ledger numbers.");
+  }
+  try {
+    if (!options.loadEvents && !options.rpcUrl) {
+      return err(SorokitErrorCode.INVALID_CONFIG, "Provide rpcUrl or loadEvents to query contract events.");
+    }
+    const events = options.loadEvents
+      ? await options.loadEvents(contractId, filter)
+      : await loadRpcEvents(contractId, filter, options.rpcUrl!);
+    return ok(events.filter((event) => matchesAnalyticsFilter(event, filter)));
+  } catch (cause) {
+    return err(SorokitErrorCode.NETWORK_ERROR, "Failed to query contract events.", cause);
+  }
+}
+
+export async function aggregateEvents(
+  contractId: string,
+  groupBy: EventGroupBy,
+  options: EventAnalyticsOptions,
+  filters: ContractEventAnalyticsFilter = {},
+): Promise<SorokitResult<Record<string, EventAggregate>>> {
+  const result = await loadAndFilterEvents(contractId, filters, options);
+  if (result.status === "error") return result;
+  const groups: Record<string, EventAggregate> = {};
+  const numericCounts = new Map<string, number>();
+  for (const event of result.data) {
+    const key = typeof groupBy === "function"
+      ? groupBy(event)
+      : groupBy === "topic"
+        ? eventTopicValues(event)[0] ?? "unknown"
+        : groupBy.startsWith("data.")
+          ? String((decodeEventValue(event.value) as Record<string, unknown> | null)?.[groupBy.slice(5)] ?? "unknown")
+          : String(event[groupBy] ?? (groupBy === "type" ? event.eventType : undefined) ?? "unknown");
+    const group = groups[key] ?? (groups[key] = { count: 0 });
+    group.count += 1;
+    const eventData = (event as ContractEvent & { data?: unknown }).data ?? event.value;
+    const decodedData = decodeEventValue(eventData);
+    const numericValue = Number(
+      typeof decodedData === "object" && decodedData !== null
+        ? (decodedData as Record<string, unknown>).amount
+        : decodedData,
+    );
+    if (Number.isFinite(numericValue)) {
+      group.sum = (group.sum ?? 0) + numericValue;
+      const numericCount = (numericCounts.get(key) ?? 0) + 1;
+      numericCounts.set(key, numericCount);
+      group.average = group.sum / numericCount;
+    }
+  }
+  return ok(groups);
+}
+
+export async function* streamEvents(
+  contractId: string,
+  filters: ContractEventAnalyticsFilter,
+  options: EventAnalyticsOptions,
+): AsyncGenerator<SorokitResult<ContractEvent[]>> {
+  if (!contractId.trim() || !options.rpcUrl) {
+    yield err(SorokitErrorCode.INVALID_CONFIG, "contractId and rpcUrl are required to stream events.");
+    return;
+  }
+  try {
+    for await (const events of streamContractEventsRealTime(contractId, {
+      ...options.streamOptions,
+      rpcUrl: options.rpcUrl,
+    })) {
+      yield ok(events.filter((event) => matchesAnalyticsFilter(event, filters)));
+    }
+  } catch (cause) {
+    yield err(SorokitErrorCode.NETWORK_ERROR, "Contract event stream failed.", cause);
+  }
 }
 
 /**
