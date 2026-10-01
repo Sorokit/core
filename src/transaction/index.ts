@@ -295,6 +295,15 @@ export {
   DEFAULT_PRIORITY_MULTIPLIERS,
   calculateAdaptiveFee,
 } from "./estimateFee";
+export type { FeeNetwork } from "./feePolicy";
+export {
+  PROTOCOL_BASE_FEE,
+  NETWORK_BASE_FEE_MULTIPLIERS,
+  DEFAULT_BASE_FEE_MULTIPLIER,
+  getNetworkBaseFeeMultiplier,
+  getNetworkBaseFee,
+  resolveNetworkBaseFee,
+} from "./feePolicy";
 export {
   findSwapPath,
   buildPathPaymentTransaction,
