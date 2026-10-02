@@ -24,7 +24,7 @@ describe("Lobstr adapter integration tests", () => {
 
   describe("connect", () => {
     it("should successfully connect to Lobstr wallet", async () => {
-      vi.stubGlobal("window", {});
+      vi.stubGlobal("window", { document: {} });
 
       (mockKit.getAddress as any).mockResolvedValue({
         address: "GXYZ9876543210ABC...",
@@ -51,7 +51,7 @@ describe("Lobstr adapter integration tests", () => {
     });
 
     it("should handle connection errors gracefully", async () => {
-      vi.stubGlobal("window", {});
+      vi.stubGlobal("window", { document: {} });
 
       (mockKit.getAddress as any).mockRejectedValue(new Error("User rejected"));
 
@@ -83,7 +83,7 @@ describe("Lobstr adapter integration tests", () => {
 
   describe("signTransaction", () => {
     it("should successfully sign a transaction", async () => {
-      vi.stubGlobal("window", {});
+      vi.stubGlobal("window", { document: {} });
 
       (mockKit.signTransaction as any).mockResolvedValue({
         signedTxXdr: "AAAC...", // Signed XDR
@@ -116,7 +116,7 @@ describe("Lobstr adapter integration tests", () => {
 
     it("should handle user rejection", async () => {
       // Ensure window is available for this test
-      vi.stubGlobal("window", {});
+      vi.stubGlobal("window", { document: {} });
 
       (mockKit.signTransaction as any).mockRejectedValue(
         new Error("User rejected"),
@@ -174,7 +174,7 @@ describe("Lobstr adapter integration tests", () => {
 
   describe("isAvailable", () => {
     it("should return true when in browser environment", () => {
-      vi.stubGlobal("window", {});
+      vi.stubGlobal("window", { document: {} });
 
       const adapter = new LobstrAdapter(mockKit);
       const available = adapter.isAvailable();

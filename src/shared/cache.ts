@@ -12,6 +12,7 @@ export interface SorokitCache {
   get(key: string): unknown;
   set(key: string, value: unknown, ttlMs?: number): void;
   invalidate(key: string): void;
+  invalidateByPrefix?(prefix: string): void;
   clear(): void;
 }
 
@@ -41,6 +42,26 @@ export function createInMemoryCache(defaultTtlMs?: number): SorokitCache {
     },
     invalidate(key: string): void {
       store.delete(key);
+      if (key.includes("*")) {
+        const regex = new RegExp(
+          "^" +
+            key
+              .split("*")
+              .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+              .join(".*") +
+            "$",
+        );
+        for (const k of Array.from(store.keys())) {
+          if (regex.test(k)) {
+            store.delete(k);
+          }
+        }
+      }
+    },
+    invalidateByPrefix(prefix: string): void {
+      for (const key of store.keys()) {
+        if (key.startsWith(prefix)) store.delete(key);
+      }
     },
     clear(): void {
       store.clear();
@@ -84,6 +105,9 @@ export function wrapCache(userCache: SorokitCache): SorokitCache {
     invalidate(key: string): void {
       userCache.invalidate(key);
     },
+    ...(userCache.invalidateByPrefix
+      ? { invalidateByPrefix: (prefix: string): void => userCache.invalidateByPrefix?.(prefix) }
+      : {}),
     clear(): void {
       userCache.clear();
     },

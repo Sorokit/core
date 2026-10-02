@@ -598,6 +598,7 @@ describe("Pagination", () => {
   let storage: InMemoryEventArchiveStorage;
 
   beforeEach(async () => {
+    storage = new InMemoryEventArchiveStorage();
     const events = Array.from({ length: 10 }, (_, i) =>
       createArchivedEvent(`evt-${i}`, "contract-1", "transfer", 1000 + i, Date.now() + i * 1000)
     );

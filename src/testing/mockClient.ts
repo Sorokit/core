@@ -19,7 +19,7 @@
  * });
  */
 
-import { vi } from "vitest";
+import { createMockFunction } from "./mockAbstraction";
 import { ok } from "../shared/response";
 import { WalletType } from "../wallet/types";
 import type { SorokitClient } from "../client/createSorokitClient";
@@ -33,6 +33,8 @@ import type {
   SimulateTransactionResult,
 } from "../soroban/types";
 import type { ResolvedNetworkConfig } from "../shared/types";
+
+const vi = { fn: createMockFunction };
 
 // ─── Default fixtures ─────────────────────────────────────────────────────────
 
@@ -187,6 +189,7 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
       buildTrustline: vi.fn().mockResolvedValue(ok("UNSIGNED_XDR_MOCK==")),
       buildAccountMerge: vi.fn().mockResolvedValue(ok("UNSIGNED_XDR_MOCK==")),
       submit: vi.fn().mockResolvedValue(ok(MOCK_TX_RESULT)),
+      submitTransaction: vi.fn().mockResolvedValue(ok(MOCK_TX_RESULT)),
       getStatus: vi.fn().mockResolvedValue(ok(MOCK_TX_RESULT)),
       estimateFee: vi.fn().mockResolvedValue(ok(MOCK_FEE_ESTIMATE)),
       stream: vi.fn().mockImplementation(async function* () {

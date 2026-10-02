@@ -51,7 +51,9 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 - [Networks](#networks)
 - [Testing Utilities](#testing-utilities)
 - [Examples](#examples)
+- [Recipes and Cookbook](#recipes-and-cookbook)
 - [Workflow and Architecture Guides](#workflow-and-architecture-guides)
+- [Video Tutorials](#video-tutorials)
 - [New in This Release](#new-in-this-release)
 - [Design Principles](#design-principles)
 - [License](#license)
@@ -126,6 +128,28 @@ if (tx.status === "ok") {
 ---
 
 ## API Reference
+
+The [hosted API reference](https://tochukwujustice.github.io/core/) is published by
+GitHub Actions after a successful deployment. It documents the public exports from
+`src/index.ts`, including parameter descriptions, return values, and examples.
+
+Generate and view it locally:
+
+```bash
+npm ci --legacy-peer-deps
+npm run docs
+```
+
+Open `docs/api/index.html` in a browser. Generated HTML is ignored by Git.
+
+The documentation workflow validates pull requests, and publishes on pushes to
+`main`, published releases, and manual runs. To enable hosting for this repository,
+select **Settings → Pages → Build and deployment → Source → GitHub Actions**,
+then run the workflow. The workflow also preserves generated HTML on `gh-pages`.
+Ensure the `github-pages` environment permits the branches and release tags you
+intend to deploy. For a fork, use
+`https://<owner>.github.io/<repository>/` and update the hosted link above.
+Documentation is only live after the workflow and GitHub Pages deployment succeed.
 
 ### `wallet`
 
@@ -221,6 +245,37 @@ client.transaction.validateTransactionOffline(transactionXdr); // → SorokitRes
 for await (const result of client.transaction.stream(publicKey)) {
   if (result.status === "ok") console.log(result.data.transactions);
 }
+```
+
+#### Network-aware fee estimation
+
+Fee estimates adapt to the target network instead of assuming a single global
+base fee. The floor/fallback used by `estimateFee`, `calculateFeeTiers`,
+`fetchFeeTiers` and `fetchCongestionFeeEstimate` is derived from the network's
+effective base fee:
+
+| Network     | Base-fee multiplier | Effective floor |
+|-------------|---------------------|-----------------|
+| `mainnet`   | 1×                  | 100 stroops     |
+| `testnet`   | 1×                  | 100 stroops     |
+| `futurenet` | 2×                  | 200 stroops     |
+| custom      | 1× (default)        | 100 stroops     |
+
+Simulated `minResourceFee` values are clamped up to this floor so a low
+simulation can never recommend a fee the network would reject, and fee tiers /
+congestion estimates fall back to the same floor when Horizon has no data.
+Custom networks can override the policy with `baseFeeMultiplier` on their
+resolved network config. Surge detection (fee > 2× the recent median) is
+unchanged and still triggers `onFeeSurge`.
+
+```ts
+import {
+  getNetworkBaseFee,
+  NETWORK_BASE_FEE_MULTIPLIERS,
+} from "sorokit-core/transaction";
+
+getNetworkBaseFee("futurenet");              // 200
+NETWORK_BASE_FEE_MULTIPLIERS.futurenet;      // 2
 ```
 
 ### Smaller imports
@@ -513,6 +568,8 @@ const adapter = createMockWalletAdapter();
 
 > Requires `vitest` as a peer dependency.
 
+For scenarios that need to run against real, live testnet (account funding, payments, multi-sig, a real Soroban contract invoke, DEX offers, account merge), see `src/tests/e2e.test.ts` and run `npm run test:e2e` — it self-funds every account via Friendbot, so no secrets are required. It's skipped by default in `npm test` and runs nightly in CI (`.github/workflows/e2e.yml`).
+
 ---
 
 ## Examples
@@ -539,6 +596,8 @@ For a side-by-side comparison of `stellar-sdk` patterns vs `sorokit-core`, see [
 **Framework-agnostic** — zero dependency on React, Vue, or any UI framework. Works in Node, the browser, and server-side rendering environments.
 
 **Adapter-based wallets** — wallet integration is delegated to [Stellar Wallets Kit](https://github.com/creit-tech/stellar-wallets-kit), keeping `sorokit-core` decoupled from wallet implementation details.
+
+For the *why* behind these and other design decisions — options considered, trade-offs accepted — see [Architecture Decision Records](docs/adr/README.md).
 
 ---
 
@@ -598,6 +657,35 @@ Pull requests are welcome. For significant changes, please open an issue first t
 
 ---
 
+## Recipes and Cookbook
+
+The [`docs/recipes/`](docs/recipes/) directory contains 15 practical, copy-paste-ready recipes for common Stellar and Soroban patterns. Each recipe includes a problem statement, working code, and testing tips.
+
+| # | Recipe | Use case |
+| --- | --- | --- |
+| 1 | [Multi-sig approval workflow](docs/recipes/01-multisig-approval.md) | N-of-M signatures for high-value payments |
+| 2 | [Escrow with timelock](docs/recipes/02-escrow-timelock.md) | Funds held until a future timestamp |
+| 3 | [DEX atomic swap](docs/recipes/03-dex-atomic-swap.md) | Swap two assets atomically on the Stellar DEX |
+| 4 | [Soroban contract invoke with error handling](docs/recipes/04-soroban-invoke.md) | Invoke a smart contract with full error recovery |
+| 5 | [Batch payment with progress tracking](docs/recipes/05-batch-payment.md) | Send many payments, track success/failure per item |
+| 6 | [Portfolio rebalancing](docs/recipes/06-portfolio-rebalancing.md) | Read balances and swap to hit target allocations |
+| 7 | [Offer management on DEX](docs/recipes/07-offer-management.md) | Create, update, and cancel limit orders |
+| 8 | [Account key rotation](docs/recipes/08-key-rotation.md) | Replace a compromised signing key securely |
+| 9 | [Payment with memo (SEP-7 style)](docs/recipes/09-payment-with-memo.md) | Attach a memo for exchange routing or identification |
+| 10 | [Account recovery workflow](docs/recipes/10-account-recovery.md) | Recover account access via designated guardians |
+| 11 | [Trustline management](docs/recipes/11-trustline-management.md) | Add, audit, and remove asset trustlines |
+| 12 | [Path payment (cross-asset)](docs/recipes/12-path-payment.md) | Send one asset, recipient receives a different asset |
+| 13 | [Real-time balance alerts and streaming](docs/recipes/13-balance-alerts-streaming.md) | React to balance changes without polling yourself |
+| 14 | [Contract deployment with validation](docs/recipes/14-contract-deployment.md) | Deploy a Soroban WASM with pre-flight checks |
+| 15 | [Fee estimation and surge pricing](docs/recipes/15-fee-estimation.md) | Estimate fees accurately before building a transaction |
+| 16 | [Flash Loan Pattern](docs/recipes/16-flash-loan-pattern.md) | Borrow, use, repay in one tx |
+| 17 | [Bridge Integration](docs/recipes/17-bridge-integration.md) | Cross-chain pattern |
+| 18 | [Staking and Rewards](docs/recipes/18-staking-rewards.md) | Stake assets and claim rewards |
+| 19 | [DEX Routing](docs/recipes/19-dex-routing.md) | Route trades across multiple pools |
+| 20 | [NFT Minting](docs/recipes/20-nft-minting.md) | Mint unique tokens via contracts |
+
+---
+
 ## Workflow and Architecture Guides
 
 The documentation now includes task-oriented, executable workflows and a contributor-facing architecture guide:
@@ -606,8 +694,30 @@ The documentation now includes task-oriented, executable workflows and a contrib
 | --- | --- |
 | [`docs/workflows.md`](docs/workflows.md) | Complete transaction lifecycle, wallet signing, multisignature signing, Soroban calls, trustline approval, cost planning, refunds, and recovery patterns |
 | [`docs/architecture.md`](docs/architecture.md) | Module boundaries, data flow, result/error conventions, extension guidance, and migration from direct Stellar SDK usage |
+| [`docs/adr/`](docs/adr/README.md) | Architecture Decision Records — the problem, options, decision, and consequences behind major design choices (no-throw results, stateless client, wallet adapters, error classification, streaming transport, module structure) |
 
 Both guides use the current exported API shape and keep policy, construction, signing, submission, and recovery concerns separate.
+
+---
+
+## Video Tutorials
+
+[`docs/videos.md`](docs/videos.md) is a 10-part video tutorial series covering the common workflows below. Each entry links to the full timestamped script, verbatim transcript, and working code examples — all ready to record against. Full-length transcripts are available in each tutorial's **Transcript** subsection inside [`docs/videos.md`](docs/videos.md).
+
+| #  | Tutorial                                                                                                              | Length |
+|----|-----------------------------------------------------------------------------------------------------------------------|:------:|
+| 1  | [Getting Started & Wallet Connection](docs/videos.md#tutorial-1--getting-started--wallet-connection-2-min)           | 2 min  |
+| 2  | [Building and Submitting a Payment](docs/videos.md#tutorial-2--building-and-submitting-a-payment-2-min)              | 2 min  |
+| 3  | [Multi-Sig Approval (Setup)](docs/videos.md#tutorial-3--multi-sig-approval-setup-4-min)                              | 4 min  |
+| 4  | [Soroban Contract Read & Invoke](docs/videos.md#tutorial-4--soroban-contract-read--invoke-3-min)                     | 3 min  |
+| 5  | [The SorokitResult No-Throw Model](docs/videos.md#tutorial-5--the-sorokitresult-no-throw-model-2-min)                | 2 min  |
+| 6  | [Unit Testing with Sorokit Mocks](docs/videos.md#tutorial-6--unit-testing-with-sorokit-mocks-3-min)                  | 3 min  |
+| 7  | [Deploying a Soroban Contract](docs/videos.md#tutorial-7--deploying-a-soroban-contract-3-min)                        | 3 min  |
+| 8  | [Debugging with DevTools & Diagnostics](docs/videos.md#tutorial-8--debugging-with-devtools--sorokit-diagnostics-3-min) | 3 min  |
+| 9  | [Multi-Signature Workflows End-to-End](docs/videos.md#tutorial-9--multi-signature-workflows-end-to-end-4-min)        | 4 min  |
+| 10 | [Error Handling Patterns & Recovery](docs/videos.md#tutorial-10--error-handling-patterns--recovery-2-min)            | 2 min  |
+
+See [`docs/videos.md`](docs/videos.md) for recorded video links once they're published, and for the full production recording checklist and YouTube hosting guide.
 
 ---
 
@@ -639,3 +749,33 @@ for (const event of events) {
 Pass custom decoders as the second argument to support application-specific
 events. Custom decoders run first, so adding new built-in event types remains
 backward-compatible.
+
+### Mainnet transaction safety
+
+Mainnet submissions require explicit confirmation when native XLM exposure exceeds
+1,000 XLM (configurable). Both `client.transaction.submit` and its
+`submitTransaction` alias return `MAINNET_SAFETY_LIMIT` before contacting Horizon
+unless `bypassMainnetSafety` is exactly `true`:
+
+```ts
+const result = await client.transaction.submitTransaction(signedXdr, {
+  mainnetSafetyThresholdXlm: 1000,
+  bypassMainnetSafety: true, // Set only after reviewing the transaction.
+});
+```
+
+Warnings include the native amount, threshold, source account, operation count,
+and operation types whose exposure cannot be determined from XDR. Account merges,
+balance claims, liquidity pools, and contract calls require confirmation even when
+no large amount is visible in the envelope. Native offers and payment spend limits
+are counted with exact stroop arithmetic. Fees, reserve changes, and non-native
+asset valuations are outside this guard. Other networks are unaffected.
+
+Soroban submissions use the same guard. Pass safety options as the fourth argument
+to `client.soroban.execute`, or the fifth to `client.soroban.invoke`:
+
+```ts
+await client.soroban.execute(signedXdr, undefined, undefined, {
+  bypassMainnetSafety: true,
+});
+```

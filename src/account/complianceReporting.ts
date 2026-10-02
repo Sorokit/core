@@ -361,46 +361,25 @@ function normalizeActivities(
 ): NormalizedActivity[] {
   const normalized: NormalizedActivity[] = [];
 
-  // Mock implementation: normalize sample activities
-  const sampleActivities: NormalizedActivity[] = [
-    {
-      transactionId: "tx001",
-      timestamp: startMs + 1000000,
-      category: "transfer",
-      from: "GACCOUNT1...",
-      to: "GACCOUNT2...",
-      amount: "1000000000",
-      asset: "native",
-      status: "success",
-      dataComplete: true,
-    },
-    {
-      transactionId: "tx002",
-      timestamp: startMs + 2000000,
-      category: "swap",
-      from: "GACCOUNT1...",
-      to: "CROUTER...",
-      amount: "500000000",
-      asset: "USDC",
-      status: "success",
-      dataComplete: true,
-    },
-    {
-      transactionId: "tx003",
-      timestamp: startMs + 3000000,
-      category: "contract-interaction",
-      from: "GACCOUNT1...",
-      to: "CCONTRACT...",
-      status: "pending",
-      dataComplete: false,
-      completenessNotes: "Awaiting contract execution result",
-    },
-  ];
-
-  for (const activity of sampleActivities) {
-    if (activity.timestamp >= startMs && activity.timestamp <= endMs) {
-      normalized.push(activity);
-    }
+  const categories: TransactionCategory[] = ["transfer", "payment", "swap", "contract-interaction", "account-management", "unknown"];
+  for (const raw of activities ?? []) {
+    if (!raw || typeof raw !== "object") continue;
+    const activity = raw as Partial<NormalizedActivity>;
+    if (typeof activity.transactionId !== "string" ||
+        typeof activity.timestamp !== "number" || !Number.isFinite(activity.timestamp) ||
+        typeof activity.from !== "string" || typeof activity.to !== "string" ||
+        !["success", "failed", "pending"].includes(activity.status ?? "")) continue;
+    if (activity.timestamp < startMs || activity.timestamp > endMs) continue;
+    normalized.push({
+      ...activity,
+      transactionId: activity.transactionId,
+      timestamp: activity.timestamp,
+      from: activity.from,
+      to: activity.to,
+      status: activity.status as NormalizedActivity["status"],
+      category: categories.includes(activity.category!) ? activity.category! : "unknown",
+      dataComplete: activity.dataComplete === true,
+    });
   }
 
   return normalized;
@@ -480,7 +459,7 @@ function calculateComplianceSummary(
       `Total transactions: ${activities.length}`,
       `Flagged activities: ${flaggedActivities.length}`,
       `Pending transactions: ${pendingCount}`,
-      `Data completeness: ${(((activities.length - incompleteCount) / activities.length) * 100).toFixed(1)}%`,
+      `Data completeness: ${(activities.length === 0 ? 100 : ((activities.length - incompleteCount) / activities.length) * 100).toFixed(1)}%`,
     ],
   };
 }

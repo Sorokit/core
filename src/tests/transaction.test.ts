@@ -431,7 +431,8 @@ describe("muxed account network passphrase detection (#381)", () => {
       hash: () => Buffer.alloc(32),
       signatures: [{ hint: () => Buffer.from(keypair.rawPublicKey().slice(-4)), signature: () => Buffer.alloc(64) }],
     };
-    mocks.fromXDR.mockReturnValueOnce(mockTx);
+    // Mainnet safety inspection and submission each decode the envelope.
+    mocks.fromXDR.mockReturnValueOnce(mockTx).mockReturnValueOnce(mockTx);
     
     const signedXdr = "AAAAAQAAAAA=";
     
@@ -4521,6 +4522,7 @@ describe("transaction streaming retry with exponential backoff", () => {
   beforeEach(() => {
     transactionSleepMockState.sleepCalls.length = 0;
     vi.clearAllMocks();
+    mockTransactionsCall.mockReset();
   });
 
   it("retries transient errors with exponential backoff", async () => {
@@ -4565,7 +4567,7 @@ describe("transaction streaming retry with exponential backoff", () => {
   it("emits error after max consecutive failures and enters cooldown", async () => {
     const { streamTransactions } = await import("../transaction/streamTransactions");
 
-    const transientError = new Error("ETIMEDOUT");
+    const transientError = Object.assign(new Error("ETIMEDOUT"), { code: "ETIMEDOUT" });
 
     mockTransactionsCall.mockRejectedValue(transientError);
 
@@ -4607,7 +4609,7 @@ describe("transaction streaming retry with exponential backoff", () => {
       .mockRejectedValueOnce(transientError)
       .mockRejectedValueOnce(transientError)
       .mockRejectedValueOnce(transientError)
-      .mockResolvedValueOnce(mockPage);
+      .mockResolvedValueOnce({ records: [...mockPage.records, makeHorizonRecord(TRANSACTION_FIXTURES[2], "cursor_new")] });
 
     const results: unknown[] = [];
     for await (const r of streamTransactions("https://horizon.test", "G...", {
@@ -4626,7 +4628,7 @@ describe("transaction streaming retry with exponential backoff", () => {
   it("does not retry when enableAutoRetry is false", async () => {
     const { streamTransactions } = await import("../transaction/streamTransactions");
 
-    const transientError = new Error("ETIMEDOUT");
+    const transientError = Object.assign(new Error("ETIMEDOUT"), { code: "ETIMEDOUT" });
     const mockPage = {
       records: TRANSACTION_FIXTURES.slice(0, 1).map((tx, index) =>
         makeHorizonRecord(tx, `cursor_${index + 1}`),
@@ -4650,7 +4652,7 @@ describe("transaction streaming retry with exponential backoff", () => {
     // Should emit error immediately without retry backoff
     expect(results.some((r: any) => r?.status === "error")).toBe(true);
     // Should not have retry delays (only normal interval)
-    expect(transactionSleepMockState.sleepCalls.every((ms) => ms < 1000)).toBe(true);
+    expect(transactionSleepMockState.sleepCalls.every((ms) => ms === 1000)).toBe(true);
   }, 10_000);
 
   it("does not retry non-transient errors (404)", async () => {
@@ -4681,6 +4683,6 @@ describe("transaction streaming retry with exponential backoff", () => {
     // Should emit error immediately without retry
     expect(results.some((r: any) => r?.status === "error")).toBe(true);
     // Should not have retry delays
-    expect(transactionSleepMockState.sleepCalls.every((ms) => ms < 1000)).toBe(true);
+    expect(transactionSleepMockState.sleepCalls.every((ms) => ms === 1000)).toBe(true);
   }, 10_000);
 });

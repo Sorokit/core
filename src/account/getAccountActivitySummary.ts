@@ -92,14 +92,6 @@ interface ActivitySummaryCacheEntry {
  */
 const activitySummaryCache = new Map<string, ActivitySummaryCacheEntry>();
 
-function activitySummaryCacheKey(
-  publicKey: string,
-  startTime: number,
-  endTime: number,
-): string {
-  return `${publicKey}|${startTime}|${endTime}`;
-}
-
 /** Clear the module-level activity summary cache. Intended for tests. */
 export function clearAccountActivitySummaryCache(): void {
   activitySummaryCache.clear();
@@ -173,7 +165,11 @@ export async function getAccountActivitySummary(
   }
 
   const topCounterpartiesLimit = options?.topCounterpartiesLimit ?? DEFAULT_TOP_COUNTERPARTIES_LIMIT;
-  const cacheKey = activitySummaryCacheKey(publicKey, startTime, endTime);
+  const cacheKey = JSON.stringify([
+    horizonUrl, publicKey,
+    hasCustomRange ? [startTime, endTime] : resolvedPeriod,
+    topCounterpartiesLimit,
+  ]);
 
   if (!options?.skipCache) {
     const cached = activitySummaryCache.get(cacheKey);

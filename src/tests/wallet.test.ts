@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   Account,
   BASE_FEE,
@@ -26,17 +26,23 @@ import {
   mergeSignatures,
 } from "../wallet/index";
 import {
+  discoverWallet,
+  listLinkedAccounts,
+  linkWallet,
+} from "../wallet/discovery";
+import {
   InMemorySigningHistoryStore,
   getSigningHistory,
   exportSigningHistory,
   type SigningRecord,
 } from "../wallet/signingHistory";
-import { FreighterAdapter, XBullAdapter, LobstrAdapter } from "../wallet/adapters";
+import { FreighterAdapter, XBullAdapter, LobstrAdapter, RabetAdapter } from "../wallet/adapters";
 import { WalletType } from "../wallet/types";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import { createSorokitClient } from "../client/createSorokitClient";
 import type { SorokitCache } from "../shared/cache";
 import type { WalletAdapter, SWKInstance } from "../wallet/types";
+import type { DiscoveryData, LinkedAccount } from "../wallet/discovery";
 
 function createUnsignedEnvelopeXdr(): string {
   const source = Keypair.random();
@@ -190,6 +196,109 @@ describe("wallet adapters", () => {
       expect(result.status).toBe("error");
       if (result.status === "error") {
         expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
+      }
+    });
+  });
+
+  describe("RabetAdapter", () => {
+    it("walletType is RABET", () => {
+      expect(new RabetAdapter(mockKit()).walletType).toBe(WalletType.RABET);
+    });
+
+    it("isAvailable() returns false in Node when un-mocked", () => {
+      expect(new RabetAdapter().isAvailable()).toBe(false);
+    });
+
+    it("connect() returns status error with WALLET_BROWSER_ONLY in Node when un-mocked", async () => {
+      const result = await new RabetAdapter().connect();
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
+      }
+    });
+
+    it("connect() succeeds and returns public key when provider resolves", async () => {
+      const mockProvider = {
+        connect: vi.fn().mockResolvedValue({ publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA" }),
+        sign: vi.fn(),
+      };
+      const adapter = new RabetAdapter(mockProvider);
+
+      const result = await adapter.connect();
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      }
+    });
+
+    it("connect() maps user rejection to WALLET_SIGN_REJECTED", async () => {
+      const mockProvider = {
+        connect: vi.fn().mockRejectedValue(new Error("User rejected the request")),
+        sign: vi.fn(),
+      };
+      const adapter = new RabetAdapter(mockProvider);
+
+      const result = await adapter.connect();
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
+      }
+    });
+
+    it("disconnect() returns status ok with undefined data", async () => {
+      const mockProvider = {
+        connect: vi.fn(),
+        disconnect: vi.fn().mockResolvedValue(undefined),
+        sign: vi.fn(),
+      };
+      const adapter = new RabetAdapter(mockProvider);
+      const result = await adapter.disconnect();
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBeUndefined();
+      }
+    });
+
+    it("signTransaction() returns signed XDR on success for testnet and mainnet", async () => {
+      const mockProvider = {
+        connect: vi.fn(),
+        sign: vi.fn().mockResolvedValue({ xdr: "signed-xdr-rabet" }),
+      };
+      const adapter = new RabetAdapter(mockProvider);
+
+      const resultTestnet = await adapter.signTransaction({
+        transactionXdr: "xdr-input",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      });
+      expect(resultTestnet.status).toBe("ok");
+      if (resultTestnet.status === "ok") {
+        expect(resultTestnet.data).toBe("signed-xdr-rabet");
+      }
+
+      const resultMainnet = await adapter.signTransaction({
+        transactionXdr: "xdr-input",
+        networkPassphrase: "Public Global Stellar Network ; September 2015",
+      });
+      expect(resultMainnet.status).toBe("ok");
+      if (resultMainnet.status === "ok") {
+        expect(resultMainnet.data).toBe("signed-xdr-rabet");
+      }
+    });
+
+    it("signTransaction() maps user rejection to WALLET_SIGN_REJECTED", async () => {
+      const mockProvider = {
+        connect: vi.fn(),
+        sign: vi.fn().mockRejectedValue(new Error("User cancelled transaction")),
+      };
+      const adapter = new RabetAdapter(mockProvider);
+
+      const result = await adapter.signTransaction({
+        transactionXdr: "xdr-input",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_SIGN_REJECTED);
       }
     });
   });
@@ -1535,5 +1644,231 @@ describe("signing delegation", () => {
     expect(() =>
       mergeSignatures(expired, [{ signer: "GA", signature: createDecoratedSignature() }]),
     ).toThrow(/expired/);
+  });
+});
+
+describe("wallet discovery (#wallet-discovery)", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  function mockFetchResponse(body: unknown, ok = true, status = 200) {
+    return vi.fn(async () => ({
+      ok,
+      status,
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    })) as unknown as typeof fetch;
+  }
+
+  describe("discoverWallet", () => {
+    it("returns WALLET_NOT_FOUND when domain is empty", async () => {
+      const result = await discoverWallet("", "alice");
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_NOT_FOUND);
+      }
+    });
+
+    it("returns WALLET_NOT_FOUND when username is empty", async () => {
+      const result = await discoverWallet("example.com", "");
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_NOT_FOUND);
+      }
+    });
+
+    it("resolves a wallet address via federation", async () => {
+      const fetchFn = mockFetchResponse({
+        stellar_address: "alice*example.com",
+        account_id: ACCOUNT_A,
+      });
+
+      const result = await discoverWallet("example.com", "alice", { fetchFn });
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.address).toBe(ACCOUNT_A);
+        expect(result.data.domain).toBe("example.com");
+        expect(result.data.username).toBe("alice");
+        expect(result.data.source).toBe("federation");
+      }
+      expect(fetchFn).toHaveBeenCalledWith(
+        expect.stringContaining("stellar_address=alice%2Aexample.com"),
+        expect.any(Object),
+      );
+    });
+
+    it("falls back to stellar.toml when federation returns no account", async () => {
+      const fetchFn = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 404,
+          json: async () => ({}),
+          text: async () => "",
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({}),
+          text: async () =>
+            [
+              "ACCOUNTS = [",
+              `  "${ACCOUNT_B}"`,
+              "]",
+            ].join("\n"),
+        }) as unknown as typeof fetch;
+
+      const result = await discoverWallet("example.com", "alice", { fetchFn });
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.address).toBe(ACCOUNT_B);
+        expect(result.data.source).toBe("stellar.toml");
+      }
+    });
+
+    it("returns WALLET_NOT_FOUND when both federation and stellar.toml fail", async () => {
+      const fetchFn = vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        json: async () => ({}),
+        text: async () => "",
+      })) as unknown as typeof fetch;
+
+      const result = await discoverWallet("example.com", "alice", { fetchFn });
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_NOT_FOUND);
+      }
+    });
+
+    it("returns WALLET_NOT_FOUND when fetch throws a network error", async () => {
+      const fetchFn = vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      }) as unknown as typeof fetch;
+
+      const result = await discoverWallet("example.com", "alice", { fetchFn });
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_NOT_FOUND);
+      }
+    });
+
+    it("normalizes domain casing and whitespace", async () => {
+      const fetchFn = mockFetchResponse({
+        stellar_address: "alice*example.com",
+        account_id: ACCOUNT_A,
+      });
+
+      const result = await discoverWallet("  Example.COM  ", "  alice  ", {
+        fetchFn,
+      });
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.domain).toBe("example.com");
+        expect(result.data.username).toBe("alice");
+      }
+    });
+  });
+
+  describe("listLinkedAccounts", () => {
+    it("returns WALLET_NOT_FOUND when publicKey is empty", async () => {
+      const result = await listLinkedAccounts("");
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_NOT_FOUND);
+      }
+    });
+
+    it("returns an empty list when no accounts are linked", async () => {
+      const result = await listLinkedAccounts(ACCOUNT_A);
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.accounts).toEqual([]);
+      }
+    });
+
+    it("returns linked accounts after linkWallet is called", async () => {
+      await linkWallet(ACCOUNT_A, "example.com");
+      await linkWallet(ACCOUNT_A, "stellar.org");
+
+      const result = await listLinkedAccounts(ACCOUNT_A);
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.accounts).toHaveLength(2);
+        expect(result.data.accounts.map((a) => a.domain).sort()).toEqual([
+          "example.com",
+          "stellar.org",
+        ]);
+      }
+    });
+
+    it("does not return accounts linked to a different public key", async () => {
+      await linkWallet(ACCOUNT_A, "example.com");
+      const result = await listLinkedAccounts(ACCOUNT_B);
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.accounts).toEqual([]);
+      }
+    });
+  });
+
+  describe("linkWallet", () => {
+    it("returns WALLET_NOT_FOUND when publicKey is empty", async () => {
+      const result = await linkWallet("", "example.com");
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_NOT_FOUND);
+      }
+    });
+
+    it("returns WALLET_NOT_FOUND when domain is empty", async () => {
+      const result = await linkWallet(ACCOUNT_A, "");
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.WALLET_NOT_FOUND);
+      }
+    });
+
+    it("links a wallet and returns the linked account", async () => {
+      const result = await linkWallet(ACCOUNT_A, "example.com");
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.domain).toBe("example.com");
+        expect(result.data.account).toBe(ACCOUNT_A);
+      }
+    });
+
+    it("is idempotent for the same publicKey and domain", async () => {
+      await linkWallet(ACCOUNT_A, "example.com");
+      await linkWallet(ACCOUNT_A, "example.com");
+      const result = await listLinkedAccounts(ACCOUNT_A);
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.accounts).toHaveLength(1);
+      }
+    });
+
+    it("supports linking multiple wallets to the same domain", async () => {
+      await linkWallet(ACCOUNT_A, "example.com");
+      await linkWallet(ACCOUNT_B, "example.com");
+      const resultA = await listLinkedAccounts(ACCOUNT_A);
+      const resultB = await listLinkedAccounts(ACCOUNT_B);
+      expect(resultA.status).toBe("ok");
+      expect(resultB.status).toBe("ok");
+      if (resultA.status === "ok" && resultB.status === "ok") {
+        expect(resultA.data.accounts).toHaveLength(1);
+        expect(resultB.data.accounts).toHaveLength(1);
+      }
+    });
   });
 });

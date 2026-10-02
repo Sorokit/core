@@ -35,6 +35,7 @@ const WALLET_FEATURES: Record<WalletType, WalletFeature[]> = {
   [WalletType.HANA]: [],
   [WalletType.RABET]: [],
   [WalletType.WALLETCONNECT]: ["multisig", "qr"],
+  [WalletType.ALBEDO]: [],
 };
 
 const CAPABILITY_DESCRIPTIONS: Record<string, string> = {

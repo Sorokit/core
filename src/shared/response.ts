@@ -67,6 +67,7 @@ export enum SorokitErrorCode {
   TX_BUILD_FAILED = "TX_BUILD_FAILED",
   TX_SIMULATE_FAILED = "TX_SIMULATE_FAILED",
   TX_SUBMIT_FAILED = "TX_SUBMIT_FAILED",
+  INVALID_TRANSACTION = "INVALID_TRANSACTION",
   TX_FETCH_FAILED = "TX_FETCH_FAILED",
   TX_NOT_FOUND = "TX_NOT_FOUND",
   TX_SEQUENCE_CONFLICT = "TX_SEQUENCE_CONFLICT",
@@ -90,6 +91,7 @@ export enum SorokitErrorCode {
   OPERATION_TIMEOUT = "OPERATION_TIMEOUT",
   INVALID_CONFIG = "INVALID_CONFIG",
   INVALID_ADDRESS = "INVALID_ADDRESS",
+  MAINNET_SAFETY_LIMIT = "MAINNET_SAFETY_LIMIT",
   VALIDATION = "VALIDATION",
   INTERNAL = "INTERNAL",
   UNKNOWN = "UNKNOWN",
@@ -131,7 +133,9 @@ export function sanitizeErrorContext(
 export function classifyError(code: SorokitErrorCode): SorokitErrorCategory {
   if (
     code === SorokitErrorCode.INVALID_CONFIG ||
-    code === SorokitErrorCode.INVALID_ADDRESS
+    code === SorokitErrorCode.INVALID_ADDRESS ||
+    code === SorokitErrorCode.MAINNET_SAFETY_LIMIT ||
+    code === SorokitErrorCode.VALIDATION
   ) {
     return SorokitErrorCategory.VALIDATION;
   }
@@ -156,7 +160,11 @@ export function classifyError(code: SorokitErrorCode): SorokitErrorCategory {
   ) return SorokitErrorCategory.CONTRACT;
   if (code === SorokitErrorCode.RATE_LIMITED) return SorokitErrorCategory.NETWORK;
   if (code.startsWith("WALLET")) return SorokitErrorCategory.WALLET;
-  if (code.startsWith("TX_") || code.startsWith("ROUTER_"))
+  if (
+    code === SorokitErrorCode.INVALID_TRANSACTION ||
+    code.startsWith("TX_") ||
+    code.startsWith("ROUTER_")
+  )
     return SorokitErrorCategory.TRANSACTION;
   if (code.startsWith("ACCOUNT")) return SorokitErrorCategory.INTERNAL;
   return SorokitErrorCategory.UNKNOWN;

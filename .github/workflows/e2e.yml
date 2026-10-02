@@ -1,0 +1,27 @@
+name: E2E Testnet Suite
+
+# Broader live-testnet coverage than nightly-testnet.yml's single payment
+# scenario (#610): account creation/funding, payments, multi-sig, a real
+# Soroban contract invoke, DEX offers, account merge, and error handling.
+# Every account is created and funded via Friendbot at run time, so this
+# workflow needs no repository secrets.
+
+on:
+  schedule:
+    - cron: "37 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  e2e-testnet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-fund
+      - name: Run E2E testnet suite
+        run: npm run test:e2e -- --reporter=verbose

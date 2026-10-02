@@ -3,7 +3,16 @@ import type { SorokitResult } from "../shared/response";
 import type { WalletAdapter, WalletState } from "./types";
 import { WalletType } from "./types";
 
-export type WalletConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
+import type { WalletConnectOptions, WalletConnectionProgress, WalletConnectionState } from "./types";
+import { connectWallet } from "./connect";
+
+export type WalletConnectionStatus =
+  | "disconnected"
+  | "connecting"
+  | "authenticating"
+  | "connected"
+  | "failed"
+  | "error";
 
 export interface WalletStatus {
   status: WalletConnectionStatus;
@@ -12,6 +21,10 @@ export interface WalletStatus {
   adapterName: string | null;
   truncatedAddress: string | null;
   error: string | null;
+  attempt?: number;
+  maxRetries?: number;
+  isRetry?: boolean;
+  isTimeout?: boolean;
 }
 
 export type WalletStatusListener = (status: WalletStatus) => void;
@@ -29,6 +42,7 @@ const ADAPTER_NAMES: Record<WalletType, string> = {
   [WalletType.HANA]: "Hana",
   [WalletType.RABET]: "Rabet",
   [WalletType.WALLETCONNECT]: "WalletConnect",
+  [WalletType.ALBEDO]: "Albedo",
 };
 
 export function getAdapterName(walletType: WalletType): string {
@@ -45,10 +59,12 @@ export function getAriaLabel(status: WalletStatus): string {
     case "connected":
       return `Wallet connected: ${status.adapterName}, account ${status.truncatedAddress}`;
     case "connecting":
+    case "authenticating":
       return "Connecting to wallet";
     case "disconnected":
       return "No wallet connected";
     case "error":
+    case "failed":
       return `Wallet error: ${status.error}`;
   }
 }
@@ -58,10 +74,12 @@ export function getStatusColorClass(status: WalletConnectionStatus): string {
     case "connected":
       return "sorokit-status-ok";
     case "connecting":
+    case "authenticating":
       return "sorokit-status-pending";
     case "disconnected":
       return "sorokit-status-off";
     case "error":
+    case "failed":
       return "sorokit-status-error";
   }
 }
@@ -94,7 +112,7 @@ export class WalletStatusTracker {
   }
 
   get isConnecting(): boolean {
-    return this._status.status === "connecting";
+    return this._status.status === "connecting" || this._status.status === "authenticating";
   }
 
   get isDisconnected(): boolean {
@@ -102,7 +120,7 @@ export class WalletStatusTracker {
   }
 
   get hasError(): boolean {
-    return this._status.status === "error";
+    return this._status.status === "error" || this._status.status === "failed";
   }
 
   subscribe(listener: WalletStatusListener): WalletStatusUnsubscribe {
@@ -124,19 +142,50 @@ export class WalletStatusTracker {
     this._emit();
   }
 
-  async connect(adapter: WalletAdapter): Promise<SorokitResult<WalletState>> {
-    this._setStatus({
-      status: "connecting",
-      walletType: adapter.walletType,
-      adapterName: getAdapterName(adapter.walletType),
-      error: null,
-    });
+  async connect(
+    adapter: WalletAdapter,
+    options?: WalletConnectOptions,
+  ): Promise<SorokitResult<WalletState>> {
+    const combinedOptions: WalletConnectOptions = {
+      ...options,
+      onProgress: (progress: WalletConnectionProgress) => {
+        if (progress.state === "connected") {
+          // 'connected' final status update will be emitted at the end of connect() with resolved state
+          if (options?.onProgress) {
+            options.onProgress(progress);
+          }
+          return;
+        }
 
-    const result = await adapter.connect();
+        const mappedStatus: WalletConnectionStatus =
+          progress.state === "failed" ? "failed" : progress.state;
+
+        this._setStatus({
+          status: mappedStatus,
+          walletType: progress.walletType,
+          adapterName: progress.adapterName,
+          attempt: progress.attempt,
+          maxRetries: progress.maxRetries,
+          isRetry: progress.isRetry,
+          isTimeout: progress.isTimeout ?? false,
+          error: progress.error ?? null,
+          ...(progress.publicKey && {
+            publicKey: progress.publicKey,
+            truncatedAddress: truncatePublicKey(progress.publicKey),
+          }),
+        });
+
+        if (options?.onProgress) {
+          options.onProgress(progress);
+        }
+      },
+    };
+
+    const result = await connectWallet(adapter, combinedOptions);
 
     if (result.status === "error") {
       this._setStatus({
-        status: "error",
+        status: "failed",
         publicKey: null,
         truncatedAddress: null,
         error: result.error.message,
@@ -144,19 +193,17 @@ export class WalletStatusTracker {
       return result;
     }
 
-    const publicKey = result.data;
+    const state = result.data;
     this._setStatus({
       status: "connected",
-      publicKey,
-      truncatedAddress: truncatePublicKey(publicKey),
+      walletType: state.walletType,
+      adapterName: state.walletType ? getAdapterName(state.walletType) : null,
+      publicKey: state.publicKey,
+      truncatedAddress: state.publicKey ? truncatePublicKey(state.publicKey) : null,
       error: null,
     });
 
-    return ok({
-      connected: true,
-      publicKey,
-      walletType: adapter.walletType,
-    });
+    return ok(state);
   }
 
   async disconnect(adapter: WalletAdapter): Promise<SorokitResult<void>> {

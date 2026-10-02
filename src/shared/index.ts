@@ -1,8 +1,10 @@
 export * from "./cache";
+export * from "./cacheInvalidation";
 export * from "./config";
 export * from "./constants";
 export * from "./errors";
 export * from "./logger";
+export * from "./devtoolsBridge";
 export * from "./metrics";
 export * from "./response";
 export * from "./utils";
@@ -38,3 +40,28 @@ export {
   MAX_STROOPS,
   MAX_AMOUNT,
 } from "./amountValidation";
+export { formatAmount, DEFAULT_ASSET_DECIMALS } from "./amountFormatter";
+export type { FormatAmountOptions } from "./amountFormatter";
+export {
+  getAssetInfo,
+  registerAsset,
+  unregisterAsset,
+  listKnownAssets,
+  canonicalAssetId,
+} from "./assetRegistry";
+export type { AssetInfo, AssetMetadata } from "./assetRegistry";
+export * from "./mainnetSafety";
+export * from "./keyManagement";
+
+export {
+  StructuredLogger,
+} from "./structuredLogging.js";
+export type {
+  LogConfig,
+  LogLevel as StructuredLogLevel,
+} from "./structuredLogging.js";
+
+// ─── OpenTelemetry (#600) & SmartCache (#604) ────────────────────────────────
+export * from "./openTelemetry";
+export * from "./smartCache";
+

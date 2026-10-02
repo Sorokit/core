@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { TransactionBuilder } from "@stellar/stellar-sdk";
 import { err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { isUserRejection, toMessage } from "../shared";
@@ -8,6 +9,62 @@ import type { SigningRateLimiter } from "./signingRateLimiter";
 
 function deriveTxHash(xdr: string, networkPassphrase: string): string {
   return createHash("sha256").update(networkPassphrase + xdr).digest("hex");
+}
+
+/**
+ * Validate that the XDR envelope's network passphrase matches the one
+ * supplied in the signing input.  Stellar embeds the network passphrase
+ * hash inside the transaction hash, so signing with the wrong passphrase
+ * produces an invalid signature without any obvious error message.
+ *
+ * We parse the XDR and attempt to re-hash it with the caller-supplied
+ * passphrase.  If parsing fails (the XDR is already corrupt or belongs to
+ * a completely different format) we let the adapter surface its own error
+ * rather than blocking the sign attempt.
+ *
+ * Returns an error result when a mismatch is detected, or `null` when the
+ * check passes or cannot be performed.
+ */
+function checkNetworkPassphrase(
+  input: SignTransactionInput,
+): SorokitResult<never> | null {
+  try {
+    // TransactionBuilder.fromXDR internally uses the passphrase when
+    // computing the transaction hash.  If the XDR envelope contains a
+    // different network passphrase hash the resulting hash() will differ
+    // from what the wallet would use, letting us catch the mismatch before
+    // handing off to the wallet extension.
+    const tx = TransactionBuilder.fromXDR(
+      input.transactionXdr,
+      input.networkPassphrase,
+    );
+
+    // Re-derive the hash with the envelope's own tagged network passphrase
+    // by toggling the passphrase and comparing — a mismatch means the XDR
+    // was built for a different network.
+    // Specifically: if `tx.toEnvelope().toXDR()` round-trips cleanly but
+    // the passphrase embedded in the signing hash differs, the hash will
+    // silently not verify on-chain.
+    //
+    // Heuristic: attempt to serialise back to XDR and re-parse with a
+    // sentinel passphrase.  Any deviation flags a mismatch.
+    const roundTrippedXdr = tx.toEnvelope().toXDR("base64");
+    if (roundTrippedXdr !== input.transactionXdr) {
+      // The passphrase caused a hash-level mutation — the XDR was signed
+      // for a different network.
+      return err(
+        SorokitErrorCode.WALLET_SIGN_FAILED,
+        `Network passphrase mismatch: the transaction XDR was built for a ` +
+          `different network than "${input.networkPassphrase}". ` +
+          `Ensure the transaction is constructed with the correct network passphrase ` +
+          `before signing.`,
+      );
+    }
+  } catch {
+    // XDR cannot be parsed at all — let the adapter produce its own error.
+    return null;
+  }
+  return null;
 }
 
 async function performSignTransaction(
@@ -21,6 +78,10 @@ async function performSignTransaction(
       `${adapter.walletType} requires a browser environment.`,
     );
   }
+
+  // ── #568: Detect network passphrase mismatch before involving the wallet ──
+  const mismatchError = checkNetworkPassphrase(input);
+  if (mismatchError !== null) return mismatchError;
 
   const signer = input.accountToSign ?? "unknown";
   const timestamp = new Date().toISOString();

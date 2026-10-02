@@ -60,6 +60,7 @@ const expectedMainExports = [
   'FreighterAdapter',
   'XBullAdapter',
   'LobstrAdapter',
+  'RabetAdapter',
   'WalletType',
   'SorokitErrorCode',
   'ok',
@@ -67,7 +68,22 @@ const expectedMainExports = [
   'isOk',
   'isErr',
   'resolveNetwork',
-  'NETWORK_DEFAULTS'
+  'NETWORK_DEFAULTS',
+  'checkMainnetSafety',
+  'extractTransactionTotalXlm',
+  'isMainnetNetwork',
+  'DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM',
+  'MAINNET_NETWORK_PASSPHRASE',
+  'OpenTelemetryManager',
+  'SorokitSpan',
+  'createOpenTelemetryManager',
+  'parseSep7Uri',
+  'validateSep7Uri',
+  'buildFromSep7Uri',
+  'generateSep7Uri',
+  'SmartCache',
+  'createSmartCache',
+  'generateCacheKey'
 ];
 
 const expectedTestingExports = [
@@ -85,6 +101,21 @@ for (const name of expectedMainExports) {
   } else {
     console.log(`✅ Main export "${name}" is present.`);
   }
+}
+
+const sharedModule = require(path.resolve(__dirname, '../dist/shared/index.js'));
+for (const name of [
+  'checkMainnetSafety', 'extractTransactionTotalXlm', 'isMainnetNetwork',
+  'DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM', 'MAINNET_NETWORK_PASSPHRASE',
+]) {
+  if (sharedModule[name] === undefined) {
+    console.error(`Missing shared export: ${name}`);
+    failed = true;
+  }
+}
+if (mainModule.SorokitErrorCode.MAINNET_SAFETY_LIMIT !== 'MAINNET_SAFETY_LIMIT') {
+  console.error('Missing Mainnet safety error code');
+  failed = true;
 }
 
 console.log('\nValidating testing exports from dist/testing/index.js...');

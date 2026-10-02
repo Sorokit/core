@@ -3,9 +3,11 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { formatAddress, isNotFoundError, toMessage, retryWithBackoff, deduplicateRequest } from "../shared";
 import { profileOperation } from "../shared/metrics";
+import { traceAccountFetch } from "../performance/telemetry";
 import type { AccountInfo, AssetBalance } from "./types";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
+import { mapHorizonError } from "../shared/horizonErrorMapper";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -39,8 +41,10 @@ export function getAccount(
   options?: { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<AccountInfo>> {
   const cacheKey = `getAccount:${horizonUrl}:${publicKey}`;
-  return profileOperation("account.get", () =>
-    deduplicateRequest(cacheKey, async () => {
+  return traceAccountFetch(
+    () =>
+      profileOperation("account.get", () =>
+        deduplicateRequest(cacheKey, async () => {
     try {
       const account = await horizonCircuitBreaker.call(horizonUrl, async () => {
         return await retryWithBackoff(async () => {
@@ -105,16 +109,23 @@ export function getAccount(
         balances,
       });
     } catch (cause) {
-      return err(
-        isNotFoundError(cause)
+      const mapped = mapHorizonError(cause, {
+        resource: "account",
+        fallbackCode: isNotFoundError(cause)
           ? SorokitErrorCode.ACCOUNT_NOT_FOUND
           : SorokitErrorCode.ACCOUNT_FETCH_FAILED,
-        isNotFoundError(cause)
+      });
+      return err(
+        mapped.code,
+        mapped.code === SorokitErrorCode.ACCOUNT_NOT_FOUND
           ? `Account not found: ${publicKey}`
-          : `Failed to fetch account: ${toMessage(cause)}`,
+          : mapped.message || `Failed to fetch account: ${toMessage(cause)}`,
         cause,
+        undefined,
+        mapped.recovery ? { recovery: mapped.recovery } : undefined,
       );
     }
-    }),
+        }),
+      ),
   );
 }

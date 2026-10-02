@@ -46,9 +46,9 @@ export {
   createLocalStorageAuthenticationStorage,
 } from "./storage";
 
+export { AuthenticationState, AuthenticationMethod } from "./types";
+
 export type {
-  AuthenticationState,
-  AuthenticationMethod,
   AuthenticationStatus,
   AuthenticationConfig,
   AuthenticationCredential,

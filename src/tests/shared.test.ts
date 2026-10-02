@@ -152,7 +152,11 @@ describe("shared/errors", () => {
       expect(error).toEqual({
         code: "UNKNOWN",
         message: "msg",
-        cause: undefined,
+        category: "unknown",
+        recovery: {
+          retryable: false,
+          action: "Inspect the operation context and underlying cause before retrying.",
+        },
       });
       expect(error).not.toHaveProperty("status");
     });

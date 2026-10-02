@@ -5,6 +5,7 @@ import { isNotFoundError, toMessage } from "../shared";
 import type { TransactionResult } from "./types";
 import type { SorokitCache } from "../shared/cache";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import { mapHorizonError } from "../shared/horizonErrorMapper";
 
 /**
  * Fetch the current status of a submitted transaction by its hash.
@@ -64,14 +65,20 @@ export async function getTransactionStatus(
 
     return ok(result);
   } catch (cause) {
-    return err(
-      isNotFoundError(cause)
+    const mapped = mapHorizonError(cause, {
+      resource: "transaction",
+      fallbackCode: isNotFoundError(cause)
         ? SorokitErrorCode.TX_NOT_FOUND
         : SorokitErrorCode.TX_FETCH_FAILED,
-      isNotFoundError(cause)
+    });
+    return err(
+      mapped.code,
+      mapped.code === SorokitErrorCode.TX_NOT_FOUND
         ? `Transaction not found: ${hash}`
-        : `Failed to fetch transaction status: ${toMessage(cause)}`,
+        : mapped.message || `Failed to fetch transaction status: ${toMessage(cause)}`,
       cause,
+      undefined,
+      mapped.recovery ? { recovery: mapped.recovery } : undefined,
     );
   }
 }

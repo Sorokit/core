@@ -4,6 +4,15 @@ export { resolveNetwork } from "./resolveNetwork";
 export type { NetworkOverrides } from "./resolveNetwork";
 export * from "./fallback";
 
+// ─── Request batching (#611) ────────────────────────────────────────────────
+export { createRequestBatcher } from "./requestBatching";
+export type {
+  RequestBatcher,
+  RequestBatcherConfig,
+  RequestBatcherStats,
+  BatchFetcher,
+} from "./requestBatching";
+
 // ─── Circuit breaker (#186) ────────────────────────────────────────────────────
 export { CircuitBreaker, CircuitBreakerRegistry, CircuitOpenError } from "./circuitBreaker";
 export type {
@@ -153,19 +162,29 @@ export type {
   CongestionSnapshot,
 } from "./congestionMonitor";
 
-// ─── Stellar federation resolution (#517) ───────────────────────────────────────
 export {
-  FederationResolver,
-  createFederationResolver,
-  getDefaultFederationResolver,
-  resolveAddress,
-  parseFederationAddress,
-  clearFederationCache,
-  verifyIdentity,
-} from "./federationResolver";
+  EndpointPool,
+  configureEndpointFailover,
+  getEndpointPool,
+  createFailoverFetch,
+  validateEndpointList,
+} from "./endpointFailover";
 export type {
-  FederationAddress,
-  FederationResponse,
-  ResolvedFederationAddress,
-  FederationResolverConfig,
-} from "./federationResolver";
+  EndpointHealth,
+  EndpointFailoverOptions,
+  EndpointHealthCheckResult,
+} from "./endpointFailover";
+
+export * from './customEndpoints.js';
+
+// ─── Custom Endpoint Registry and Load Balancing (#672) ───────────────────────
+export {
+  EndpointRegistry,
+  createEndpointRegistry,
+} from "./endpointRegistry";
+export type {
+  EndpointType,
+  Endpoint,
+  EndpointHealthResult,
+  EndpointRegistryConfig,
+} from "./endpointRegistry";

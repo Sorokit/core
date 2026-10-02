@@ -15,6 +15,31 @@ import { signTransaction } from "../wallet/signTransaction";
 import { emptyWalletState } from "../wallet/index";
 import { generateDeviceFingerprint, evaluateDeviceTrust, DEFAULT_TRUST_THRESHOLD } from "../wallet/deviceTrust";
 import type { DeviceSignals, DeviceFingerprint, TrustHistoryEntry, TrustEvaluation } from "../wallet/deviceTrust";
+import { createAccountManager, WalletAccountManager } from "../wallet/accountManager";
+import type {
+  AccountData,
+  AccountMetadata,
+  AccountSwitchListener,
+  AccountSwitchUnsubscribe,
+  AccountStorageAdapter,
+} from "../wallet/accountManager";
+import { createWalletEventEmitter, toConnectedEvent } from "../wallet/eventEmitter";
+import {
+  saveSession,
+  restoreSession,
+  clearSession,
+  isSessionValid,
+} from "../wallet/sessionPersistence";
+import type {
+  SessionData,
+  WalletConnection,
+  SessionPersistenceOptions,
+} from "../wallet/sessionPersistence";
+import type {
+  WalletEventName,
+  WalletEventListener,
+  WalletEventUnsubscribe,
+} from "../wallet/eventEmitter";
 import { createI18n } from "../shared/i18n";
 import type { I18n, TranslationMap } from "../shared/i18n";
 import { getAccount } from "../account/getAccount";
@@ -25,6 +50,24 @@ import { getOffers, getTrades } from "../account/dexActivity";
 import type { DexActivityOptions, DexActivityResult, OfferInfo, TradeInfo } from "../account/dexActivity";
 import { streamAccount } from "../account/streamAccount";
 import { setSponsor, removeSponsor } from "../account/sponsorship";
+import { getSigners, getThresholds, analyzeSigningRequirement } from "../account/signers";
+import { calculateHealthScore } from "../account/healthScore";
+import type { HealthData } from "../account/healthScore";
+import {
+  addRecoverySigner,
+  getRecoveryPlan,
+  removeOldSigner,
+  rotateKeys,
+} from "../account/recoveryHelper";
+import type { RecoveryPlan } from "../account/recoveryHelper";
+import { getPaymentHistory } from "../account/paymentHistory";
+import { getEffects } from "../account/getEffects";
+import { getDataEntries } from "../account/dataEntries";
+import { simulateAccountMerge } from "../account/mergeSafety";
+import type {
+  AccountMergeSimulation,
+  SimulateAccountMergeOptions,
+} from "../account/mergeSafety";
 import type { SponsorshipResult } from "../account/sponsorship";
 import {
   buildPaymentTransaction,
@@ -38,10 +81,47 @@ import {
   buildClaimClaimableBalance,
 } from "../transaction/claimableBalance";
 import { buildBumpSequenceTransaction } from "../transaction/bumpSequence";
+import { buildSetDataEntryTransaction, buildDeleteDataEntryTransaction } from "../transaction/dataEntry";
 import { compose } from "../transaction/compose";
 import type { ComposeOptions } from "../transaction/compose";
+import { orchestrate } from "../transaction/atomicOrchestrator";
+import type { AtomicOrchestratorOptions } from "../transaction/atomicOrchestrator";
+import {
+  aggregateEvents as aggregateContractEvents,
+  filterEvents as filterContractEvents,
+  streamEvents as streamContractEvents,
+} from "../soroban/eventAnalytics";
+import type {
+  ContractEventAnalyticsFilter,
+  EventAggregate,
+  EventGroupBy,
+} from "../soroban/eventAnalytics";
+import { decodeContractResult as decodeSorobanResult } from "../soroban/resultDecoder";
+import type {
+  ContractResultInput,
+  ContractResultSchema,
+  DecodedContractResult,
+} from "../soroban/resultDecoder";
+import {
+  getContractState as readContractState,
+  getContractStateAt as readContractStateAt,
+  getStateChanges as compareContractState,
+  watchContractState as streamContractState,
+} from "../soroban/stateHistory";
+import type {
+  ContractStateSource,
+  WatchContractStateOptions,
+} from "../soroban/stateHistory";
+import type {
+  ContractStateComparison,
+  ContractStateSnapshotRecord,
+} from "../soroban/contractStateHistory";
+import { createContractStateHistory } from "../soroban/contractStateHistory";
+import type { StreamContractEventsRealTimeOptions } from "../soroban/streamContractEventsRealTime";
 import { submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
+import { previewTransaction } from "../transaction/simulationPreview";
+import type { TransactionPreview } from "../transaction/simulationPreview";
 import { estimateFee } from "../transaction/estimateFee";
 import { streamTransactions } from "../transaction/streamTransactions";
 import { exportTransactionHistory } from "../transaction/exportTransactionHistory";
@@ -52,18 +132,7 @@ import type {
   DestinationValidationResult,
   ValidateDestinationOptions,
 } from "../transaction/validateDestination";
-import { readContract } from "../soroban/readContract";
-import { prepareContractCall } from "../soroban/prepareCall";
-import { simulateTransaction } from "../soroban/simulateTransaction";
-import {
-  executeContract,
-  validateSorobanPollConfig,
-} from "../soroban/executeContract";
-import { invokeContract } from "../soroban/invokeContract";
-import { getContractMethods } from "../soroban/contractMetadata";
-import { streamContractEventsRealTime } from "../soroban/streamContractEventsRealTime";
-import type { StreamContractEventsRealTimeOptions } from "../soroban/streamContractEventsRealTime";
-import { createContractStateTracker } from "../soroban/contractStateTracker";
+import type { UpgradeEvent } from "../soroban/upgradeDetection";
 import {
   createLogger,
   createTracedLogger,
@@ -76,7 +145,25 @@ import {
   getTraceContext,
 } from "../shared/tracing";
 import { setTracedFetch } from "../shared/serverFactory";
+import { configureEndpointFailover, validateEndpointList } from "../network/endpointFailover";
+import { createEndpointRegistry } from "../network/endpointRegistry";
 import type { TraceContext } from "../shared/tracing";
+import { createDID } from "../integration/didSupport";
+import type { DIDData } from "../integration/didSupport";
+import type {
+  GovernanceCallOptions,
+  GovernanceNetwork,
+  GovernanceProposal,
+  ProposalId,
+  ProposalStatus,
+  ProposalTracker,
+  TrackProposalOptions,
+  VoteChoice,
+  VoteReceipt,
+  VotingPower,
+} from "../integration/governance";
+import { createAuditTrail } from "../compliance/auditTrail";
+import type { AuditTrail } from "../compliance/auditTrail";
 import {
   formatAddress,
   generateTraceId,
@@ -88,6 +175,7 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
 import { wrapCache } from "../shared/cache";
+import type { MainnetSafetyOptions } from "../shared/mainnetSafety";
 import type { SorokitCache } from "../shared/cache";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ErrorHandler, ErrorContext } from "../shared/errors";
@@ -156,6 +244,12 @@ import type {
   SimulateTransactionResult,
 } from "../soroban/types";
 import type { ContractEvent } from "../soroban/subscribeContractEvents";
+import type { AnchorAsset, AnchorRequestOptions, Sep10AuthOptions, Sep24InteractiveResult } from "../integration/anchors";
+import type { AuthToken, InitiateSep10AuthOptions } from "../integration/sep10Auth";
+import type { FetchStellarTomlOptions, StellarToml } from "../integration/sep1Toml";
+import type { FederationResolverOptions, ResolvedAddress } from "../integration/federationResolver";
+import type { DerivedStellarKey, RotateSecretKeyOptions } from "../shared/keyManagement";
+import type { Transaction } from "@stellar/stellar-sdk";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -179,6 +273,10 @@ export interface SorokitClientConfig {
   horizonUrl?: string;
   /** Override the default Soroban RPC URL */
   rpcUrl?: string;
+  /** Ordered Horizon endpoints: primary first, followed by backup endpoints. */
+  horizonEndpoints?: string[];
+  /** Ordered Soroban RPC endpoints: primary first, followed by backup endpoints. */
+  rpcEndpoints?: string[];
   /** Optional cache implementation — core is stateless by default */
   cache?: SorokitCache;
   /**
@@ -248,6 +346,10 @@ export interface SorokitClientConfig {
   persistenceAdapter?: PersistenceAdapter;
   /** Request deduplication config for concurrent reads */
   dedupe?: DedupConfig;
+  /** Optional custom storage adapter for multi-account management */
+  accountStorageAdapter?: AccountStorageAdapter;
+  /** Custom WalletAccountManager instance */
+  accountManager?: WalletAccountManager;
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────
@@ -268,6 +370,39 @@ export interface SorokitClient {
   /** Get the current trace context (null if none set). */
   readonly getTraceContext: () => TraceContext | null;
 
+  /** SEP-2 federation lookup and SEP-6/10/24 anchor APIs, loaded on first use. */
+  readonly integration: {
+    resolveFederatedAddress(address: string, options?: FederationResolverOptions): Promise<SorokitResult<ResolvedAddress>>;
+    fetchStellarToml(domain: string, options?: FetchStellarTomlOptions): Promise<SorokitResult<StellarToml>>;
+    clearStellarTomlCache(domain?: string): Promise<void>;
+    authenticateSep10(anchorUrl: string, options: Sep10AuthOptions): Promise<SorokitResult<string>>;
+    initiateSep10Auth(serverUrl: string, publicKey: string, options?: InitiateSep10AuthOptions): Promise<SorokitResult<string>>;
+    completeSep10Auth(challengeXdr: string, signedChallengeXdr: string, options?: { now?: number; timeoutMs?: number }): Promise<SorokitResult<AuthToken>>;
+    validateSep10Token(token: string, now?: number): Promise<SorokitResult<AuthToken>>;
+    initiateSep6Transfer(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Record<string, unknown>>>;
+    initiateSep24Interactive(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Sep24InteractiveResult>>;
+    getSep6TransactionStatus(anchorUrl: string, id: string, options?: AnchorRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    createDID(publicKey: string): SorokitResult<DIDData>;
+    resolveDID(did: string): Promise<SorokitResult<DIDData>>;
+    linkAccountToDID(publicKey: string, did: string): Promise<SorokitResult<DIDData>>;
+    verifyDIDOwnership(did: string, signature: string): Promise<SorokitResult<boolean>>;
+    /** #686: governance — active proposals on `network` (defaults to the client's network). */
+    getProposals(network?: GovernanceNetwork, options?: GovernanceCallOptions & { status?: ProposalStatus | "all" }): Promise<SorokitResult<GovernanceProposal[]>>;
+    voteOnProposal(proposalId: ProposalId, vote: VoteChoice | string, options?: GovernanceCallOptions & { voter?: string }): Promise<SorokitResult<VoteReceipt>>;
+    getVotingPower(publicKey: string, options?: GovernanceCallOptions): Promise<SorokitResult<VotingPower>>;
+    trackProposal(proposalId: ProposalId, options?: TrackProposalOptions): Promise<SorokitResult<ProposalTracker>>;
+  };
+
+  /** Key derivation and signer rotation utilities, loaded on first use. */
+  readonly shared: {
+    deriveKey(mnemonic: string, path?: string, passphrase?: string): Promise<SorokitResult<DerivedStellarKey>>;
+    validateSecretKey(secretKey: string): Promise<SorokitResult<{ publicKey: string }>>;
+    rotateSecretKey(options: RotateSecretKeyOptions): Promise<SorokitResult<Transaction>>;
+  };
+
+  /** Append-only operation auditing and compliance reports for this client. */
+  readonly compliance: AuditTrail;
+
   /**
    * Check the health status of the client and its network connections.
    * Returns a simple health report with status, network connectivity, and version info.
@@ -279,7 +414,7 @@ export interface SorokitClient {
     /** Connect and return WalletState */
     connect(
       adapter: WalletAdapter,
-      timeoutMs?: number,
+        optionsOrTimeoutMs?: number | import("../wallet/types").WalletConnectOptions,
     ): Promise<SorokitResult<WalletState>>;
     /** Generate a privacy-conscious fingerprint for the current runtime. */
     fingerprintDevice(signals?: DeviceSignals): DeviceFingerprint;
@@ -304,6 +439,56 @@ export interface SorokitClient {
      * Pure utility — returns SorokitResult<WalletState>, cannot fail.
      */
     emptyState(): SorokitResult<WalletState>;
+    /** Register an account with optional metadata (#579) */
+    addAccount(
+      publicKey: string,
+      metadata?: AccountMetadata,
+    ): Promise<SorokitResult<AccountData>>;
+    /** Unregister an account by public key (#579) */
+    removeAccount(publicKey: string): Promise<SorokitResult<boolean>>;
+    /** Switch active account to specified public key (#579) */
+    switchAccount(publicKey: string): Promise<SorokitResult<AccountData>>;
+    /** Get currently active account record (#579) */
+    getActiveAccount(): SorokitResult<AccountData | null>;
+    /** List all registered accounts (#579) */
+    listAccounts(): Promise<SorokitResult<AccountData[]>>;
+    /** Subscribe to real-time active account switches (#579) */
+    watchAccountSwitch(
+      listener: AccountSwitchListener,
+    ): AccountSwitchUnsubscribe;
+    /**
+     * Named wallet lifecycle event subscriptions (#613): "connected",
+     * "disconnected", "accountChanged", "networkChanged".
+     *
+     * "networkChanged" is never emitted by any bundled WalletAdapter today —
+     * no adapter currently detects the connected wallet switching networks.
+     * It exists for a custom adapter to report via a WalletEventEmitter it
+     * holds a reference to, and will start firing once one does.
+     */
+    on<E extends WalletEventName>(
+      event: E,
+      listener: WalletEventListener<E>,
+    ): WalletEventUnsubscribe;
+    /** Remove a previously registered wallet event listener (#613) */
+    off<E extends WalletEventName>(
+      event: E,
+      listener: WalletEventListener<E>,
+    ): void;
+    /** Persist wallet connection session to local storage with encryption and TTL (#671) */
+    saveSession(
+      connection: WalletConnection,
+      options?: SessionPersistenceOptions,
+    ): Promise<SorokitResult<SessionData>>;
+    /** Restore persisted wallet session from local storage with auto-recovery (#671) */
+    restoreSession(
+      options?: SessionPersistenceOptions,
+    ): Promise<SorokitResult<SessionData>>;
+    /** Clear persisted wallet session (logout) (#671) */
+    clearSession(
+      options?: Pick<SessionPersistenceOptions, "storage" | "storageKey">,
+    ): SorokitResult<void>;
+    /** Check whether a session is valid and not expired (#671) */
+    isSessionValid(session: SessionData | null | undefined): boolean;
   };
 
   readonly account: {
@@ -331,6 +516,16 @@ export interface SorokitClient {
       filter?: AssetBalanceFilter,
       timeoutMs?: number,
     ): Promise<SorokitResult<AssetBalance[]>>;
+    /** Assess signer security, recovery coverage, and native-balance reserve health. */
+    calculateHealthScore(publicKey: string): Promise<SorokitResult<HealthData>>;
+    /** Return a safe, staged signer recovery plan. */
+    getRecoveryPlan(publicKey: string): Promise<SorokitResult<RecoveryPlan>>;
+    /** Build an unsigned transaction that adds a lower-weight backup signer. */
+    addRecoverySigner(account: string, recoveryKey: string, recoveryWeight?: number): Promise<SorokitResult<string>>;
+    /** Build an unsigned transaction that installs a replacement signer and disables master weight. */
+    rotateKeys(account: string, newKey: string, newKeyWeight?: number): Promise<SorokitResult<string>>;
+    /** Build an unsigned transaction to remove a signer after the recovery delay. */
+    removeOldSigner(account: string, oldKey: string, rotatedAt: number | string | Date, options?: { waitMs?: number; now?: number }): Promise<SorokitResult<string>>;
     /**
      * Stream account state by polling Horizon.
      * Yields SorokitResult<AccountInfo> on every poll.
@@ -364,6 +559,20 @@ export interface SorokitClient {
     removeSponsor(account: string): SorokitResult<SponsorshipResult>;
     getOffers(publicKey: string, options?: DexActivityOptions, timeoutMs?: number): Promise<SorokitResult<DexActivityResult<OfferInfo>>>;
     getTrades(publicKey: string, options?: DexActivityOptions, timeoutMs?: number): Promise<SorokitResult<DexActivityResult<TradeInfo>>>;
+    /**
+     * Simulate an account merge and run all safety checks before any transaction
+     * is built or signed. Account merge is destructive and irreversible — use this
+     * to validate the operation before calling `transaction.buildAccountMerge`.
+     *
+     * Checks: address validity, destination exists, no open trustlines (unless
+     * `allowTrustlines` is set), minimum balance met.
+     */
+    simulateAccountMerge(
+      sourcePublicKey: string,
+      destinationPublicKey: string,
+      options?: SimulateAccountMergeOptions,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<AccountMergeSimulation>>;
   };
 
   readonly transaction: {
@@ -423,11 +632,32 @@ export interface SorokitClient {
       sourcePublicKey: string,
       options?: ComposeOptions,
     ): ReturnType<typeof compose>;
+    /** Create a sequential multi-step orchestration with compensating rollback. */
+    orchestrate(options?: AtomicOrchestratorOptions): ReturnType<typeof orchestrate>;
     /** Submit a signed transaction XDR */
     submit(
       signedXdr: string,
-      timeoutMs?: number,
+      options?: number | (MainnetSafetyOptions & { timeoutMs?: number }),
     ): Promise<SorokitResult<TransactionResult>>;
+    /** Alias for submit; accepts the same Mainnet safety options. */
+    submitTransaction(
+      signedXdr: string,
+      options?: number | (MainnetSafetyOptions & { timeoutMs?: number }),
+    ): Promise<SorokitResult<TransactionResult>>;
+    /**
+     * Preview a transaction's effects before submitting it: projected balance
+     * changes, fee, and other state changes (e.g. new trustlines) (#612).
+     *
+     * `sourcePublicKey` is accepted for API-ergonomics parity with the rest
+     * of the transaction namespace, but the transaction's own encoded source
+     * account is what determines its effects — the two must match the
+     * transaction being previewed.
+     */
+    previewTransaction(
+      transactionXdr: string,
+      sourcePublicKey: string,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<TransactionPreview>>;
     /** Fetch the status of a transaction by hash */
     getStatus(
       hash: string,
@@ -491,6 +721,12 @@ export interface SorokitClient {
       ttlMs?: number,
       timeoutMs?: number,
     ): Promise<SorokitResult<ContractMethod[]>>;
+    /** Detect deployed Wasm changes and invalidate contract-scoped caches. */
+    detectContractUpgrade(
+      contractId: string,
+      onUpgrade?: (event: UpgradeEvent) => void,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<UpgradeEvent>>;
     /**
      * Simulate any transaction XDR for fee estimation and pre-flight checks.
      * Uses the Soroban RPC.
@@ -515,6 +751,7 @@ export interface SorokitClient {
       signedXdr: string,
       pollConfig?: SorobanPollConfig,
       timeoutMs?: number,
+      safetyOptions?: MainnetSafetyOptions,
     ): Promise<SorokitResult<string>>;
     /**
      * Full invoke pipeline: prepare → sign → execute.
@@ -526,6 +763,7 @@ export interface SorokitClient {
       signFn: (xdr: string) => Promise<string>,
       pollConfig?: SorobanPollConfig,
       timeoutMs?: number,
+      safetyOptions?: MainnetSafetyOptions,
     ): Promise<SorokitResult<string>>;
     /** Read contract data — no signing required */
     read(
@@ -541,6 +779,42 @@ export interface SorokitClient {
       contractId: string,
       options?: Omit<StreamContractEventsRealTimeOptions, "rpcUrl">,
     ): AsyncGenerator<ContractEvent[]>;
+    filterEvents(
+      contractId: string,
+      filters: ContractEventAnalyticsFilter,
+    ): Promise<SorokitResult<ContractEvent[]>>;
+    aggregateEvents(
+      contractId: string,
+      groupBy: EventGroupBy,
+      filters?: ContractEventAnalyticsFilter,
+    ): Promise<SorokitResult<Record<string, EventAggregate>>>;
+    streamEvents(
+      contractId: string,
+      filters: ContractEventAnalyticsFilter,
+      options?: Omit<StreamContractEventsRealTimeOptions, "rpcUrl">,
+    ): AsyncGenerator<SorokitResult<ContractEvent[]>>;
+    decodeContractResult<S extends ContractResultSchema>(
+      result: ContractResultInput,
+      schema: S,
+    ): SorokitResult<DecodedContractResult<S>>;
+    getContractState(
+      contractId: string,
+      source: ContractStateSource,
+    ): Promise<SorokitResult<ContractStateSnapshotRecord>>;
+    getContractStateAt(
+      contractId: string,
+      ledger: number,
+    ): SorokitResult<ContractStateSnapshotRecord>;
+    getStateChanges(
+      contractId: string,
+      fromLedger: number,
+      toLedger: number,
+    ): SorokitResult<ContractStateComparison>;
+    watchContractState(
+      contractId: string,
+      source: ContractStateSource,
+      options?: WatchContractStateOptions,
+    ): AsyncGenerator<SorokitResult<ContractStateSnapshotRecord>>;
   };
 
   readonly network: {
@@ -548,6 +822,29 @@ export interface SorokitClient {
     getConfig(): ResolvedNetworkConfig;
     /** Return the network type identifier string (e.g. "testnet", "mainnet", "futurenet") */
     getId(): NetworkType;
+    /** Register a custom endpoint with optional weight and priority (#672) */
+    registerEndpoint(
+      type: import("../network/endpointRegistry").EndpointType,
+      url: string,
+      weight?: number,
+      priority?: number,
+    ): SorokitResult<import("../network/endpointRegistry").Endpoint>;
+    /** Select the optimal endpoint by weighted score (#672) */
+    getOptimalEndpoint(
+      type: import("../network/endpointRegistry").EndpointType,
+    ): SorokitResult<import("../network/endpointRegistry").Endpoint>;
+    /** Round-robin rotate through endpoints (#672) */
+    rotateEndpoints(
+      type: import("../network/endpointRegistry").EndpointType,
+    ): SorokitResult<import("../network/endpointRegistry").Endpoint>;
+    /** Health-check an endpoint URL (#672) */
+    testEndpoint(
+      url: string,
+    ): Promise<SorokitResult<import("../network/endpointRegistry").EndpointHealthResult>>;
+    /** List all registered endpoints, optionally filtered by type (#672) */
+    getEndpoints(
+      type?: import("../network/endpointRegistry").EndpointType,
+    ): import("../network/endpointRegistry").Endpoint[];
   };
 }
 
@@ -601,6 +898,19 @@ export function validateClientConfig(
       return err(
         SorokitErrorCode.INVALID_CONFIG,
         `Invalid rpcUrl: ${String(config.rpcUrl)}`,
+      );
+    }
+  }
+
+  for (const [name, endpoints] of [
+    ["horizonEndpoints", config.horizonEndpoints],
+    ["rpcEndpoints", config.rpcEndpoints],
+  ] as const) {
+    const endpointResult = validateEndpointList(endpoints);
+    if (endpointResult.status === "error") {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `${name}: ${endpointResult.error.message}`,
       );
     }
   }
@@ -689,9 +999,13 @@ export function validateClientConfig(
     }
   }
 
-  if (config.sorobanPoll) {
-    const pollErr = validateSorobanPollConfig(config.sorobanPoll);
-    if (pollErr) return pollErr;
+  if (config.sorobanPoll?.maxAttempts !== undefined &&
+      (!Number.isInteger(config.sorobanPoll.maxAttempts) || config.sorobanPoll.maxAttempts <= 0)) {
+    return err(SorokitErrorCode.CONTRACT_INVOKE_FAILED, "sorobanPoll.maxAttempts must be a positive integer.");
+  }
+  if (config.sorobanPoll?.intervalMs !== undefined &&
+      (!Number.isFinite(config.sorobanPoll.intervalMs) || config.sorobanPoll.intervalMs < 0)) {
+    return err(SorokitErrorCode.CONTRACT_INVOKE_FAILED, "sorobanPoll.intervalMs must be a non-negative number.");
   }
 
   if (config.timeoutMs !== undefined && config.timeoutMs !== null) {
@@ -758,14 +1072,26 @@ export function createSorokitClient(
   }
 
   const networkResult = resolveNetwork(config.network, {
-    horizonUrl: config.horizonUrl,
-    rpcUrl: config.rpcUrl,
+    horizonUrl: config.horizonEndpoints?.[0] ?? config.horizonUrl,
+    rpcUrl: config.rpcEndpoints?.[0] ?? config.rpcUrl,
   });
 
   if (networkResult.status === "error") return networkResult;
 
   const networkConfig = networkResult.data;
   const { horizonUrl, rpcUrl, networkPassphrase } = networkConfig;
+  if (config.horizonEndpoints) {
+    configureEndpointFailover(
+      config.horizonEndpoints[0]!,
+      config.horizonEndpoints.slice(1),
+    );
+  }
+  if (config.rpcEndpoints) {
+    configureEndpointFailover(
+      config.rpcEndpoints[0]!,
+      config.rpcEndpoints.slice(1),
+    );
+  }
   const traceId = config.traceId ?? generateTraceId();
   const i18n = createI18n({
     ...(config.locale !== undefined ? { locale: config.locale } : {}),
@@ -779,18 +1105,30 @@ export function createSorokitClient(
       ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
     });
   const logger = createTracedLogger(baseLogger, { traceId });
+  const safetyLogger = createTracedLogger(
+    config.logger ?? createLogger({
+      logLevel: "warn",
+      ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
+    }),
+    { traceId },
+  );
 
   // Set up distributed tracing with correlation IDs (#212).
   const traceContext = createTraceContext(traceId);
   const deduplicator = createRequestDeduplicator(config.dedupe);
   const tracedFetch = createTracedFetch(traceContext);
+  const endpointRegistry = createEndpointRegistry();
 
   const defaultPollConfig = config.sorobanPoll;
   const errorHandler = config.errorHandler;
   const cache = config.cache ? wrapCache(config.cache) : undefined;
-  const contractStateTracker = cache
-    ? createContractStateTracker(cache, horizonUrl, { fetch: tracedFetch })
-    : undefined;
+  let contractStateTrackerPromise: Promise<import("../soroban/contractStateTracker").ContractStateTracker | undefined> | undefined;
+  const getContractStateTracker = () => {
+    if (!cache) return Promise.resolve(undefined);
+    contractStateTrackerPromise ??= import("../soroban/contractStateTracker").then(({ createContractStateTracker }) =>
+      createContractStateTracker(cache, horizonUrl, { fetch: tracedFetch }));
+    return contractStateTrackerPromise;
+  };
   const feeEstimateOptions: FeeEstimateOptions = {
     ...(cache !== undefined ? { cache } : {}),
     ...(config.onFeeSurge !== undefined
@@ -867,6 +1205,21 @@ export function createSorokitClient(
     });
   }
 
+  // Initialize Multi-Account Manager (#579)
+  const accountManager =
+    config.accountManager ??
+    createAccountManager({
+      ...(config.accountStorageAdapter && { storageAdapter: config.accountStorageAdapter }),
+    });
+
+  // Wallet event emitter (#613) — bridges accountManager's own switch
+  // notifications into the named "accountChanged" event.
+  const walletEvents = createWalletEventEmitter();
+  accountManager.watchAccountSwitch((activeAccount, previousAccount) => {
+    walletEvents.emit("accountChanged", { activeAccount, previousAccount });
+  });
+  const contractStateHistory = createContractStateHistory();
+
   const client: SorokitClient = {
     i18n,
     version: SDK_VERSION,
@@ -875,6 +1228,53 @@ export function createSorokitClient(
     traceId,
     traceContext,
     getTraceContext,
+
+    integration: {
+      resolveFederatedAddress: async (address, options) =>
+        (await import("../integration/federationResolver")).resolveFederatedAddress(address, options),
+      fetchStellarToml: async (domain, options) =>
+        (await import("../integration/sep1Toml")).fetchStellarToml(domain, options),
+      clearStellarTomlCache: async (domain) =>
+        (await import("../integration/sep1Toml")).clearStellarTomlCache(domain),
+      authenticateSep10: async (anchorUrl, options) =>
+        (await import("../integration/anchors")).authenticateSep10(anchorUrl, options),
+      initiateSep10Auth: async (serverUrl, publicKey, options) =>
+        (await import("../integration/sep10Auth")).initiateSep10Auth(serverUrl, publicKey, options),
+      completeSep10Auth: async (challengeXdr, signedChallengeXdr, options) =>
+        (await import("../integration/sep10Auth")).completeSep10Auth(challengeXdr, signedChallengeXdr, options),
+      validateSep10Token: async (token, now) =>
+        (await import("../integration/sep10Auth")).validateSep10Token(token, now),
+      initiateSep6Transfer: async (anchorUrl, asset, options) =>
+        (await import("../integration/anchors")).initiateSep6Transfer(anchorUrl, asset, options),
+      initiateSep24Interactive: async (anchorUrl, asset, options) =>
+        (await import("../integration/anchors")).initiateSep24Interactive(anchorUrl, asset, options),
+      getSep6TransactionStatus: async (anchorUrl, id, options) =>
+        (await import("../integration/anchors")).getSep6TransactionStatus(anchorUrl, id, options),
+      createDID,
+      resolveDID: async (did) => (await import("../integration/didSupport")).resolveDID(did),
+      linkAccountToDID: async (publicKey, did) => (await import("../integration/didSupport")).linkAccountToDID(publicKey, did),
+      verifyDIDOwnership: async (did, signature) => (await import("../integration/didSupport")).verifyDIDOwnership(did, signature),
+      // #686: governance, loaded on first use.
+      getProposals: async (network, options) =>
+        (await import("../integration/governance")).getProposals(network ?? (networkConfig.network), options),
+      voteOnProposal: async (proposalId, vote, options) =>
+        (await import("../integration/governance")).voteOnProposal(proposalId, vote, { network: networkConfig.network, ...options }),
+      getVotingPower: async (publicKey, options) =>
+        (await import("../integration/governance")).getVotingPower(publicKey, { network: networkConfig.network, ...options }),
+      trackProposal: async (proposalId, options) =>
+        (await import("../integration/governance")).trackProposal(proposalId, { network: networkConfig.network, ...options }),
+    },
+
+    shared: {
+      deriveKey: async (mnemonic, path, passphrase) =>
+        (await import("../shared/keyManagement")).deriveKey(mnemonic, path, passphrase),
+      validateSecretKey: async (secretKey) =>
+        (await import("../shared/keyManagement")).validateSecretKey(secretKey),
+      rotateSecretKey: async (options) =>
+        (await import("../shared/keyManagement")).rotateSecretKey(options),
+    },
+
+    compliance: createAuditTrail(),
 
     healthCheck: async () => {
       const networkHealthResult = await checkNetworkHealth(horizonUrl, rpcUrl);
@@ -913,7 +1313,13 @@ export function createSorokitClient(
       evaluateTrust: (fingerprint, history) => evaluateDeviceTrust(fingerprint, history, {
         threshold: config.deviceTrustThreshold ?? DEFAULT_TRUST_THRESHOLD,
       }),
-      connect: (adapter, timeoutMs) => {
+      connect: (adapter, optionsOrTimeoutMs) => {
+        const connectOpts: import("../wallet/types").WalletConnectOptions | undefined =
+          typeof optionsOrTimeoutMs === "number"
+            ? { timeoutMs: optionsOrTimeoutMs }
+            : optionsOrTimeoutMs;
+        const timeoutMs = connectOpts?.timeoutMs;
+
         const action = () => {
           // Try cache-based recovery first
           if (cache) {
@@ -1007,7 +1413,7 @@ export function createSorokitClient(
             logger,
             "wallet.connect",
             { walletType: adapter.walletType },
-            () => connectWallet(adapter, cache),
+            () => connectWallet(adapter, cache, connectOpts),
           ).then((result) => {
             // Persist successful connection via the persistence adapter
             if (result.status === "ok" && persistenceAdapter) {
@@ -1025,7 +1431,14 @@ export function createSorokitClient(
             },
             action,
           ).then(applyTx),
-        );
+        ).then((result) => {
+          // Emit "connected" (#613) after the wrapped result is finalized
+          if (result.status === "ok") {
+            const connectedEvent = toConnectedEvent(result.data);
+            if (connectedEvent) walletEvents.emit("connected", connectedEvent);
+          }
+          return result;
+        });
       },
       disconnect: (adapter, timeoutMs) =>
         guard("wallet_disconnect", timeoutMs, () =>
@@ -1035,8 +1448,8 @@ export function createSorokitClient(
               functionName: "wallet.disconnect",
               params: { walletType: adapter.walletType },
             },
-            () =>
-              withLogging(
+              async () =>
+                withLogging(
                 logger,
                 "wallet.disconnect",
                 { walletType: adapter.walletType },
@@ -1049,7 +1462,13 @@ export function createSorokitClient(
                 return result;
               }),
           ).then(applyTx),
-        ),
+        ).then((result) => {
+          // Emit "disconnected" (#613) after the wrapped result is finalized
+          if (result.status === "ok") {
+            walletEvents.emit("disconnected", { walletType: adapter.walletType });
+          }
+          return result;
+        }),
       signTransaction: (adapter, input, timeoutMs) =>
         guard("wallet_sign", timeoutMs, () =>
           withErrorHandling(
@@ -1068,9 +1487,29 @@ export function createSorokitClient(
           ).then(applyTx),
         ),
       emptyState: () => emptyWalletState(),
+      addAccount: (publicKey, metadata) => accountManager.addAccount(publicKey, metadata),
+      removeAccount: (publicKey) => accountManager.removeAccount(publicKey),
+      switchAccount: (publicKey) => accountManager.switchAccount(publicKey),
+      getActiveAccount: () => accountManager.getActiveAccount(),
+      listAccounts: () => accountManager.listAccounts(),
+      watchAccountSwitch: (listener) => accountManager.watchAccountSwitch(listener),
+      on: (event, listener) => walletEvents.on(event, listener),
+      off: (event, listener) => walletEvents.off(event, listener),
+      saveSession: (connection, options) => saveSession(connection, options),
+      restoreSession: (options) => restoreSession(options),
+      clearSession: (options) => clearSession(options),
+      isSessionValid: (session) => isSessionValid(session),
     },
 
     account: {
+      calculateHealthScore: (publicKey) => calculateHealthScore(horizonUrl, publicKey),
+      getRecoveryPlan: (publicKey) => getRecoveryPlan(horizonUrl, publicKey),
+      addRecoverySigner: (account, recoveryKey, recoveryWeight) =>
+        addRecoverySigner(horizonUrl, networkConfig, account, recoveryKey, recoveryWeight),
+      rotateKeys: (account, newKey, newKeyWeight) =>
+        rotateKeys(horizonUrl, networkConfig, account, newKey, newKeyWeight),
+      removeOldSigner: (account, oldKey, rotatedAt, options) =>
+        removeOldSigner(horizonUrl, networkConfig, account, oldKey, rotatedAt, options),
       get: (publicKey, timeoutMs) =>
         guard("account_get", timeoutMs, (signal) =>
           deduplicator.deduplicate(
@@ -1194,6 +1633,27 @@ export function createSorokitClient(
             errorHandler,
             { functionName: "account.getTrades", params: { publicKey, options } },
             () => getTrades(horizonUrl, publicKey, options),
+          ).then(applyTx),
+        ),
+      simulateAccountMerge: (sourcePublicKey, destinationPublicKey, options, timeoutMs) =>
+        guard("account_get", timeoutMs, (signal) =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "account.simulateAccountMerge",
+              params: { sourcePublicKey, destinationPublicKey },
+            },
+            () =>
+              withLogging(
+                logger,
+                "account.simulateAccountMerge",
+                { sourcePublicKey, destinationPublicKey },
+                () =>
+                  simulateAccountMerge(horizonUrl, sourcePublicKey, destinationPublicKey, {
+                    ...options,
+                    ...(signal !== undefined ? { signal } : options?.signal !== undefined ? { signal: options.signal } : {}),
+                  }),
+              ),
           ).then(applyTx),
         ),
     },
@@ -1362,8 +1822,13 @@ export function createSorokitClient(
         logger.debug("transaction.compose", { sourcePublicKey });
         return compose(sourcePublicKey, networkConfig, options);
       },
-      submit: async (signedXdr, timeoutMs) =>
-        guard("tx_submit", timeoutMs, (signal) =>
+      orchestrate: (options) => orchestrate(options),
+      submit: async (signedXdr, optionsOrTimeoutMs) => {
+        const submitOptions = typeof optionsOrTimeoutMs === "number"
+          ? { timeoutMs: optionsOrTimeoutMs }
+          : optionsOrTimeoutMs;
+        const timeoutMs = submitOptions?.timeoutMs;
+        return guard("tx_submit", timeoutMs, (signal) =>
           withErrorHandling(
             errorHandler,
             { functionName: "transaction.submit" },
@@ -1375,8 +1840,24 @@ export function createSorokitClient(
                 networkPassphrase,
                 signedXdr,
                 cache,
-                { signal },
+                { ...submitOptions, signal, logger: submitOptions?.logger ?? safetyLogger },
               );
+            },
+          ).then(applyTx),
+        );
+      },
+      submitTransaction: (signedXdr, options) => client.transaction.submit(signedXdr, options),
+      previewTransaction: (transactionXdr, _sourcePublicKey, timeoutMs) =>
+        guard("tx_preview", timeoutMs, (signal) =>
+          withErrorHandling(
+            errorHandler,
+            { functionName: "transaction.previewTransaction" },
+            () => {
+              logger.debug("transaction.previewTransaction");
+              return previewTransaction(horizonUrl, networkPassphrase, transactionXdr, {
+                rpcUrl,
+                signal,
+              });
             },
           ).then(applyTx),
         ),
@@ -1494,148 +1975,122 @@ export function createSorokitClient(
     soroban: {
       getContractMethods: (contractId, ttlMs, timeoutMs) =>
         guard("soroban_get_methods", timeoutMs, () =>
-          withErrorHandling(
-            errorHandler,
-            {
-              functionName: "soroban.getContractMethods",
-              params: { contractId },
-            },
-            () =>
-              withLogging(
-                logger,
-                "soroban.getContractMethods",
-                { contractId },
-                () =>
-                  getContractMethods(rpcUrl, contractId, {
-                    ...(cache && { cache }),
-                    ...(ttlMs !== undefined && { ttlMs }),
-                  }),
-              ),
+          withErrorHandling(errorHandler, { functionName: "soroban.getContractMethods", params: { contractId } }, async () =>
+            (await import("../soroban")).getContractMethods(rpcUrl, contractId, {
+              ...(cache ? { cache } : {}),
+              ...(ttlMs !== undefined ? { ttlMs } : {}),
+            }),
+          ).then(applyTx),
+        ),
+      detectContractUpgrade: (contractId, onUpgrade, timeoutMs) =>
+        guard("soroban_get_methods", timeoutMs, () =>
+          withErrorHandling(errorHandler, { functionName: "soroban.detectContractUpgrade", params: { contractId } }, async () =>
+            (await import("../soroban")).detectContractUpgrade(rpcUrl, contractId, {
+              ...(cache ? { cache } : {}),
+              ...(onUpgrade ? { onUpgrade } : {}),
+            }),
           ).then(applyTx),
         ),
       simulate: (transactionXdr, timeoutMs) =>
         guard("soroban_simulate", timeoutMs, (signal) =>
           deduplicator.deduplicate(
             ["soroban.simulate", rpcUrl, networkPassphrase, transactionXdr],
-            () =>
-              withErrorHandling(
-                errorHandler,
-                { functionName: "soroban.simulate" },
-                () =>
-                  withLogging(logger, "soroban.simulate", {}, () =>
-                    simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
-                  ),
-              ).then(applyTx),
-            signal
-          )
+            () => withErrorHandling(errorHandler, { functionName: "soroban.simulate" }, async () =>
+              (await import("../soroban")).simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
+            ).then(applyTx),
+            signal,
+          ),
         ),
       prepare: (params, timeoutMs) =>
         guard("soroban_prepare", timeoutMs, () =>
-          withErrorHandling(
-            errorHandler,
-            {
-              functionName: "soroban.prepare",
-              params: { contractId: params.contractId, method: params.method },
-            },
-            () =>
-              withLogging(
-                logger,
-                "soroban.prepare",
-                { contractId: params.contractId, method: params.method },
-                () =>
-                  prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
-              ),
+          withErrorHandling(errorHandler, { functionName: "soroban.prepare", params: { contractId: params.contractId, method: params.method } }, async () =>
+            (await import("../soroban")).prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
           ).then(applyTx),
         ),
-      execute: (signedXdr, pollConfig, timeoutMs) =>
+      execute: (signedXdr, pollConfig, timeoutMs, safetyOptions) =>
         guard("soroban_execute", timeoutMs, () =>
-          withErrorHandling(
-            errorHandler,
-            { functionName: "soroban.execute" },
-            () =>
-              executeContract(
-                rpcUrl,
-                networkConfig,
-                signedXdr,
-                pollConfig ?? defaultPollConfig,
-                logger,
-                contractStateTracker,
-              ),
+          withErrorHandling(errorHandler, { functionName: "soroban.execute" }, async () =>
+            (await import("../soroban")).executeContract(
+              rpcUrl,
+              networkConfig,
+              signedXdr,
+              pollConfig ?? defaultPollConfig,
+              logger,
+              await getContractStateTracker(),
+              { ...safetyOptions, logger: safetyOptions?.logger ?? safetyLogger },
+            ),
           ).then(applyTx),
         ),
-      invoke: (params, signFn, pollConfig, timeoutMs) =>
+      invoke: (params, signFn, pollConfig, timeoutMs, safetyOptions) =>
         guard("soroban_invoke", timeoutMs, () =>
-          withErrorHandling(
-            errorHandler,
-            {
-              functionName: "soroban.invoke",
-              params: { contractId: params.contractId, method: params.method },
-            },
-            () =>
-              withLogging(
-                logger,
-                "soroban.invoke",
-                { contractId: params.contractId, method: params.method },
-                () =>
-                  invokeContract(
-                    rpcUrl,
-                    networkConfig,
-                    horizonUrl,
-                    {
-                      ...params,
-                      ...(params.stateTracker === undefined &&
-                      contractStateTracker !== undefined
-                        ? { stateTracker: contractStateTracker }
-                        : {}),
-                    },
-                    signFn,
-                    pollConfig ?? defaultPollConfig,
-                    logger,
-                  ),
-              ),
-          ).then(applyTx),
+          withErrorHandling(errorHandler, { functionName: "soroban.invoke", params: { contractId: params.contractId, method: params.method } }, async () => {
+            const stateTracker = await getContractStateTracker();
+            return (await import("../soroban")).invokeContract(
+              rpcUrl,
+              networkConfig,
+              horizonUrl,
+              {
+                ...params,
+                ...(params.stateTracker === undefined && stateTracker ? { stateTracker } : {}),
+              },
+              signFn,
+              pollConfig ?? defaultPollConfig,
+              logger,
+              { ...safetyOptions, logger: safetyOptions?.logger ?? safetyLogger },
+            );
+          }).then(applyTx),
         ),
       read: (params, timeoutMs) =>
         guard("soroban_read", timeoutMs, (signal) =>
           deduplicator.deduplicate(
             ["soroban.read", rpcUrl, params],
-            () =>
-              withErrorHandling(
-                errorHandler,
-                {
-                  functionName: "soroban.read",
-                  params: { contractId: params.contractId, method: params.method },
-                },
-                () =>
-                  withLogging(
-                    logger,
-                    "soroban.read",
-                    { contractId: params.contractId, method: params.method },
-                    () =>
-                      readContract(rpcUrl, horizonUrl, networkConfig, {
-                        ...params,
-                        ...(params.stateTracker === undefined &&
-                        contractStateTracker !== undefined
-                          ? { stateTracker: contractStateTracker }
-                          : {}),
-                      }),
-                  ),
-              ).then(applyTx),
-            signal
-          )
+            () => withErrorHandling(errorHandler, { functionName: "soroban.read", params: { contractId: params.contractId, method: params.method } }, async () => {
+              const stateTracker = await getContractStateTracker();
+              return (await import("../soroban")).readContract(rpcUrl, horizonUrl, networkConfig, {
+                ...params,
+                ...(params.stateTracker === undefined && stateTracker ? { stateTracker } : {}),
+              });
+            }).then(applyTx),
+            signal,
+          ),
         ),
-      streamContractEventsRealTime: (contractId, options) => {
+      streamContractEventsRealTime: async function* (contractId, options) {
         logger.debug("soroban.streamContractEventsRealTime", { contractId });
-        return streamContractEventsRealTime(contractId, {
+        yield* (await import("../soroban")).streamContractEventsRealTime(contractId, {
           rpcUrl,
           ...options,
         });
       },
+      filterEvents: (contractId, filters) =>
+        filterContractEvents(contractId, filters, { rpcUrl }),
+      aggregateEvents: (contractId, groupBy, filters) =>
+        aggregateContractEvents(contractId, groupBy, { rpcUrl }, filters),
+      streamEvents: async function* (contractId, filters, options) {
+        yield* streamContractEvents(contractId, filters, {
+          rpcUrl,
+          ...(options !== undefined ? { streamOptions: options } : {}),
+        });
+      },
+      decodeContractResult: (result, schema) => decodeSorobanResult(result, schema),
+      getContractState: (contractId, source) =>
+        readContractState(contractId, source, contractStateHistory),
+      getContractStateAt: (contractId, ledger) =>
+        readContractStateAt(contractId, ledger, contractStateHistory),
+      getStateChanges: (contractId, fromLedger, toLedger) =>
+        compareContractState(contractId, fromLedger, toLedger, contractStateHistory),
+      watchContractState: (contractId, source, options) =>
+        streamContractState(contractId, source, options, contractStateHistory),
     },
 
     network: {
       getConfig: () => networkConfig,
       getId: () => config.network,
+      registerEndpoint: (type, url, weight?, priority?) =>
+        endpointRegistry.registerEndpoint(type, url, weight, priority),
+      getOptimalEndpoint: (type) => endpointRegistry.getOptimalEndpoint(type),
+      rotateEndpoints: (type) => endpointRegistry.rotateEndpoints(type),
+      testEndpoint: (url) => endpointRegistry.testEndpoint(url),
+      getEndpoints: (type?) => endpointRegistry.getEndpoints(type),
     },
   };
 

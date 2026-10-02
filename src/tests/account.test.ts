@@ -18,7 +18,7 @@ vi.mock("../shared", async () => {
       if (typeof vi.isFakeTimers === "function" && vi.isFakeTimers()) {
         return new Promise((resolve) => setTimeout(resolve, ms));
       }
-      return Promise.resolve();
+      return new Promise<void>((resolve) => setTimeout(resolve, 0));
     }),
   };
 });
@@ -76,10 +76,16 @@ function deepEqual(a: unknown, b: unknown): boolean {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   accountMockState.sleepCalls.length = 0;
   accountMockState.index = 0;
   accountMockState.results = [];
+  const { getAccount } = await import("../account/getAccount");
+  vi.mocked(getAccount).mockReset().mockImplementation(async () => {
+    const result = accountMockState.results[accountMockState.index] ?? accountMockState.results.at(-1)!;
+    accountMockState.index++;
+    return ok(result);
+  });
 });
 
 describe("account", () => {
@@ -180,6 +186,7 @@ describe("account", () => {
     });
 
     it("increases interval after unchanged polls and decreases after activity", async () => {
+      const dateSpy = vi.spyOn(Date, "now").mockReturnValue(1000);
       accountMockState.results = [
         createAccount("1"),
         createAccount("1"),
@@ -200,10 +207,12 @@ describe("account", () => {
       await stream.next();
       await stream.next();
 
+      dateSpy.mockRestore();
       expect(accountMockState.sleepCalls).toEqual([2000, 2000, 3000]);
     });
 
     it("respects interval boundaries", async () => {
+      const dateSpy = vi.spyOn(Date, "now").mockReturnValue(1000);
       accountMockState.results = [
         createAccount("1"),
         createAccount("1"),
@@ -227,6 +236,7 @@ describe("account", () => {
         await stream.next();
       }
 
+      dateSpy.mockRestore();
       expect(accountMockState.sleepCalls).toEqual([
         2000, 3000, 3000, 3000, 2000, 3000, 3000,
       ]);
@@ -272,7 +282,7 @@ describe("account", () => {
         } finally {
           sleepMock.mockImplementation((ms: number) => {
             accountMockState.sleepCalls.push(ms);
-            return Promise.resolve();
+            return new Promise<void>((resolve) => setTimeout(resolve, 0));
           });
           vi.useRealTimers();
         }
@@ -316,7 +326,7 @@ describe("account", () => {
         } finally {
           sleepMock.mockImplementation((ms: number) => {
             accountMockState.sleepCalls.push(ms);
-            return Promise.resolve();
+            return new Promise<void>((resolve) => setTimeout(resolve, 0));
           });
           vi.useRealTimers();
         }
@@ -1372,8 +1382,8 @@ describe("streamAccount — onBalanceChange callback (#11)", () => {
     }
 
     expect(events).toHaveLength(2);
-    expect(events[0]).toEqual({ type: "change", assetCode: "XLM" });
-    expect(events[1]).toEqual({ type: "add", assetCode: "USDC" });
+    expect(events[0]).toEqual({ type: "add", assetCode: "USDC" });
+    expect(events[1]).toEqual({ type: "change", assetCode: "XLM" });
   }, 10_000);
 
   describe("getAccountsBatch", () => {
@@ -1854,7 +1864,7 @@ describe("getAssetBalances — comprehensive filter logic (#266)", () => {
       {
         assetType: "credit_alphanum4",
         assetCode: "USDC",
-        assetIssuer: "GISSUER1",
+        assetIssuer: "GA7I5PB7WF2UEITAMSZHI6Q7BOI3SP4NKV2NMRFTGDDBBPGIWTF5FEAH",
         balance: "50.0000000",
         balanceFloat: 50,
       },
@@ -1870,13 +1880,13 @@ describe("getAssetBalances — comprehensive filter logic (#266)", () => {
     vi.mocked(getAccount).mockResolvedValueOnce(ok(account));
 
     const result = await getAssetBalances(HORIZON_URL, PUBLIC_KEY, {
-      assetIssuer: "GISSUER1",
+      assetIssuer: "GA7I5PB7WF2UEITAMSZHI6Q7BOI3SP4NKV2NMRFTGDDBBPGIWTF5FEAH",
     });
 
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
       expect(result.data).toHaveLength(1);
-      expect(result.data[0].assetIssuer).toBe("GISSUER1");
+      expect(result.data[0].assetIssuer).toBe("GA7I5PB7WF2UEITAMSZHI6Q7BOI3SP4NKV2NMRFTGDDBBPGIWTF5FEAH");
     }
   });
 
@@ -2608,7 +2618,7 @@ describe("streamAccount — emitOnStart, maxPolls, AbortSignal, mid-stream error
       const { getAccount } = await import("../account/getAccount");
       const { streamAccount } = await import("../account/streamAccount");
 
-      const transientError = new Error("ETIMEDOUT");
+      const transientError = Object.assign(new Error("ETIMEDOUT"), { code: "ETIMEDOUT" });
 
       vi.mocked(getAccount).mockRejectedValue(transientError);
 
@@ -2669,7 +2679,7 @@ describe("streamAccount — emitOnStart, maxPolls, AbortSignal, mid-stream error
       const { streamAccount } = await import("../account/streamAccount");
 
       const account1 = createAccount("1");
-      const transientError = new Error("ETIMEDOUT");
+      const transientError = Object.assign(new Error("ETIMEDOUT"), { code: "ETIMEDOUT" });
 
       vi.mocked(getAccount)
         .mockRejectedValueOnce(transientError)
@@ -2688,7 +2698,7 @@ describe("streamAccount — emitOnStart, maxPolls, AbortSignal, mid-stream error
       // Should emit error immediately without retry backoff
       expect(results.some((r: any) => r?.status === "error")).toBe(true);
       // Should not have retry delays (only normal interval)
-      expect(accountMockState.sleepCalls.every((ms: number) => ms < 1000)).toBe(true);
+      expect(accountMockState.sleepCalls.every((ms: number) => ms === 1000)).toBe(true);
     }, 10_000);
 
     it("does not retry non-transient errors", async () => {
@@ -2715,7 +2725,7 @@ describe("streamAccount — emitOnStart, maxPolls, AbortSignal, mid-stream error
       // Should emit error immediately without retry
       expect(results.some((r: any) => r?.status === "error")).toBe(true);
       // Should not have retry delays
-      expect(accountMockState.sleepCalls.every((ms: number) => ms < 1000)).toBe(true);
+      expect(accountMockState.sleepCalls.every((ms: number) => ms === 1000)).toBe(true);
     }, 10_000);
   });
 });

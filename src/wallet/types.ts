@@ -14,12 +14,77 @@ export enum WalletType {
   HANA = "HANA",
   RABET = "RABET",
   WALLETCONNECT = "WALLETCONNECT",
+  ALBEDO = "ALBEDO",
 }
 
 export interface WalletState {
   connected: boolean;
   publicKey: string | null;
   walletType: WalletType | null;
+}
+
+/**
+ * Connection progress lifecycle states for wallet connection.
+ * - `disconnected`: No wallet connected (idle)
+ * - `connecting`: Initial phase of initiating connection with wallet extension/kit
+ * - `authenticating`: Explicit authentication/permission/signature phase (where applicable)
+ * - `connected`: Successfully connected with public key resolved
+ * - `failed`: Connection attempt failed, timed out, or was rejected
+ */
+export type WalletConnectionState =
+  | "disconnected"
+  | "connecting"
+  | "authenticating"
+  | "connected"
+  | "failed";
+
+/**
+ * Payload provided during connection progress state transitions.
+ */
+export interface WalletConnectionProgress {
+  /** Current connection state */
+  state: WalletConnectionState;
+  /** Wallet type being connected */
+  walletType: WalletType;
+  /** Human-readable adapter name */
+  adapterName: string;
+  /** Current retry attempt number (1 for initial attempt) */
+  attempt: number;
+  /** Maximum retry attempts configured */
+  maxRetries: number;
+  /** Whether the current attempt is a retry */
+  isRetry: boolean;
+  /** Error message if state is 'failed' */
+  error?: string | null;
+  /** Whether the failure was caused by a timeout */
+  isTimeout?: boolean;
+  /** Public key resolved on success */
+  publicKey?: string | null;
+}
+
+/**
+ * Options for configuring wallet connection behavior.
+ */
+export interface WalletConnectOptions {
+  /**
+   * Maximum duration in milliseconds before connection attempt times out.
+   * Default: 30000 (30 seconds).
+   */
+  timeoutMs?: number;
+  /**
+   * Maximum number of retry attempts for retryable failures.
+   * Set to 0 to disable retries. Default: 3.
+   */
+  maxRetries?: number;
+  /**
+   * Initial backoff delay in milliseconds for exponential backoff between retries.
+   * Default: 1000 (1 second).
+   */
+  backoffMs?: number;
+  /**
+   * Callback invoked whenever connection progress state changes.
+   */
+  onProgress?: (progress: WalletConnectionProgress) => void;
 }
 
 export type WalletCapabilityId =

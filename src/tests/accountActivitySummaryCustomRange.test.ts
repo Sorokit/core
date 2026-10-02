@@ -197,13 +197,17 @@ describe("getAccountActivitySummary custom ranges (#399)", () => {
     if (result.status === "ok") expect(result.data.topCounterparties).toHaveLength(1);
   });
 
-  it("caches results by account and resolved date range within the TTL", async () => {
-    mockOperationsCall.mockResolvedValueOnce({ records: [] });
-
-    await getAccountActivitySummary(HORIZON_URL, publicKey, "24h");
-    await getAccountActivitySummary(HORIZON_URL, publicKey, "24h");
-
-    expect(mockOperationsCall).toHaveBeenCalledTimes(1);
+  it("caches a trailing period within the TTL even as the clock advances", async () => {
+    vi.useFakeTimers();
+    try {
+      mockOperationsCall.mockResolvedValue({ records: [] });
+      await getAccountActivitySummary(HORIZON_URL, publicKey, "24h");
+      vi.advanceTimersByTime(100);
+      await getAccountActivitySummary(HORIZON_URL, publicKey, "24h");
+      expect(mockOperationsCall).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("bypasses the cache when skipCache is set", async () => {

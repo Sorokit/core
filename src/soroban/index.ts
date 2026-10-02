@@ -58,12 +58,23 @@ export {
   subscribeContractEvents,
   queryContractEvents,
   streamContractEvents,
+  sleepWithAbort,
+  getActiveContractEventSubscriptionCount,
+  unsubscribeAllContractEvents,
+  resetContractEventSubscriptionTracking,
   DEFAULT_RECOVERY_WINDOW_MS,
 } from "./subscribeContractEvents";
 export { streamContractEventsRealTime } from "./streamContractEventsRealTime";
 export type {
   StreamContractEventsRealTimeOptions,
 } from "./streamContractEventsRealTime";
+export { decodeContractResult, createDecoder } from "./resultDecoder";
+export type {
+  ContractResultPrimitive,
+  ContractResultSchema,
+  ContractResultInput,
+  DecodedContractResult,
+} from "./resultDecoder";
 export {
   EventIndex,
   filterNewEvents,
@@ -76,6 +87,12 @@ export {
   validateContractArgs,
   preloadContractMetadata,
   setMetadataCacheCapacity,
+  setContractSchemaCacheCapacity,
+  getContractSchemaCacheSize,
+  pruneSchemaCache,
+  clearContractSchemaCache,
+  pruneMetadataCache,
+  getContractMetadataCacheStats,
 } from "./contractMetadata";
 export type {
   ContractSchema,
@@ -182,6 +199,9 @@ export {
   compareSnapshots,
   listSnapshots,
   clearSnapshots,
+  setContractSnapshotRetention,
+  pruneContractSnapshots,
+  getContractSnapshotCount,
 } from "./contractSnapshot";
 export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
 export { getNftMetadata, clearNftMetadataCache } from "./nftMetadata";
@@ -570,7 +590,20 @@ export type {
   ContractStateComparison,
   SnapshotIntegrityReport,
   SnapshotQuery,
+  ContractStateHistoryRetention,
+  ContractStateHistoryStats,
 } from "./contractStateHistory";
+export {
+  getContractState,
+  getContractStateAt,
+  getStateChanges,
+  watchContractState,
+} from "./stateHistory";
+export type {
+  ContractStateRead,
+  ContractStateSource,
+  WatchContractStateOptions,
+} from "./stateHistory";
 
 // ─── Contract state optimization (#514) ───────────────────────────────────────
 export {
@@ -624,41 +657,62 @@ export type {
   ContractAuditStatus,
 } from "./contractAuditTrail";
 
-// ─── Contract dependency resolution (#498) ─────────────────────────────────────
+// ─── SAC Token Helpers (#580) ──────────────────────────────────────────────────
 export {
-  ContractDependencyResolver,
-  createDependencyResolver,
-  getDefaultResolver,
-  parseVersionConstraint,
-  satisfiesVersion,
-} from "./contractDependencyResolver";
-export type {
-  ContractDependency,
-  ContractMetadata,
-  DependencyNode,
-  DependencyGraph,
-  VersionConflict,
-  ResolutionResult,
-  VersionConstraint,
-  DependencyResolverConfig,
-} from "./contractDependencyResolver";
+  getSacBalance,
+  buildSacTransfer,
+  buildSacApprove,
+} from "./sacHelpers";
 
-// ─── Contract storage migration (#519) ────────────────────────────────────────
+// ─── Multi-Contract Sequence Executor (#581) ───────────────────────────────────
 export {
-  StorageMigrationManager,
-  createStorageMigrationManager,
-  getDefaultStorageMigrationManager,
-  registerStorageMigration,
-  applyStorageMigration,
-  rollbackStorageMigration,
-  getStorageMigrationStatus,
-  listStorageMigrations,
-} from "./storageMigration";
+  ContractSequencer,
+  executeSequence,
+} from "./contractSequencer";
 export type {
-  StorageVersion,
-  StorageMigration,
-  MigrationStatus,
-  MigrationResult,
-  MigrationRegistry,
-  MigrationConfig,
-} from "./storageMigration";
+  ContractSequenceStep,
+  StepExecutionResult,
+  SequenceExecutionResult,
+  SequenceExecutionConfig,
+  DependencyValidationResult,
+  DependencyErrorType,
+} from "./contractSequencer";
+
+// ─── Resource and Fee Estimation Explainer (#582) ───────────────────────────────
+export {
+  explainContractFees,
+  compareFeeExplanations,
+} from "./feeExplainer";
+export type {
+  FeeComponent,
+  ResourceMetrics,
+  FeeBreakdown,
+  FeeExplanation,
+} from "./feeExplainer";
+
+// ─── Contract Event Filter and Aggregation Engine (#583) ───────────────────────
+export {
+  EventAnalytics,
+  filterEvents,
+  aggregateEvents,
+  streamEvents,
+  groupEventsByTime,
+  countEventsByType,
+  aggregateEventMetrics,
+} from "./eventAnalytics";
+export type {
+  TimeInterval,
+  EventPredicate,
+  EventMetrics,
+  EventTypeDistribution,
+  TimeGroupedEvents,
+  TimeGroupedMetrics,
+  ContractEventAnalyticsFilter,
+  ContractEventLoader,
+  EventAnalyticsOptions,
+  EventAggregate,
+  EventGroupBy,
+} from "./eventAnalytics";
+
+export { detectContractUpgrade } from "./upgradeDetection";
+export type { UpgradeEvent, ContractUpgradeDetectionOptions } from "./upgradeDetection";

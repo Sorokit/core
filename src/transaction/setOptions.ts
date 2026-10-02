@@ -80,8 +80,8 @@ export async function buildSetOptionsTransaction(
       ...(params.medThreshold !== undefined && { medThreshold: params.medThreshold }),
       ...(params.highThreshold !== undefined && { highThreshold: params.highThreshold }),
       ...(params.homeDomain !== undefined && { homeDomain: params.homeDomain ?? "" }),
-      ...(params.inflationDest !== undefined && { inflationDest: params.inflationDest ?? undefined }),
-      ...(params.clearFlags !== undefined && { clearFlags: params.clearFlags }),
+      ...(params.inflationDest != null && { inflationDest: params.inflationDest }),
+      ...(params.clearFlags !== undefined && { clearFlags: params.clearFlags as NonNullable<Parameters<typeof Operation.setOptions>[0]["clearFlags"]> }),
     };
     const signers = params.signers ?? [];
     if (Object.keys(operation).length > 0) {
@@ -92,7 +92,7 @@ export async function buildSetOptionsTransaction(
         signer: { ed25519PublicKey: signer.publicKey, weight: signer.weight },
       }));
     }
-    return ok(builder.build().toXDR("base64"));
+    return ok(builder.setTimeout(0).build().toXDR());
   } catch (cause) {
     return err(SorokitErrorCode.TX_BUILD_FAILED, `Failed to build set options transaction: ${toMessage(cause)}`, cause);
   }

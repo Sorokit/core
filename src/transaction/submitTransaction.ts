@@ -2,24 +2,82 @@ import { Horizon, TransactionBuilder, Keypair, FeeBumpTransaction, StrKey } from
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import {
+  checkMainnetSafety,
   isNetworkConnectivityError,
   isTimeoutError,
   isXdrInvalidError,
   retryWithBackoff,
   toMessage,
 } from "../shared";
+import type { MainnetSafetyOptions, SorokitLogger } from "../shared";
 import type { TransactionResult } from "./types";
 import { dispatchTransactionEvent } from "./webhooks";
 import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_TX_CACHE_TTL_MS } from "../shared/constants";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
+import { mapHorizonError } from "../shared/horizonErrorMapper";
+import { traceTransactionSubmit, type TelemetrySpan } from "../performance/telemetry";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
   failureThreshold: 5,
   recoveryWindowMs: 30_000,
 });
+
+// ── #569: XDR Replay Protection ───────────────────────────────────────────────
+//
+// In-process registry of successfully-submitted transaction hashes.
+// Keyed by "<horizonUrl>|<txHash>" so separate networks are independent.
+// Entries are stored with their submission timestamp so callers can detect
+// how long ago the duplicate was submitted.
+//
+// This covers the most dangerous case: the same signed XDR being re-submitted
+// within the same process lifetime (e.g. a double-click, a retry loop that
+// fires before the previous call resolves, or a copied XDR being reused).
+// Cross-process and cross-session protection is enforced by Horizon's
+// sequence-number ledger rules — this layer is a fast client-side guard.
+
+interface ReplayRecord {
+  submittedAt: number;   // Unix ms
+  hash: string;
+}
+
+const _submittedHashes = new Map<string, ReplayRecord>();
+
+/** Key used to namespace replay entries per Horizon endpoint. */
+function replayKey(horizonUrl: string, txHash: string): string {
+  return `${horizonUrl}|${txHash}`;
+}
+
+/**
+ * Register a transaction hash as successfully submitted.
+ * Automatically prunes entries older than `ttlMs` on every write to keep
+ * memory bounded. Defaults to 5 minutes, which is well past Stellar's
+ * transaction timeout window.
+ */
+function registerSubmitted(horizonUrl: string, txHash: string, ttlMs = 300_000): void {
+  const now = Date.now();
+  // Prune stale entries before inserting
+  for (const [key, record] of _submittedHashes) {
+    if (now - record.submittedAt > ttlMs) _submittedHashes.delete(key);
+  }
+  _submittedHashes.set(replayKey(horizonUrl, txHash), { submittedAt: now, hash: txHash });
+}
+
+/**
+ * Returns the replay record for a previously-submitted hash, or undefined
+ * when no match is found (or the entry has expired).
+ */
+function getReplayRecord(horizonUrl: string, txHash: string, ttlMs = 300_000): ReplayRecord | undefined {
+  const record = _submittedHashes.get(replayKey(horizonUrl, txHash));
+  if (!record) return undefined;
+  if (Date.now() - record.submittedAt > ttlMs) {
+    _submittedHashes.delete(replayKey(horizonUrl, txHash));
+    return undefined;
+  }
+  return record;
+}
 
 function describeSubmissionFailure(cause: unknown): string {
   if (isXdrInvalidError(cause)) {
@@ -109,7 +167,20 @@ export async function submitTransaction(
   networkPassphrase: string,
   signedXdr: string,
   cache?: SorokitCache,
-  options?: { signal?: AbortSignal | undefined },
+  options?: MainnetSafetyOptions & { signal?: AbortSignal | undefined },
+): Promise<SorokitResult<TransactionResult>> {
+  return traceTransactionSubmit((span) =>
+    submitTransactionImpl(horizonUrl, networkPassphrase, signedXdr, span, cache, options),
+  );
+}
+
+async function submitTransactionImpl(
+  horizonUrl: string,
+  networkPassphrase: string,
+  signedXdr: string,
+  span: TelemetrySpan | undefined,
+  cache?: SorokitCache,
+  options?: MainnetSafetyOptions & { signal?: AbortSignal | undefined },
 ): Promise<SorokitResult<TransactionResult>> {
   if (isXdrInvalidError(signedXdr)) {
     return err(
@@ -117,6 +188,11 @@ export async function submitTransaction(
       "Transaction submission failed because the signed XDR is malformed.",
       signedXdr,
     );
+  }
+
+  const safetyCheck = checkMainnetSafety(signedXdr, networkPassphrase, options);
+  if (safetyCheck.status === "error") {
+    return safetyCheck;
   }
 
   let txHash: string | undefined;
@@ -142,6 +218,24 @@ export async function submitTransaction(
       );
     }
 
+    // ── #569: XDR Replay Protection ───────────────────────────────────────────
+    // Reject duplicate XDR submissions within the same process lifetime.
+    // This guards against double-clicks, retry loops, and copied XDRs being
+    // reused — catastrophic for payment operations.
+    if (txHash) {
+      const duplicate = getReplayRecord(horizonUrl, txHash);
+      if (duplicate) {
+        const ageSeconds = Math.round((Date.now() - duplicate.submittedAt) / 1000);
+        return err(
+          SorokitErrorCode.TX_SUBMIT_FAILED,
+          `Replay protection: this transaction (hash: ${txHash}) was already ` +
+            `submitted to this network ${ageSeconds}s ago. ` +
+            `Resubmitting the same signed XDR would create a duplicate transaction. ` +
+            `Build and sign a new transaction if you want to retry the operation.`,
+        );
+      }
+    }
+
     const response = await horizonCircuitBreaker.call(horizonUrl, async () => {
       return await retryWithBackoff(async () => {
         const server = createHorizonServer(horizonUrl, options);
@@ -161,14 +255,25 @@ export async function submitTransaction(
       cache.set(`tx:${response.hash}`, result, DEFAULT_TX_CACHE_TTL_MS);
     }
 
+    // Register in the replay-protection registry so the same XDR cannot be
+    // submitted again within the TTL window.
+    registerSubmitted(horizonUrl, response.hash);
+
     // Horizon's synchronous submit returns after ledger inclusion, so a
     // success is both "submitted" and "confirmed". Fire-and-forget: webhook
     // delivery never blocks or fails the submission result.
     dispatchTransactionEvent("tx_submitted", result);
     dispatchTransactionEvent("tx_confirmed", result);
 
+    span?.setAttribute("transaction.hash", result.hash);
+    span?.setStatus("ok");
     return ok(result);
   } catch (cause) {
+    const mapped = mapHorizonError(cause, {
+      resource: "transaction",
+      fallbackCode: SorokitErrorCode.TX_SUBMIT_FAILED,
+    });
+    span?.recordError(cause);
     if (txHash) {
       // A Horizon timeout leaves the transaction outcome unknown (it may
       // still make it into a ledger), so it is reported as pending timeout
@@ -180,9 +285,13 @@ export async function submitTransaction(
       });
     }
     return err(
-      SorokitErrorCode.TX_SUBMIT_FAILED,
-      describeSubmissionFailure(cause),
+      mapped.code,
+      mapped.code === SorokitErrorCode.TX_SUBMIT_FAILED
+        ? describeSubmissionFailure(cause)
+        : mapped.message,
       cause,
+      undefined,
+      mapped.recovery ? { recovery: mapped.recovery } : undefined,
     );
   }
 }

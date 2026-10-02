@@ -1,22 +1,22 @@
-import { delay, http, HttpResponse } from "msw";
+import { delay, http, HttpResponse, type JsonBodyType } from "msw";
 import { setupServer } from "msw/node";
 
 export type MockServerScenario = "success" | "timeout" | "error" | "rate-limit" | "malformed";
 export interface MockServerOptions {
   scenario?: MockServerScenario;
   delay?: number;
-  overrides?: Partial<Record<string, unknown>>;
+  overrides?: Partial<Record<string, JsonBodyType>>;
 }
 
 let scenario: MockServerScenario = "success";
 let responseDelay = 0;
-let overrides: Partial<Record<string, unknown>> = {};
+let overrides: Partial<Record<string, JsonBodyType>> = {};
 
-function payload(endpoint: string, fallback: unknown): unknown {
+function payload(endpoint: string, fallback: JsonBodyType): JsonBodyType {
   return overrides[endpoint] ?? fallback;
 }
 
-async function respond(endpoint: string, fallback: unknown): Promise<Response> {
+async function respond(endpoint: string, fallback: JsonBodyType): Promise<Response> {
   if (scenario === "timeout") await delay(responseDelay || 5_000);
   if (scenario === "error") return HttpResponse.json({ error: "Mock server error" }, { status: 500 });
   if (scenario === "rate-limit") return HttpResponse.json({ error: "Rate limit exceeded" }, { status: 429 });

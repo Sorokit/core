@@ -175,7 +175,7 @@ describe("complianceReporting", () => {
       expect(Array.isArray(report.flaggedActivities)).toBe(true);
       report.flaggedActivities.forEach((flagged) => {
         expect(["low", "medium", "high"]).toContain(flagged.severity);
-        expect(["flag", "report", "investigate"]).toContain(
+        expect(["manual review required", "include in compliance report", "investigation recommended"]).toContain(
           flagged.recommendedAction.toLowerCase(),
         );
       });
@@ -363,6 +363,7 @@ describe("complianceReporting", () => {
       expect(result.status).toBe("ok");
       const report = result.data as ComplianceReport;
       expect(report.transactionCount).toBe(0);
+      expect(report.activities).toEqual([]);
     });
 
     it("should generate report with null activities", async () => {

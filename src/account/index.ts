@@ -87,6 +87,24 @@ export type {
 } from "./subscriptions";
 export type { BalanceAlertConfig } from "./createBalanceAlert";
 
+export { getSigners, getThresholds, analyzeSigningRequirement } from "./signers";
+export type { AccountSigner, AccountSigners, AccountThresholds, SigningOperation, SigningRequirement } from "./signers";
+export { getPaymentHistory } from "./paymentHistory";
+export type { PaymentInfo, PaymentPage, PaymentHistoryOptions } from "./paymentHistory";
+export { getEffects } from "./getEffects";
+export type { EffectInfo, EffectsPage, GetEffectsOptions } from "./getEffects";
+export { getDataEntries } from "./dataEntries";
+export type { AccountDataEntries } from "./dataEntries";
+
+// ─── Account merge simulation & safety checks ─────────────────────────────────
+export { simulateAccountMerge } from "./mergeSafety";
+export type {
+  MergeTrustlineInfo,
+  AccountMergeSimulation,
+  AccountMergeDataLoss,
+  SimulateAccountMergeOptions,
+} from "./mergeSafety";
+
 
 export { forecastBalance, forecastAccountBalance } from "./balanceForecast";
 export type {
@@ -158,3 +176,52 @@ export type {
   IssueAttestationOptions,
   RevocationEntry,
 } from "./attestationTypes";
+
+// ─── Account health score and risk assessment (#590) ──────────────────────────
+export { getAccountHealthScore, assessAccountHealth } from "./accountHealth";
+export type {
+  AccountHealthInput,
+  AccountHealthReport,
+  AccountHealthComponents,
+  AccountHealthRisk,
+  AccountHealthRiskSeverity,
+  AccountHealthLevel,
+  AssessAccountHealthOptions,
+} from "./accountHealth";
+export { assessHealthScore, calculateHealthScore } from "./healthScore";
+export type { HealthData, HealthRiskLevel } from "./healthScore";
+export {
+  addRecoverySigner,
+  getRecoveryPlan,
+  removeOldSigner,
+  rotateKeys,
+  DEFAULT_RECOVERY_WAIT_MS,
+} from "./recoveryHelper";
+export type { RecoveryPlan, RecoveryPlanStep } from "./recoveryHelper";
+
+// ─── Wallet discovery and account linking (#wallet-discovery) ─────────────────
+export { discoverWallet, listLinkedAccounts, linkWallet } from "../wallet/discovery";
+export type { DiscoveryData, LinkedAccount } from "../wallet/discovery";
+
+// ─── Multi-account portfolio dashboard (#592) ────────────────────────────────────────
+export { getPortfolioDashboard } from "./portfolioDashboard";
+export type { PortfolioDashboard } from "./portfolioDashboard";
+
+// ─── Portfolio dashboard and asset allocation tracker (#593) ──────────────────
+export {
+  getPortfolio,
+  getAssetAllocation,
+  getPortfolioHistory,
+  watchPortfolio,
+} from "./portfolioDashboard";
+export type {
+  PortfolioAsset,
+  PortfolioAllocation,
+  PortfolioAllocationEntry,
+  PortfolioData,
+  PortfolioHistoryPoint,
+  PortfolioHistory,
+  PortfolioWatchOptions,
+  PortfolioUpdate,
+  PortfolioUpdateCallback,
+} from "./portfolioDashboard";

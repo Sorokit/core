@@ -168,7 +168,7 @@ describe("submitTransaction", () => {
   });
 
   describe("Horizon error response", () => {
-    it("returns TX_SUBMIT_FAILED when Horizon rejects the transaction", async () => {
+    it("returns INVALID_TRANSACTION when Horizon rejects the transaction", async () => {
       mockSubmit.mockRejectedValueOnce(
         makeHorizonError(400, "Transaction submission failed"),
       );
@@ -181,7 +181,7 @@ describe("submitTransaction", () => {
 
       expect(result.status).toBe("error");
       if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_TRANSACTION);
       }
     });
 
@@ -389,7 +389,7 @@ describe("getTransactionStatus", () => {
       }
     });
 
-    it("returns TX_SUBMIT_FAILED for non-404 Horizon errors (e.g. 500)", async () => {
+    it("returns SERVICE_UNAVAILABLE for non-404 Horizon errors (e.g. 500)", async () => {
       mockTransactionCall.mockRejectedValueOnce(
         makeHorizonError(500, "Internal Server Error"),
       );
@@ -401,7 +401,7 @@ describe("getTransactionStatus", () => {
 
       expect(result.status).toBe("error");
       if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.TX_FETCH_FAILED);
+        expect(result.error.code).toBe(SorokitErrorCode.SERVICE_UNAVAILABLE);
       }
     });
 

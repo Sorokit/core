@@ -1,0 +1,24 @@
+name: Nightly Testnet Integration
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  testnet-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-fund
+      - name: Run live testnet integration
+        run: npm exec vitest -- run src/tests/integration.test.ts --reporter=verbose
+        env:
+          STELLAR_TESTNET_SOURCE_SECRET: ${{ secrets.STELLAR_TESTNET_SOURCE_SECRET }}
+          STELLAR_TESTNET_DESTINATION: ${{ secrets.STELLAR_TESTNET_DESTINATION }}

@@ -44,4 +44,10 @@ export interface ResolvedNetworkConfig {
   horizonUrl: string;
   rpcUrl: string;
   networkPassphrase: string;
+  /**
+   * Optional network-specific multiplier applied to the protocol base fee
+   * (see `transaction/feePolicy`). When omitted, the built-in per-network
+   * policy is used. Custom networks can set this to match their real base fee.
+   */
+  baseFeeMultiplier?: number;
 }

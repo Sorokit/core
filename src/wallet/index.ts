@@ -6,10 +6,26 @@ export { signTransactionOffline } from "./signTransactionOffline";
 export { SigningRateLimiter } from "./signingRateLimiter";
 export type { SigningRateLimiterConfig, QueueState } from "./signingRateLimiter";
 export { createSigningChallenge, mergeSignatures } from "./signingDelegation";
-export { FreighterAdapter, XBullAdapter, LobstrAdapter } from "./adapters";
+export { FreighterAdapter, XBullAdapter, LobstrAdapter, HanaAdapter, AlbedoAdapter, RabetAdapter } from "./adapters";
+export type { RabetProvider } from "./adapters";
 export { WalletType } from "./types";
 export { generateDeviceFingerprint, evaluateDeviceTrust, DEFAULT_TRUST_THRESHOLD } from "./deviceTrust";
 export type { DeviceSignals, DeviceFingerprint, TrustHistoryEntry, TrustScoreOptions, TrustEvaluation } from "./deviceTrust";
+
+export {
+  WalletAccountManager,
+  createAccountManager,
+  InMemoryAccountStorage,
+  createLocalStorageAccountStorage,
+} from "./accountManager";
+export type {
+  AccountData,
+  AccountMetadata,
+  AccountSwitchListener,
+  AccountSwitchUnsubscribe,
+  AccountStorageAdapter,
+  WalletAccountManagerConfig,
+} from "./accountManager";
 
 // ─── Wallet connection throttling and abuse detection (#506) ──────────────────
 export {
@@ -102,6 +118,7 @@ const WALLET_FEATURE_MAP: Record<WalletType, WalletFeature[]> = {
   [WalletType.HANA]: [],
   [WalletType.RABET]: [],
   [WalletType.WALLETCONNECT]: ["multisig", "qr"],
+  [WalletType.ALBEDO]: [],
 };
 
 export type EnvelopeSignatureInput = string | xdr.DecoratedSignature;
@@ -677,6 +694,22 @@ export type {
   HardwareWalletCapabilities,
 } from "./hardwareWallet";
 
+export { connectLedger, LedgerSession, ledgerAccountPath, STELLAR_LEDGER_BIP32_PATH_PREFIX } from "./adapters/ledgerAdapter";
+export type {
+  LedgerStellarApp,
+  LedgerTransportKind,
+  LedgerConnectOptions,
+  LedgerAccount,
+} from "./adapters/ledgerAdapter";
+
+export { connectTrezor, TrezorSession, trezorAccountPath, STELLAR_TREZOR_BIP32_PATH_PREFIX } from "./adapters/trezorAdapter";
+export type {
+  TrezorStellarApi,
+  TrezorTransportKind,
+  TrezorConnectOptions,
+  TrezorAccount,
+} from "./adapters/trezorAdapter";
+
 export { auditWalletSecurity, isHighRiskConnection } from "./securityAudit";
 export type {
   RiskSeverity,
@@ -721,3 +754,42 @@ export type {
   WebAuthnAuthenticationOptions,
   WebAuthnCredentialData,
 } from "./authentication";
+
+export * from './discovery.js';
+export {
+  saveSession,
+  restoreSession,
+  clearSession,
+  isSessionValid,
+  saveWalletSession,
+  loadWalletSession,
+  clearWalletSession,
+  DEFAULT_SESSION_KEY,
+  DEFAULT_SESSION_TTL_MS,
+  encryptSessionPayload,
+  decryptSessionPayload,
+} from "./sessionPersistence";
+export type {
+  SessionData,
+  WalletConnection,
+  SessionPersistenceOptions,
+  EncryptedSessionPayload,
+} from "./sessionPersistence";
+export * from './sessionPersistence.js';
+
+// ─── Wallet event emitter and status change notifications (#613) ──────────────
+export {
+  WalletEventEmitter,
+  createWalletEventEmitter,
+  toConnectedEvent,
+} from "./eventEmitter";
+export type {
+  WalletEventMap,
+  WalletEventName,
+  WalletEventListener,
+  WalletEventUnsubscribe,
+  WalletConnectedEvent,
+  WalletDisconnectedEvent,
+  WalletAccountChangedEvent,
+  WalletNetworkChangedEvent,
+} from "./eventEmitter";

@@ -33,10 +33,18 @@ jobs:
       - name: Run linter
         run: npm run lint
 
-      - name: Run tests
-        run: npm run test || true
+      - name: Run tests with coverage
+        run: npm run test:coverage
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
 
       - name: Build
         run: npm run build
@@ -46,6 +54,9 @@ jobs:
 
       - name: Validate build exports
         run: node scripts/validate-exports.js
+
+      - name: Verify ESM tree-shaking and unused code
+        run: npm run analyze:unused
 
   # This job enforces that the merge commit would pass CI
   validate-merge:
@@ -75,4 +86,5 @@ jobs:
           fi
 
       - name: Run all checks
-        run: npm run typecheck && npm run lint && (npm run test || true) && npm run build && npm run size:check && node scripts/validate-exports.js
+        run: npm run typecheck && npm run lint && npm run test:coverage && npm run build && npm run size:check && node scripts/validate-exports.js && npm run analyze:unused
+
