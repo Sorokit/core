@@ -98,7 +98,9 @@ export function resolveNetworkBaseFee(
     baseFeeMultiplier?: number;
   }) | null,
 ): number {
-  return getNetworkBaseFee(config?.network, {
-    multiplier: config?.baseFeeMultiplier,
-  });
+  const feeOptions: { protocolBaseFee?: number; multiplier?: number } = {};
+  if (config?.baseFeeMultiplier !== undefined) {
+    feeOptions.multiplier = config.baseFeeMultiplier;
+  }
+  return getNetworkBaseFee(config?.network, feeOptions);
 }

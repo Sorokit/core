@@ -59,23 +59,40 @@ export type { FetchStellarTomlOptions, StellarToml } from "./sep1Toml";
 export { completeSep10Auth, initiateSep10Auth, validateSep10Token } from "./sep10Auth";
 export type { AuthToken, InitiateSep10AuthOptions } from "./sep10Auth";
 export {
-  createDID,
-  resolveDID,
-  linkAccountToDID,
-  verifyDIDOwnership,
-  STELLAR_DID_METHOD,
-} from "./didSupport";
+  initiateDeposit,
+  initiateWithdraw,
+  trackTransaction,
+} from "./sep6Flow";
 export type {
-  StellarDIDDocument,
-  DIDVerificationMethod,
-  DIDInfo,
-  DIDLinkRecord,
-  DIDOwnershipProof,
-  DIDVerificationResult,
-  CreateDIDOptions,
-  ResolveDIDOptions,
-  LinkDIDOptions,
-  VerifyDIDOptions,
-  DIDServiceEndpoint,
-  DIDResolver,
-} from "./didSupport";
+  Sep6FlowAsset,
+  Sep6FlowRequestOptions,
+} from "./sep6Flow";
+export {
+  getKycFields,
+  submitKycInfo,
+  getKycStatus,
+} from "./sep12Kyc";
+export type {
+  KycFieldDefinition,
+  KycSubmissionInfo,
+  KycRequestOptions,
+} from "./sep12Kyc";
+export {
+  initiateInteractiveDeposit,
+  initiateInteractiveWithdraw,
+  monitorTransaction,
+} from "./sep24Flow";
+export type {
+  Sep24FlowAsset,
+  Sep24FlowRequestOptions,
+} from "./sep24Flow";
+export {
+  quoteDirectPayment,
+  sendDirectPayment,
+  trackDirectPayment,
+} from "./sep31DirectPayment";
+export type {
+  DirectPaymentAsset,
+  DirectPaymentReceiver,
+  DirectPaymentQuoteRequestOptions,
+} from "./sep31DirectPayment";

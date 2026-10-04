@@ -22,7 +22,7 @@ export interface WalletConnectionWorkflowOptions {
 
 async function timedStep(
   step: string,
-  run: () => Promise<{ ok: boolean; detail?: string }>,
+  run: () => Promise<{ ok: boolean; detail?: string | null }>,
 ): Promise<WorkflowStepResult> {
   const started = Date.now();
   const outcome = await run();
@@ -30,7 +30,9 @@ async function timedStep(
     step,
     status: outcome.ok ? "ok" : "error",
     durationMs: Date.now() - started,
-    ...(outcome.detail !== undefined ? { detail: outcome.detail } : {}),
+    ...(outcome.detail !== undefined && outcome.detail !== null
+      ? { detail: outcome.detail }
+      : {}),
   };
 }
 
@@ -66,7 +68,7 @@ export async function runWalletConnectionWorkflow(
 
   const disconnectStep = await timedStep("disconnect", async () => {
     const result = await options.adapter.disconnect();
-    return { ok: result.status === "ok", detail: result.status === "error" ? result.error.message : undefined };
+    return { ok: result.status === "ok", detail: result.status === "error" ? result.error.message : null };
   });
   steps.push(disconnectStep);
 

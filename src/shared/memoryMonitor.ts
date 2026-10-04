@@ -54,12 +54,19 @@ export function checkMemoryUsage(
   options?: MemoryMonitorOptions,
   label?: string,
 ): MemoryUsageSample {
+  const heapBytes = readHeapBytes();
   const sample: MemoryUsageSample = {
     sampledAt: Date.now(),
-    ...(readHeapBytes() !== undefined ? { heapBytes: readHeapBytes() } : {}),
-    ...(retainedEntries !== undefined ? { retainedEntries } : {}),
-    ...(label !== undefined ? { label } : {}),
   };
+  if (heapBytes !== undefined) {
+    sample.heapBytes = heapBytes;
+  }
+  if (retainedEntries !== undefined) {
+    sample.retainedEntries = retainedEntries;
+  }
+  if (label !== undefined) {
+    sample.label = label;
+  }
 
   const maxEntries = options?.maxRetainedEntries ?? 10_000;
   const maxHeap = options?.maxHeapBytes ?? 256 * 1024 * 1024;
