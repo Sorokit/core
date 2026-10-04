@@ -72,7 +72,8 @@ export function parseVersionConstraint(
     );
   }
 
-  const [, prefix, operator, version] = match;
+  const [, prefix, operator, versionValue] = match;
+  const version = versionValue ?? "";
   let finalOperator: VersionConstraint["operator"] = "=";
 
   if (prefix === "~") {
@@ -276,15 +277,7 @@ export class ContractDependencyResolver {
       // Get metadata (from cache or fetch)
       let metadata = this.getCachedMetadata(contractId);
       if (!metadata && fetchMetadata) {
-        const fetchResult = await fetchMetadata(contractId);
-        if (fetchResult.status === "error") {
-          return err(
-            SorokitErrorCode.NETWORK_ERROR,
-            `Failed to fetch metadata for ${contractId}`,
-            fetchResult.error.cause,
-          );
-        }
-        metadata = fetchResult.data;
+        metadata = await fetchMetadata(contractId);
         this.registerMetadata(metadata);
       }
 

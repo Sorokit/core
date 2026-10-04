@@ -10,8 +10,9 @@
  * about wallet connection lifecycle, so it can be fed by any provider.
  */
 
-import type { AssetBalance } from "./types";
+import { err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import type { AssetBalance } from "./types";
 
 interface PriceMap {
   [assetId: string]: number;
@@ -91,7 +92,7 @@ export interface PortfolioData {
   /** Portfolio composition percentages by asset. */
   allocation: PortfolioAllocation[];
   /** Per-account breakdown of holdings. */
-  accountBreakdown: { accountId: string; holdings: PortfolioHolding[[] };
+  accountBreakdown: { accountId: string; holdings: PortfolioHolding[] }[];
   /** Valuation coverage summary. */
   coverage: PortfolioCoverage;
   /** Concentration metrics over the priced portion. */
@@ -110,6 +111,10 @@ export interface PortfolioOptions {
   balances?: Record<string, AssetBalance[]>;
 }
 
+export interface PortfolioWatchOptions extends PortfolioOptions {
+  intervalMs?: number;
+}
+
 /** Callback invoked on every portfolio update. */
 export type PortfolioUpdateHandler = (updated: PortfolioData) => void;
 
@@ -126,7 +131,13 @@ export type BalanceProvider = (accountId: string) => Promise<AssetBalance[]>;
 
 const DEFAULT_CURRENCY = "USD";
 
-const DEFAULT_POLL_INTERVAL_MS = 15,000;
+const DEFAULT_POLL_INTERVAL_MS = 15_000;
+
+function assetId(balance: AssetBalance): string {
+  return balance.assetType === "native"
+    ? "native"
+    : `${balance.assetCode}:${balance.assetIssuer ?? ""}`;
+}
 
 function normalisePrices(
   prices?: PriceMap | { assetId: string; price: number }[],
@@ -176,16 +187,17 @@ function aggregateHoldings(
   for (const accountId of accounts) {
     const balances = balancesByAccount[accountId] ?? [];
     for (const balance of balances) {
-      if (!balance || typeof balance.assetId !== "string") continue;
-      const amount = Number(balance.amount);
+      if (!balance) continue;
+      const id = assetId(balance);
+      const amount = balance.balanceFloat;
       if (!Number.isFinite(amount) || amount === 0) continue;
-      const existing = bucket.get(balance.assetId);
+      const existing = bucket.get(id);
       if (existing) {
         existing.amount += amount;
         existing.attribution.push({ accountId, amount });
       } else {
-        bucket.set(balance.assetId, {
-          assetId: balance.assetId,
+        bucket.set(id, {
+          assetId: id,
           amount,
           attribution: [{ accountId, amount }],
         });
@@ -244,12 +256,12 @@ function computeAllocation(holdings: PortfolioHolding[]): PortfolioAllocation[] 
   return holdings.map(h => ({
     assetId: h.assetId,
     percentage: round(((typeof h.value === "number" ? h.value : 0) / totalValue) * 100, 4),
-    value: typeof h.value === "number" ? h.value : undefined,
+    ...(typeof h.value === "number" ? { value: h.value } : {}),
   }));
 }
 
 function computeConcentration(
-  holdings: PortfolitionHolding[],
+  holdings: PortfolioHolding[],
   allocation: PortfolioAllocation[],
   walletCount: number,
 ): PortfolioConcentration {
@@ -262,7 +274,7 @@ function computeConcentration(
       walletCount,
     };
   }
-  let largest = allocation[0];
+  let largest = allocation[0]!;
   let herfindahl = 0;
   for (const entry of allocation) {
     if (entry.percentage > largest.percentage) largest = entry;
@@ -285,10 +297,11 @@ function buildAccountBreakdown(
     const balances = balancesByAccount[accountId] ?? [];
     const holdings: PortfolioHolding[] = [];
     for (const balance of balances) {
-      if (!balance || typeof balance.assetId !== "string") continue;
-      const amount = Number(balance.amount);
+      if (!balance) continue;
+      const id = assetId(balance);
+      const amount = balance.balanceFloat;
       if (!Number.isFinite(amount) || amount === 0) continue;
-      holdings.push({ assetId: balance.assetId, amount, attribution: [{ accountId, amount }] });
+      holdings.push({ assetId: id, amount, attribution: [{ accountId, amount }] });
     }
     return { accountId, holdings };
   });
@@ -348,12 +361,12 @@ export async function getPortfolioFromAccounts(
       timestamp: Date.now(),
     };
     return { status: "ok", data, error: null };
-  } catch (err) {
-    return {
-      status: "error",
-      data: null,
-      error: err instanceof Error ? err : new Error(String(err)),
-    };
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.INTERNAL,
+      cause instanceof Error ? cause.message : "Unable to compute portfolio snapshot.",
+      cause,
+    );
   }
 }
 
@@ -424,11 +437,10 @@ export async function getPortfolioHistory(
 ): Promise<SorokitResult<PortfolioHistory>> {
   try {
     if (!Number.isFinite(days) || days < 0) {
-      return {
-        status: "error",
-        data: null,
-        error: new Error("`days` must be a non-negative number"),
-      };
+      return err(
+        SorokitErrorCode.VALIDATION,
+        "`days` must be a non-negative number.",
+      );
     }
     const windowStart = Date.now() - days * 24 * 60 * 60 * 1000;
     const inRange = snapshots
@@ -439,7 +451,7 @@ export async function getPortfolioHistory(
       // No historical snapshots: fall back to a single current point.
       const current = await getPortfolio(publicKey, options);
       if (current.status === "error") {
-        return { status: "error", data: null, error: current.error };
+        return current;
       }
       const point: PortfolioHistoricalPoint = {
         timestamp: current.data.timestamp,
@@ -459,8 +471,8 @@ export async function getPortfolioHistory(
       };
     }
 
-    const first = inRange[0];
-    const last = inRange[inRange.length - 1];
+    const first = inRange[0]!;
+    const last = inRange[inRange.length - 1]!;
     const firstValue = first.totalValue;
     const lastValue = last.totalValue;
     const valueChange =
@@ -500,12 +512,12 @@ export async function getPortfolioHistory(
       },
       error: null,
     };
-  } catch (err) {
-    return {
-      status: "error",
-      data: null,
-      error: err instanceof Error ? err : new Error(String(err)),
-    };
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.INTERNAL,
+      cause instanceof Error ? cause.message : "Unable to read portfolio history.",
+      cause,
+    );
   }
 }
 
@@ -525,12 +537,10 @@ export async function getPortfolioHistory(
 export function watchPortfolio(
   publicKey: string | string[],
   handler: PortfolioUpdateHandler,
-  options: PortfolioOptions = {},
+  options: PortfolioWatchOptions = {},
   provider?: BalanceProvider,
 ): PortfolioWatch {
-  const intervalMs = typeof (options as { intervalMs?: number }).intervalMs === "number"
-    ? (options as { intervalMs?: number }).intervalMs ?? DEFAULT_POLL_INTERVAL_MS
-    : DEFAULT_POLL_INTERVAL_MS;
+  const intervalMs = options.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   let timer: ReturnType<typeof setInterval> | null = null;
   let stopped = false;
   let lastSerialised: string | null = null;
@@ -571,4 +581,19 @@ export function watchPortfolio(
     },
     refresh,
   };
+}
+
+export type PortfolioDashboard = PortfolioData;
+export type PortfolioAsset = PortfolioHolding;
+export type PortfolioAllocationEntry = PortfolioAllocation;
+export type PortfolioHistoryPoint = PortfolioHistoricalPoint;
+export type PortfolioUpdate = PortfolioData;
+export type PortfolioUpdateCallback = PortfolioUpdateHandler;
+
+export async function getPortfolioDashboard(
+  publicKey: string | string[],
+  options: PortfolioOptions = {},
+  provider?: BalanceProvider,
+): Promise<SorokitResult<PortfolioDashboard>> {
+  return getPortfolio(publicKey, options, provider);
 }

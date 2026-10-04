@@ -71,7 +71,7 @@ export function assessHealthScore(input: {
     throw new TypeError("Native balance and subentry count must be non-negative finite values.");
   }
   const security = assessAccountHealth({
-    publicKey: input.publicKey,
+    ...(input.publicKey !== undefined ? { publicKey: input.publicKey } : {}),
     masterWeight: input.masterWeight,
     thresholds: input.thresholds,
     signers: input.signers,

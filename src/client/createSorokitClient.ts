@@ -382,6 +382,18 @@ export interface SorokitClient {
     initiateSep6Transfer(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Record<string, unknown>>>;
     initiateSep24Interactive(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Sep24InteractiveResult>>;
     getSep6TransactionStatus(anchorUrl: string, id: string, options?: AnchorRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    initiateDeposit(serverUrl: string, asset: import("../integration/sep6Flow").Sep6FlowAsset, options?: import("../integration/sep6Flow").Sep6FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    initiateWithdraw(serverUrl: string, asset: import("../integration/sep6Flow").Sep6FlowAsset, options?: import("../integration/sep6Flow").Sep6FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    trackTransaction(serverUrl: string, txId: string, options?: import("../integration/sep6Flow").Sep6FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    getKycFields(serverUrl: string, account: string, options?: import("../integration/sep12Kyc").KycRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    submitKycInfo(serverUrl: string, account: string, info: import("../integration/sep12Kyc").KycSubmissionInfo, options?: import("../integration/sep12Kyc").KycRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    getKycStatus(serverUrl: string, account: string, options?: import("../integration/sep12Kyc").KycRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    initiateInteractiveDeposit(serverUrl: string, asset: import("../integration/sep24Flow").Sep24FlowAsset, options?: import("../integration/sep24Flow").Sep24FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    initiateInteractiveWithdraw(serverUrl: string, asset: import("../integration/sep24Flow").Sep24FlowAsset, options?: import("../integration/sep24Flow").Sep24FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    monitorTransaction(serverUrl: string, txId: string, options?: import("../integration/sep24Flow").Sep24FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    quoteDirectPayment(serverUrl: string, sendingAsset: import("../integration/sep31DirectPayment").DirectPaymentAsset, receiver: string | import("../integration/sep31DirectPayment").DirectPaymentReceiver, options?: import("../integration/sep31DirectPayment").DirectPaymentQuoteRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    sendDirectPayment(serverUrl: string, amount: string, receiver: string | import("../integration/sep31DirectPayment").DirectPaymentReceiver, options?: import("../integration/sep31DirectPayment").DirectPaymentQuoteRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    trackDirectPayment(serverUrl: string, txId: string, options?: import("../integration/sep31DirectPayment").DirectPaymentQuoteRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
     createDID(publicKey: string): SorokitResult<DIDData>;
     resolveDID(did: string): Promise<SorokitResult<DIDData>>;
     linkAccountToDID(publicKey: string, did: string): Promise<SorokitResult<DIDData>>;
@@ -1250,6 +1262,30 @@ export function createSorokitClient(
         (await import("../integration/anchors")).initiateSep24Interactive(anchorUrl, asset, options),
       getSep6TransactionStatus: async (anchorUrl, id, options) =>
         (await import("../integration/anchors")).getSep6TransactionStatus(anchorUrl, id, options),
+      initiateDeposit: async (serverUrl, asset, options) =>
+        (await import("../integration/sep6Flow")).initiateDeposit(serverUrl, asset, options),
+      initiateWithdraw: async (serverUrl, asset, options) =>
+        (await import("../integration/sep6Flow")).initiateWithdraw(serverUrl, asset, options),
+      trackTransaction: async (serverUrl, txId, options) =>
+        (await import("../integration/sep6Flow")).trackTransaction(serverUrl, txId, options),
+      getKycFields: async (serverUrl, account, options) =>
+        (await import("../integration/sep12Kyc")).getKycFields(serverUrl, account, options),
+      submitKycInfo: async (serverUrl, account, info, options) =>
+        (await import("../integration/sep12Kyc")).submitKycInfo(serverUrl, account, info, options),
+      getKycStatus: async (serverUrl, account, options) =>
+        (await import("../integration/sep12Kyc")).getKycStatus(serverUrl, account, options),
+      initiateInteractiveDeposit: async (serverUrl, asset, options) =>
+        (await import("../integration/sep24Flow")).initiateInteractiveDeposit(serverUrl, asset, options),
+      initiateInteractiveWithdraw: async (serverUrl, asset, options) =>
+        (await import("../integration/sep24Flow")).initiateInteractiveWithdraw(serverUrl, asset, options),
+      monitorTransaction: async (serverUrl, txId, options) =>
+        (await import("../integration/sep24Flow")).monitorTransaction(serverUrl, txId, options),
+      quoteDirectPayment: async (serverUrl, sendingAsset, receiver, options) =>
+        (await import("../integration/sep31DirectPayment")).quoteDirectPayment(serverUrl, sendingAsset, receiver, options),
+      sendDirectPayment: async (serverUrl, amount, receiver, options) =>
+        (await import("../integration/sep31DirectPayment")).sendDirectPayment(serverUrl, amount, receiver, options),
+      trackDirectPayment: async (serverUrl, txId, options) =>
+        (await import("../integration/sep31DirectPayment")).trackDirectPayment(serverUrl, txId, options),
       createDID,
       resolveDID: async (did) => (await import("../integration/didSupport")).resolveDID(did),
       linkAccountToDID: async (publicKey, did) => (await import("../integration/didSupport")).linkAccountToDID(publicKey, did),

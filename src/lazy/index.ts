@@ -39,6 +39,26 @@ import type {
   Sep10AuthOptions,
   Sep24InteractiveResult,
 } from "../integration/anchors";
+import type {
+  DirectPaymentAsset,
+  DirectPaymentQuoteRequestOptions,
+  DirectPaymentReceiver,
+} from "../integration/sep31DirectPayment";
+import type {
+  Sep6FlowAsset,
+  Sep6FlowRequestOptions,
+} from "../integration/sep6Flow";
+import type {
+  KycFieldDefinition,
+  KycRequestOptions,
+  KycSubmissionInfo,
+} from "../integration/sep12Kyc";
+import type {
+  Sep24FlowAsset,
+  Sep24FlowRequestOptions,
+} from "../integration/sep24Flow";
+import type { AuthToken, InitiateSep10AuthOptions } from "../integration/sep10Auth";
+import type { FetchStellarTomlOptions, StellarToml } from "../integration/sep1Toml";
 import type { FederationResolverOptions, ResolvedAddress } from "../integration/federationResolver";
 import type { DerivedStellarKey, RotateSecretKeyOptions } from "../shared/keyManagement";
 import type { Transaction } from "@stellar/stellar-sdk";
@@ -173,6 +193,74 @@ export async function initiateSep24Interactive(anchorUrl: string, asset: AnchorA
 
 export async function getSep6TransactionStatus(anchorUrl: string, id: string, options?: AnchorRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
   return (await import("../integration/anchors")).getSep6TransactionStatus(anchorUrl, id, options);
+}
+
+export async function initiateDeposit(serverUrl: string, asset: Sep6FlowAsset, options?: Sep6FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep6Flow")).initiateDeposit(serverUrl, asset, options);
+}
+
+export async function initiateWithdraw(serverUrl: string, asset: Sep6FlowAsset, options?: Sep6FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep6Flow")).initiateWithdraw(serverUrl, asset, options);
+}
+
+export async function trackTransaction(serverUrl: string, txId: string, options?: Sep6FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep6Flow")).trackTransaction(serverUrl, txId, options);
+}
+
+export async function getKycFields(serverUrl: string, account: string, options?: KycRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep12Kyc")).getKycFields(serverUrl, account, options);
+}
+
+export async function submitKycInfo(serverUrl: string, account: string, info: KycSubmissionInfo, options?: KycRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep12Kyc")).submitKycInfo(serverUrl, account, info, options);
+}
+
+export async function getKycStatus(serverUrl: string, account: string, options?: KycRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep12Kyc")).getKycStatus(serverUrl, account, options);
+}
+
+export async function initiateInteractiveDeposit(serverUrl: string, asset: Sep24FlowAsset, options?: Sep24FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep24Flow")).initiateInteractiveDeposit(serverUrl, asset, options);
+}
+
+export async function initiateInteractiveWithdraw(serverUrl: string, asset: Sep24FlowAsset, options?: Sep24FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep24Flow")).initiateInteractiveWithdraw(serverUrl, asset, options);
+}
+
+export async function monitorTransaction(serverUrl: string, txId: string, options?: Sep24FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep24Flow")).monitorTransaction(serverUrl, txId, options);
+}
+
+export async function quoteDirectPayment(serverUrl: string, sendingAsset: DirectPaymentAsset, receiver: string | DirectPaymentReceiver, options?: DirectPaymentQuoteRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep31DirectPayment")).quoteDirectPayment(serverUrl, sendingAsset, receiver, options);
+}
+
+export async function sendDirectPayment(serverUrl: string, amount: string, receiver: string | DirectPaymentReceiver, options?: DirectPaymentQuoteRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep31DirectPayment")).sendDirectPayment(serverUrl, amount, receiver, options);
+}
+
+export async function trackDirectPayment(serverUrl: string, txId: string, options?: DirectPaymentQuoteRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
+  return (await import("../integration/sep31DirectPayment")).trackDirectPayment(serverUrl, txId, options);
+}
+
+export async function fetchStellarToml(domain: string, options?: FetchStellarTomlOptions): Promise<SorokitResult<StellarToml>> {
+  return (await import("../integration/sep1Toml")).fetchStellarToml(domain, options);
+}
+
+export async function clearStellarTomlCache(): Promise<void> {
+  (await import("../integration/sep1Toml")).clearStellarTomlCache();
+}
+
+export async function initiateSep10Auth(serverUrl: string, publicKey: string, options?: InitiateSep10AuthOptions): Promise<SorokitResult<string>> {
+  return (await import("../integration/sep10Auth")).initiateSep10Auth(serverUrl, publicKey, options);
+}
+
+export async function completeSep10Auth(challengeXdr: string, signedChallengeXdr: string, options?: { now?: number; timeoutMs?: number }): Promise<SorokitResult<AuthToken>> {
+  return (await import("../integration/sep10Auth")).completeSep10Auth(challengeXdr, signedChallengeXdr, options);
+}
+
+export async function validateSep10Token(token: string, now?: number): Promise<SorokitResult<AuthToken>> {
+  return (await import("../integration/sep10Auth")).validateSep10Token(token, now);
 }
 
 export async function deriveKey(mnemonic: string, path?: string, passphrase?: string): Promise<SorokitResult<DerivedStellarKey>> {

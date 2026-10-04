@@ -1,3 +1,4 @@
+import { StrKey } from "@stellar/stellar-sdk";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { resolveFederatedAddress } from "../integration/federationResolver";
@@ -33,6 +34,10 @@ export interface WalletDiscoveryOptions {
     allowHttp?: boolean;
 }
 
+export type DiscoverWalletOptions = WalletDiscoveryOptions;
+export interface ListLinkedAccountsOptions {}
+export type LinkWalletOptions = WalletDiscoveryOptions;
+
 const linkedAccounts = new Map<string, LinkedAccount[]>();
 
 function normalizeDomain(domain: string): string | null {
@@ -44,7 +49,7 @@ function normalizeDomain(domain: string): string | null {
 export async function discoverAvailableWallets(): Promise<SorokitResult<WalletInfo[]>> {
     try {
         const isBrowser = typeof window !== 'undefined';
-        const wallets: WalletInfo = [
+        const wallets: WalletInfo[] = [
             {
                 id: 'freighter',
                 name: 'Freighter',
@@ -98,26 +103,27 @@ export async function discoverWallet(
         return err(SorokitErrorCode.INVALID_ADDRESS, "Expected a valid federation username.");
     }
 
-    const resolved = await resolveFederatedAddress(`${normalizedUsername}*${normalizedDomain}`, {
-        timeoutMs: options.timeoutMs,
-        allowHttp: options.allowHttp,
-    });
-    if (!resolved.ok) return resolved;
+    const resolverOptions = {
+        ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+        ...(options.allowHttp !== undefined ? { allowHttp: options.allowHttp } : {}),
+    };
+    const resolved = await resolveFederatedAddress(`${normalizedUsername}*${normalizedDomain}`, resolverOptions);
+    if (resolved.status === "error") return resolved;
 
     const data: DiscoveryData = {
-        address: resolved.value.publicKey,
+        address: resolved.data.publicKey,
         domain: normalizedDomain,
         username: normalizedUsername,
-        stellarAddress: resolved.value.stellarAddress,
-        ...(resolved.value.memo !== undefined ? { memo: resolved.value.memo } : {}),
-        ...(resolved.value.memoType !== undefined ? { memoType: resolved.value.memoType } : {}),
+        stellarAddress: resolved.data.stellarAddress,
+        ...(resolved.data.memo !== undefined ? { memo: resolved.data.memo } : {}),
+        ...(resolved.data.memoType !== undefined ? { memoType: resolved.data.memoType } : {}),
     };
     return ok(data);
 }
 
 /** List all accounts linked to a Stellar public key. */
-export function listLinkedAccounts(publicKey: string): SorokitResult<LinkedAccount[]> {
-    if (typeof publicKey !== "string" || !/^G[AZ-2]{56}$/.test(publicKey)) {
+export function listLinkedAccounts(publicKey: string, _options?: ListLinkedAccountsOptions): SorokitResult<LinkedAccount[]> {
+    if (!StrKey.isValidEd25519PublicKey(publicKey)) {
         return err(SorokitErrorCode.INVALID_ADDRESS, "Expected a valid Stellar public key.");
     }
     const accounts = linkedAccounts.get(publicKey) ?? [];
@@ -130,7 +136,7 @@ export async function linkWallet(
     domain: string,
     options: WalletDiscoveryOptions = {},
 ): Promise<SorokitResult<LinkedAccount>> {
-    if (typeof publicKey !== "string" || !/^G[AZ-2]{56}$/.test(publicKey)) {
+    if (!StrKey.isValidEd25519PublicKey(publicKey)) {
         return err(SorokitErrorCode.INVALID_ADDRESS, "Expected a valid Stellar public key.");
     }
     const normalizedDomain = normalizeDomain(domain);
@@ -154,4 +160,18 @@ export async function linkWallet(
 /** Clear stored account links, primarily for tests and long-running apps. */
 export function clearLinkedAccounts(): void {
     linkedAccounts.clear();
+}
+
+/** Remove a linked federation account for a Stellar public key. */
+export function unlinkWallet(publicKey: string, domain?: string): SorokitResult<LinkedAccount[]> {
+    if (!StrKey.isValidEd25519PublicKey(publicKey)) {
+        return err(SorokitErrorCode.INVALID_ADDRESS, "Expected a valid Stellar public key.");
+    }
+    const existing = linkedAccounts.get(publicKey) ?? [];
+    const remaining = domain === undefined
+        ? []
+        : existing.filter((account) => account.domain !== domain.trim().toLowerCase());
+    if (remaining.length > 0) linkedAccounts.set(publicKey, remaining);
+    else linkedAccounts.delete(publicKey);
+    return ok(remaining.map((account) => ({ ...account })));
 }

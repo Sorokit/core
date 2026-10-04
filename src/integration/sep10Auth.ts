@@ -39,7 +39,7 @@ function decodeJwtClaims(token: string): Record<string, unknown> | null {
   const segments = token.split(".");
   if (segments.length !== 3 || segments.some((segment) => !segment)) return null;
   try {
-    const encoded = segments[1].replace(/-/g, "+").replace(/_/g, "/");
+    const encoded = segments[1]!.replace(/-/g, "+").replace(/_/g, "/");
     const padded = encoded.padEnd(Math.ceil(encoded.length / 4) * 4, "=");
     const binary = atob(padded);
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
@@ -104,9 +104,10 @@ export async function initiateSep10Auth(
   const tomlResult = await fetchStellarToml(homeDomain, { fetch: fetcher, timeoutMs });
   if (tomlResult.status === "error") return tomlResult;
 
-  const endpointValue = tomlString(tomlResult.data.WEB_AUTH_ENDPOINT);
-  const signingKey = tomlString(tomlResult.data.SIGNING_KEY);
-  const networkPassphrase = options.networkPassphrase ?? tomlString(tomlResult.data.NETWORK_PASSPHRASE);
+  const stellarToml = tomlResult.data;
+  const endpointValue = tomlString(stellarToml.WEB_AUTH_ENDPOINT);
+  const signingKey = tomlString(stellarToml.SIGNING_KEY);
+  const networkPassphrase = options.networkPassphrase ?? tomlString(stellarToml.NETWORK_PASSPHRASE);
   if (!endpointValue || !signingKey || !networkPassphrase) {
     return err(SorokitErrorCode.INVALID_CONFIG, "stellar.toml must define WEB_AUTH_ENDPOINT, SIGNING_KEY, and NETWORK_PASSPHRASE.");
   }

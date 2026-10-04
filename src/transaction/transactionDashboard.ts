@@ -228,7 +228,7 @@ export class TransactionStatusAggregator {
   private entries = new Map<string, DashboardTransactionEntry>();
   private listeners = new Set<DashboardListener>();
   private readonly maxEntries: number;
-  private readonly ttlMs?: number;
+  private readonly ttlMs: number | undefined;
   private readonly recentLimit: number;
   private readonly bucketMs: number;
   private readonly now: () => number;
@@ -246,6 +246,7 @@ export class TransactionStatusAggregator {
     const { category, operationType } = categorizeTransaction(tx, hints);
     const createdAtMs = parseCreatedAt(tx.createdAt);
     const submittedAt = hints?.submittedAt;
+    const feeNumber = toFeeNumber(tx.fee);
     const entry: DashboardTransactionEntry = {
       tx,
       category,
@@ -254,7 +255,7 @@ export class TransactionStatusAggregator {
       ...(createdAtMs !== undefined && submittedAt !== undefined && createdAtMs >= submittedAt
         ? { processingTimeMs: createdAtMs - submittedAt }
         : {}),
-      ...(toFeeNumber(tx.fee) !== undefined ? { feeNumber: toFeeNumber(tx.fee) } : {}),
+      ...(feeNumber !== undefined ? { feeNumber } : {}),
       ingestedAt: this.now(),
     };
     // Re-insert to keep newest-last ordering for eviction.
@@ -270,12 +271,13 @@ export class TransactionStatusAggregator {
     for (const tx of txs) {
       const { category, operationType } = categorizeTransaction(tx, hints);
       const createdAtMs = parseCreatedAt(tx.createdAt);
+      const feeNumber = toFeeNumber(tx.fee);
       const entry: DashboardTransactionEntry = {
         tx,
         category,
         ...(operationType !== undefined ? { operationType } : {}),
         ...(createdAtMs !== undefined ? { createdAtMs } : {}),
-        ...(toFeeNumber(tx.fee) !== undefined ? { feeNumber: toFeeNumber(tx.fee) } : {}),
+        ...(feeNumber !== undefined ? { feeNumber } : {}),
         ingestedAt: this.now(),
       };
       this.entries.delete(tx.hash);
