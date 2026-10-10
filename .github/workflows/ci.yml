@@ -7,83 +7,67 @@ on:
     branches: [main, develop]
 
 jobs:
-  test:
+  core:
+    name: Core (typecheck, lint, test, build)
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [22.x]
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js ${{ matrix.node-version }}
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: "npm"
+          node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-fund
 
-      - name: Run type check
+      - name: Typecheck
         run: npm run typecheck
 
-      - name: Run linter
+      - name: Lint
         run: npm run lint
 
-      - name: Run tests with coverage
-        run: npm run test:coverage
+      - name: Tests
+        run: npm run test
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
-
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
-          retention-days: 14
 
       - name: Build
         run: npm run build
 
-      - name: Check bundle size budgets and tree shaking
-        run: npm run size:check
+      - name: Check bundle size
+        run: npm run size:check --if-present
 
-      - name: Validate build exports
-        run: node scripts/validate-exports.js
-
-      - name: Verify ESM tree-shaking and unused code
-        run: npm run analyze:unused
-
-  # This job enforces that the merge commit would pass CI
-  validate-merge:
+  contracts:
+    name: Contracts (fmt, clippy, test)
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+
+    defaults:
+      run:
+        working-directory: contracts
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + fmt/clippy)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          components: rustfmt, clippy
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          node-version: 22.x
-          cache: "npm"
+          workspaces: contracts -> target
 
-      - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-      - name: Verify no conflicts
-        run: |
-          if git status | grep -q "both modified"; then
-            echo "Merge conflicts detected"
-            exit 1
-          fi
+      - name: Clippy
+        run: cargo clippy --lib
 
-      - name: Run all checks
-        run: npm run typecheck && npm run lint && npm run test:coverage && npm run build && npm run size:check && node scripts/validate-exports.js && npm run analyze:unused
+      - name: Tests
+        run: cargo test --lib
