@@ -41,3 +41,33 @@ jobs:
 
       - name: Check bundle size
         run: npm run size:check --if-present
+
+  contracts:
+    name: Contracts (fmt, clippy, test)
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable + fmt/clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contracts -> target
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --lib
+
+      - name: Tests
+        run: cargo test --lib
