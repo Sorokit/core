@@ -67,7 +67,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --lib
+        run: cargo clippy --all-targets
 
       - name: Tests
-        run: cargo test --lib
+        run: cargo test
