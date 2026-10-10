@@ -13,9 +13,21 @@ import { connectWallet } from "../wallet/connect";
 import { disconnectWallet } from "../wallet/disconnect";
 import { signTransaction } from "../wallet/signTransaction";
 import { emptyWalletState } from "../wallet/index";
-import { generateDeviceFingerprint, evaluateDeviceTrust, DEFAULT_TRUST_THRESHOLD } from "../wallet/deviceTrust";
-import type { DeviceSignals, DeviceFingerprint, TrustHistoryEntry, TrustEvaluation } from "../wallet/deviceTrust";
-import { createAccountManager, WalletAccountManager } from "../wallet/accountManager";
+import {
+  generateDeviceFingerprint,
+  evaluateDeviceTrust,
+  DEFAULT_TRUST_THRESHOLD,
+} from "../wallet/deviceTrust";
+import type {
+  DeviceSignals,
+  DeviceFingerprint,
+  TrustHistoryEntry,
+  TrustEvaluation,
+} from "../wallet/deviceTrust";
+import {
+  createAccountManager,
+  WalletAccountManager,
+} from "../wallet/accountManager";
 import type {
   AccountData,
   AccountMetadata,
@@ -23,7 +35,10 @@ import type {
   AccountSwitchUnsubscribe,
   AccountStorageAdapter,
 } from "../wallet/accountManager";
-import { createWalletEventEmitter, toConnectedEvent } from "../wallet/eventEmitter";
+import {
+  createWalletEventEmitter,
+  toConnectedEvent,
+} from "../wallet/eventEmitter";
 import {
   saveSession,
   restoreSession,
@@ -47,10 +62,19 @@ import { getAccountsBatch } from "../account/getAccountsBatch";
 import { getBalances } from "../account/getBalances";
 import { getAssetBalances } from "../account/getAssetBalances";
 import { getOffers, getTrades } from "../account/dexActivity";
-import type { DexActivityOptions, DexActivityResult, OfferInfo, TradeInfo } from "../account/dexActivity";
+import type {
+  DexActivityOptions,
+  DexActivityResult,
+  OfferInfo,
+  TradeInfo,
+} from "../account/dexActivity";
 import { streamAccount } from "../account/streamAccount";
 import { setSponsor, removeSponsor } from "../account/sponsorship";
-import { getSigners, getThresholds, analyzeSigningRequirement } from "../account/signers";
+import {
+  getSigners,
+  getThresholds,
+  analyzeSigningRequirement,
+} from "../account/signers";
 import { calculateHealthScore } from "../account/healthScore";
 import type { HealthData } from "../account/healthScore";
 import {
@@ -81,7 +105,10 @@ import {
   buildClaimClaimableBalance,
 } from "../transaction/claimableBalance";
 import { buildBumpSequenceTransaction } from "../transaction/bumpSequence";
-import { buildSetDataEntryTransaction, buildDeleteDataEntryTransaction } from "../transaction/dataEntry";
+import {
+  buildSetDataEntryTransaction,
+  buildDeleteDataEntryTransaction,
+} from "../transaction/dataEntry";
 import { compose } from "../transaction/compose";
 import type { ComposeOptions } from "../transaction/compose";
 import { orchestrate } from "../transaction/atomicOrchestrator";
@@ -145,7 +172,10 @@ import {
   getTraceContext,
 } from "../shared/tracing";
 import { setTracedFetch } from "../shared/serverFactory";
-import { configureEndpointFailover, validateEndpointList } from "../network/endpointFailover";
+import {
+  configureEndpointFailover,
+  validateEndpointList,
+} from "../network/endpointFailover";
 import { createEndpointRegistry } from "../network/endpointRegistry";
 import type { TraceContext } from "../shared/tracing";
 import { createDID } from "../integration/didSupport";
@@ -191,10 +221,7 @@ import {
   type GlobalTimeoutOverride,
   type OperationType,
 } from "../shared/config";
-import {
-  runWithTimeout,
-  isOperationTimeoutError,
-} from "../shared/timeout";
+import { runWithTimeout, isOperationTimeoutError } from "../shared/timeout";
 import type { NetworkType } from "../network/config";
 import { checkNetworkHealth } from "../network";
 import { createRequestDeduplicator } from "../network/requestDedup";
@@ -244,11 +271,28 @@ import type {
   SimulateTransactionResult,
 } from "../soroban/types";
 import type { ContractEvent } from "../soroban/subscribeContractEvents";
-import type { AnchorAsset, AnchorRequestOptions, Sep10AuthOptions, Sep24InteractiveResult } from "../integration/anchors";
-import type { AuthToken, InitiateSep10AuthOptions } from "../integration/sep10Auth";
-import type { FetchStellarTomlOptions, StellarToml } from "../integration/sep1Toml";
-import type { FederationResolverOptions, ResolvedAddress } from "../integration/federationResolver";
-import type { DerivedStellarKey, RotateSecretKeyOptions } from "../shared/keyManagement";
+import type {
+  AnchorAsset,
+  AnchorRequestOptions,
+  Sep10AuthOptions,
+  Sep24InteractiveResult,
+} from "../integration/anchors";
+import type {
+  AuthToken,
+  InitiateSep10AuthOptions,
+} from "../integration/sep10Auth";
+import type {
+  FetchStellarTomlOptions,
+  StellarToml,
+} from "../integration/sep1Toml";
+import type {
+  FederationResolverOptions,
+  ResolvedAddress,
+} from "../integration/federationResolver";
+import type {
+  DerivedStellarKey,
+  RotateSecretKeyOptions,
+} from "../shared/keyManagement";
 import type { Transaction } from "@stellar/stellar-sdk";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -372,44 +416,163 @@ export interface SorokitClient {
 
   /** SEP-2 federation lookup and SEP-6/10/24 anchor APIs, loaded on first use. */
   readonly integration: {
-    resolveFederatedAddress(address: string, options?: FederationResolverOptions): Promise<SorokitResult<ResolvedAddress>>;
-    fetchStellarToml(domain: string, options?: FetchStellarTomlOptions): Promise<SorokitResult<StellarToml>>;
+    resolveFederatedAddress(
+      address: string,
+      options?: FederationResolverOptions,
+    ): Promise<SorokitResult<ResolvedAddress>>;
+    fetchStellarToml(
+      domain: string,
+      options?: FetchStellarTomlOptions,
+    ): Promise<SorokitResult<StellarToml>>;
     clearStellarTomlCache(domain?: string): Promise<void>;
-    authenticateSep10(anchorUrl: string, options: Sep10AuthOptions): Promise<SorokitResult<string>>;
-    initiateSep10Auth(serverUrl: string, publicKey: string, options?: InitiateSep10AuthOptions): Promise<SorokitResult<string>>;
-    completeSep10Auth(challengeXdr: string, signedChallengeXdr: string, options?: { now?: number; timeoutMs?: number }): Promise<SorokitResult<AuthToken>>;
-    validateSep10Token(token: string, now?: number): Promise<SorokitResult<AuthToken>>;
-    initiateSep6Transfer(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Record<string, unknown>>>;
-    initiateSep24Interactive(anchorUrl: string, asset: AnchorAsset, options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" }): Promise<SorokitResult<Sep24InteractiveResult>>;
-    getSep6TransactionStatus(anchorUrl: string, id: string, options?: AnchorRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    initiateDeposit(serverUrl: string, asset: import("../integration/sep6Flow").Sep6FlowAsset, options?: import("../integration/sep6Flow").Sep6FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    initiateWithdraw(serverUrl: string, asset: import("../integration/sep6Flow").Sep6FlowAsset, options?: import("../integration/sep6Flow").Sep6FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    trackTransaction(serverUrl: string, txId: string, options?: import("../integration/sep6Flow").Sep6FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    getKycFields(serverUrl: string, account: string, options?: import("../integration/sep12Kyc").KycRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    submitKycInfo(serverUrl: string, account: string, info: import("../integration/sep12Kyc").KycSubmissionInfo, options?: import("../integration/sep12Kyc").KycRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    getKycStatus(serverUrl: string, account: string, options?: import("../integration/sep12Kyc").KycRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    initiateInteractiveDeposit(serverUrl: string, asset: import("../integration/sep24Flow").Sep24FlowAsset, options?: import("../integration/sep24Flow").Sep24FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    initiateInteractiveWithdraw(serverUrl: string, asset: import("../integration/sep24Flow").Sep24FlowAsset, options?: import("../integration/sep24Flow").Sep24FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    monitorTransaction(serverUrl: string, txId: string, options?: import("../integration/sep24Flow").Sep24FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    quoteDirectPayment(serverUrl: string, sendingAsset: import("../integration/sep31DirectPayment").DirectPaymentAsset, receiver: string | import("../integration/sep31DirectPayment").DirectPaymentReceiver, options?: import("../integration/sep31DirectPayment").DirectPaymentQuoteRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    sendDirectPayment(serverUrl: string, amount: string, receiver: string | import("../integration/sep31DirectPayment").DirectPaymentReceiver, options?: import("../integration/sep31DirectPayment").DirectPaymentQuoteRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
-    trackDirectPayment(serverUrl: string, txId: string, options?: import("../integration/sep31DirectPayment").DirectPaymentQuoteRequestOptions): Promise<SorokitResult<Record<string, unknown>>>;
+    authenticateSep10(
+      anchorUrl: string,
+      options: Sep10AuthOptions,
+    ): Promise<SorokitResult<string>>;
+    initiateSep10Auth(
+      serverUrl: string,
+      publicKey: string,
+      options?: InitiateSep10AuthOptions,
+    ): Promise<SorokitResult<string>>;
+    completeSep10Auth(
+      challengeXdr: string,
+      signedChallengeXdr: string,
+      options?: { now?: number; timeoutMs?: number },
+    ): Promise<SorokitResult<AuthToken>>;
+    validateSep10Token(
+      token: string,
+      now?: number,
+    ): Promise<SorokitResult<AuthToken>>;
+    initiateSep6Transfer(
+      anchorUrl: string,
+      asset: AnchorAsset,
+      options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" },
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    initiateSep24Interactive(
+      anchorUrl: string,
+      asset: AnchorAsset,
+      options?: AnchorRequestOptions & { direction?: "deposit" | "withdraw" },
+    ): Promise<SorokitResult<Sep24InteractiveResult>>;
+    getSep6TransactionStatus(
+      anchorUrl: string,
+      id: string,
+      options?: AnchorRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    initiateDeposit(
+      serverUrl: string,
+      asset: import("../integration/sep6Flow").Sep6FlowAsset,
+      options?: import("../integration/sep6Flow").Sep6FlowRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    initiateWithdraw(
+      serverUrl: string,
+      asset: import("../integration/sep6Flow").Sep6FlowAsset,
+      options?: import("../integration/sep6Flow").Sep6FlowRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    trackTransaction(
+      serverUrl: string,
+      txId: string,
+      options?: import("../integration/sep6Flow").Sep6FlowRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    getKycFields(
+      serverUrl: string,
+      account: string,
+      options?: import("../integration/sep12Kyc").KycRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    submitKycInfo(
+      serverUrl: string,
+      account: string,
+      info: import("../integration/sep12Kyc").KycSubmissionInfo,
+      options?: import("../integration/sep12Kyc").KycRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    getKycStatus(
+      serverUrl: string,
+      account: string,
+      options?: import("../integration/sep12Kyc").KycRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    initiateInteractiveDeposit(
+      serverUrl: string,
+      asset: import("../integration/sep24Flow").Sep24FlowAsset,
+      options?: import("../integration/sep24Flow").Sep24FlowRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    initiateInteractiveWithdraw(
+      serverUrl: string,
+      asset: import("../integration/sep24Flow").Sep24FlowAsset,
+      options?: import("../integration/sep24Flow").Sep24FlowRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    monitorTransaction(
+      serverUrl: string,
+      txId: string,
+      options?: import("../integration/sep24Flow").Sep24FlowRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    quoteDirectPayment(
+      serverUrl: string,
+      sendingAsset: import("../integration/sep31DirectPayment").DirectPaymentAsset,
+      receiver:
+        | string
+        | import("../integration/sep31DirectPayment").DirectPaymentReceiver,
+      options?: import("../integration/sep31DirectPayment").DirectPaymentQuoteRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    sendDirectPayment(
+      serverUrl: string,
+      amount: string,
+      receiver:
+        | string
+        | import("../integration/sep31DirectPayment").DirectPaymentReceiver,
+      options?: import("../integration/sep31DirectPayment").DirectPaymentQuoteRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
+    trackDirectPayment(
+      serverUrl: string,
+      txId: string,
+      options?: import("../integration/sep31DirectPayment").DirectPaymentQuoteRequestOptions,
+    ): Promise<SorokitResult<Record<string, unknown>>>;
     createDID(publicKey: string): SorokitResult<DIDData>;
     resolveDID(did: string): Promise<SorokitResult<DIDData>>;
-    linkAccountToDID(publicKey: string, did: string): Promise<SorokitResult<DIDData>>;
-    verifyDIDOwnership(did: string, signature: string): Promise<SorokitResult<boolean>>;
+    linkAccountToDID(
+      publicKey: string,
+      did: string,
+    ): Promise<SorokitResult<DIDData>>;
+    verifyDIDOwnership(
+      did: string,
+      publicKey: string,
+      proof: import("../integration/didSupport").DIDOwnershipProof,
+    ): Promise<
+      SorokitResult<
+        import("../integration/didSupport").VerifyDIDOwnershipResult
+      >
+    >;
     /** #686: governance — active proposals on `network` (defaults to the client's network). */
-    getProposals(network?: GovernanceNetwork, options?: GovernanceCallOptions & { status?: ProposalStatus | "all" }): Promise<SorokitResult<GovernanceProposal[]>>;
-    voteOnProposal(proposalId: ProposalId, vote: VoteChoice | string, options?: GovernanceCallOptions & { voter?: string }): Promise<SorokitResult<VoteReceipt>>;
-    getVotingPower(publicKey: string, options?: GovernanceCallOptions): Promise<SorokitResult<VotingPower>>;
-    trackProposal(proposalId: ProposalId, options?: TrackProposalOptions): Promise<SorokitResult<ProposalTracker>>;
+    getProposals(
+      network?: GovernanceNetwork,
+      options?: GovernanceCallOptions & { status?: ProposalStatus | "all" },
+    ): Promise<SorokitResult<GovernanceProposal[]>>;
+    voteOnProposal(
+      proposalId: ProposalId,
+      vote: VoteChoice | string,
+      options?: GovernanceCallOptions & { voter?: string },
+    ): Promise<SorokitResult<VoteReceipt>>;
+    getVotingPower(
+      publicKey: string,
+      options?: GovernanceCallOptions,
+    ): Promise<SorokitResult<VotingPower>>;
+    trackProposal(
+      proposalId: ProposalId,
+      options?: TrackProposalOptions,
+    ): Promise<SorokitResult<ProposalTracker>>;
   };
 
   /** Key derivation and signer rotation utilities, loaded on first use. */
   readonly shared: {
-    deriveKey(mnemonic: string, path?: string, passphrase?: string): Promise<SorokitResult<DerivedStellarKey>>;
-    validateSecretKey(secretKey: string): Promise<SorokitResult<{ publicKey: string }>>;
-    rotateSecretKey(options: RotateSecretKeyOptions): Promise<SorokitResult<Transaction>>;
+    deriveKey(
+      mnemonic: string,
+      path?: string,
+      passphrase?: string,
+    ): Promise<SorokitResult<DerivedStellarKey>>;
+    validateSecretKey(
+      secretKey: string,
+    ): Promise<SorokitResult<{ publicKey: string }>>;
+    rotateSecretKey(
+      options: RotateSecretKeyOptions,
+    ): Promise<SorokitResult<Transaction>>;
   };
 
   /** Append-only operation auditing and compliance reports for this client. */
@@ -426,7 +589,9 @@ export interface SorokitClient {
     /** Connect and return WalletState */
     connect(
       adapter: WalletAdapter,
-        optionsOrTimeoutMs?: number | import("../wallet/types").WalletConnectOptions,
+      optionsOrTimeoutMs?:
+        | number
+        | import("../wallet/types").WalletConnectOptions,
     ): Promise<SorokitResult<WalletState>>;
     /** Generate a privacy-conscious fingerprint for the current runtime. */
     fingerprintDevice(signals?: DeviceSignals): DeviceFingerprint;
@@ -533,11 +698,24 @@ export interface SorokitClient {
     /** Return a safe, staged signer recovery plan. */
     getRecoveryPlan(publicKey: string): Promise<SorokitResult<RecoveryPlan>>;
     /** Build an unsigned transaction that adds a lower-weight backup signer. */
-    addRecoverySigner(account: string, recoveryKey: string, recoveryWeight?: number): Promise<SorokitResult<string>>;
+    addRecoverySigner(
+      account: string,
+      recoveryKey: string,
+      recoveryWeight?: number,
+    ): Promise<SorokitResult<string>>;
     /** Build an unsigned transaction that installs a replacement signer and disables master weight. */
-    rotateKeys(account: string, newKey: string, newKeyWeight?: number): Promise<SorokitResult<string>>;
+    rotateKeys(
+      account: string,
+      newKey: string,
+      newKeyWeight?: number,
+    ): Promise<SorokitResult<string>>;
     /** Build an unsigned transaction to remove a signer after the recovery delay. */
-    removeOldSigner(account: string, oldKey: string, rotatedAt: number | string | Date, options?: { waitMs?: number; now?: number }): Promise<SorokitResult<string>>;
+    removeOldSigner(
+      account: string,
+      oldKey: string,
+      rotatedAt: number | string | Date,
+      options?: { waitMs?: number; now?: number },
+    ): Promise<SorokitResult<string>>;
     /**
      * Stream account state by polling Horizon.
      * Yields SorokitResult<AccountInfo> on every poll.
@@ -569,8 +747,16 @@ export interface SorokitClient {
     ): SorokitResult<SponsorshipResult>;
     /** Build operations to remove sponsorship from an account */
     removeSponsor(account: string): SorokitResult<SponsorshipResult>;
-    getOffers(publicKey: string, options?: DexActivityOptions, timeoutMs?: number): Promise<SorokitResult<DexActivityResult<OfferInfo>>>;
-    getTrades(publicKey: string, options?: DexActivityOptions, timeoutMs?: number): Promise<SorokitResult<DexActivityResult<TradeInfo>>>;
+    getOffers(
+      publicKey: string,
+      options?: DexActivityOptions,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<DexActivityResult<OfferInfo>>>;
+    getTrades(
+      publicKey: string,
+      options?: DexActivityOptions,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<DexActivityResult<TradeInfo>>>;
     /**
      * Simulate an account merge and run all safety checks before any transaction
      * is built or signed. Account merge is destructive and irreversible — use this
@@ -645,7 +831,9 @@ export interface SorokitClient {
       options?: ComposeOptions,
     ): ReturnType<typeof compose>;
     /** Create a sequential multi-step orchestration with compensating rollback. */
-    orchestrate(options?: AtomicOrchestratorOptions): ReturnType<typeof orchestrate>;
+    orchestrate(
+      options?: AtomicOrchestratorOptions,
+    ): ReturnType<typeof orchestrate>;
     /** Submit a signed transaction XDR */
     submit(
       signedXdr: string,
@@ -852,7 +1040,9 @@ export interface SorokitClient {
     /** Health-check an endpoint URL (#672) */
     testEndpoint(
       url: string,
-    ): Promise<SorokitResult<import("../network/endpointRegistry").EndpointHealthResult>>;
+    ): Promise<
+      SorokitResult<import("../network/endpointRegistry").EndpointHealthResult>
+    >;
     /** List all registered endpoints, optionally filtered by type (#672) */
     getEndpoints(
       type?: import("../network/endpointRegistry").EndpointType,
@@ -1011,13 +1201,25 @@ export function validateClientConfig(
     }
   }
 
-  if (config.sorobanPoll?.maxAttempts !== undefined &&
-      (!Number.isInteger(config.sorobanPoll.maxAttempts) || config.sorobanPoll.maxAttempts <= 0)) {
-    return err(SorokitErrorCode.CONTRACT_INVOKE_FAILED, "sorobanPoll.maxAttempts must be a positive integer.");
+  if (
+    config.sorobanPoll?.maxAttempts !== undefined &&
+    (!Number.isInteger(config.sorobanPoll.maxAttempts) ||
+      config.sorobanPoll.maxAttempts <= 0)
+  ) {
+    return err(
+      SorokitErrorCode.CONTRACT_INVOKE_FAILED,
+      "sorobanPoll.maxAttempts must be a positive integer.",
+    );
   }
-  if (config.sorobanPoll?.intervalMs !== undefined &&
-      (!Number.isFinite(config.sorobanPoll.intervalMs) || config.sorobanPoll.intervalMs < 0)) {
-    return err(SorokitErrorCode.CONTRACT_INVOKE_FAILED, "sorobanPoll.intervalMs must be a non-negative number.");
+  if (
+    config.sorobanPoll?.intervalMs !== undefined &&
+    (!Number.isFinite(config.sorobanPoll.intervalMs) ||
+      config.sorobanPoll.intervalMs < 0)
+  ) {
+    return err(
+      SorokitErrorCode.CONTRACT_INVOKE_FAILED,
+      "sorobanPoll.intervalMs must be a non-negative number.",
+    );
   }
 
   if (config.timeoutMs !== undefined && config.timeoutMs !== null) {
@@ -1033,11 +1235,17 @@ export function validateClientConfig(
     }
   }
 
-  if (config.deviceTrustThreshold !== undefined &&
-      (typeof config.deviceTrustThreshold !== "number" ||
-       !Number.isFinite(config.deviceTrustThreshold) ||
-       config.deviceTrustThreshold < 0 || config.deviceTrustThreshold > 100)) {
-    return err(SorokitErrorCode.INVALID_CONFIG, "deviceTrustThreshold must be a number between 0 and 100");
+  if (
+    config.deviceTrustThreshold !== undefined &&
+    (typeof config.deviceTrustThreshold !== "number" ||
+      !Number.isFinite(config.deviceTrustThreshold) ||
+      config.deviceTrustThreshold < 0 ||
+      config.deviceTrustThreshold > 100)
+  ) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "deviceTrustThreshold must be a number between 0 and 100",
+    );
   }
 
   if (config.defaultTimeoutMs !== undefined) {
@@ -1107,7 +1315,9 @@ export function createSorokitClient(
   const traceId = config.traceId ?? generateTraceId();
   const i18n = createI18n({
     ...(config.locale !== undefined ? { locale: config.locale } : {}),
-    ...(config.translations !== undefined ? { translations: config.translations } : {}),
+    ...(config.translations !== undefined
+      ? { translations: config.translations }
+      : {}),
   });
   const globalTimeout = config.timeoutMs;
   const baseLogger =
@@ -1118,10 +1328,11 @@ export function createSorokitClient(
     });
   const logger = createTracedLogger(baseLogger, { traceId });
   const safetyLogger = createTracedLogger(
-    config.logger ?? createLogger({
-      logLevel: "warn",
-      ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
-    }),
+    config.logger ??
+      createLogger({
+        logLevel: "warn",
+        ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
+      }),
     { traceId },
   );
 
@@ -1134,11 +1345,19 @@ export function createSorokitClient(
   const defaultPollConfig = config.sorobanPoll;
   const errorHandler = config.errorHandler;
   const cache = config.cache ? wrapCache(config.cache) : undefined;
-  let contractStateTrackerPromise: Promise<import("../soroban/contractStateTracker").ContractStateTracker | undefined> | undefined;
+  let contractStateTrackerPromise:
+    | Promise<
+        | import("../soroban/contractStateTracker").ContractStateTracker
+        | undefined
+      >
+    | undefined;
   const getContractStateTracker = () => {
     if (!cache) return Promise.resolve(undefined);
-    contractStateTrackerPromise ??= import("../soroban/contractStateTracker").then(({ createContractStateTracker }) =>
-      createContractStateTracker(cache, horizonUrl, { fetch: tracedFetch }));
+    contractStateTrackerPromise ??=
+      import("../soroban/contractStateTracker").then(
+        ({ createContractStateTracker }) =>
+          createContractStateTracker(cache, horizonUrl, { fetch: tracedFetch }),
+      );
     return contractStateTrackerPromise;
   };
   const feeEstimateOptions: FeeEstimateOptions = {
@@ -1212,16 +1431,21 @@ export function createSorokitClient(
   const persistenceAdapter = config.persistenceAdapter;
   if (persistenceAdapter) {
     const persisted = persistenceAdapter.load("state");
-    logger.debug("client.create: checked persistence adapter for wallet state", {
-      hasPersistedState: !!persisted,
-    });
+    logger.debug(
+      "client.create: checked persistence adapter for wallet state",
+      {
+        hasPersistedState: !!persisted,
+      },
+    );
   }
 
   // Initialize Multi-Account Manager (#579)
   const accountManager =
     config.accountManager ??
     createAccountManager({
-      ...(config.accountStorageAdapter && { storageAdapter: config.accountStorageAdapter }),
+      ...(config.accountStorageAdapter && {
+        storageAdapter: config.accountStorageAdapter,
+      }),
     });
 
   // Wallet event emitter (#613) — bridges accountManager's own switch
@@ -1243,67 +1467,180 @@ export function createSorokitClient(
 
     integration: {
       resolveFederatedAddress: async (address, options) =>
-        (await import("../integration/federationResolver")).resolveFederatedAddress(address, options),
+        (
+          await import("../integration/federationResolver")
+        ).resolveFederatedAddress(address, options),
       fetchStellarToml: async (domain, options) =>
-        (await import("../integration/sep1Toml")).fetchStellarToml(domain, options),
+        (await import("../integration/sep1Toml")).fetchStellarToml(
+          domain,
+          options,
+        ),
       clearStellarTomlCache: async (domain) =>
         (await import("../integration/sep1Toml")).clearStellarTomlCache(domain),
       authenticateSep10: async (anchorUrl, options) =>
-        (await import("../integration/anchors")).authenticateSep10(anchorUrl, options),
+        (await import("../integration/anchors")).authenticateSep10(
+          anchorUrl,
+          options,
+        ),
       initiateSep10Auth: async (serverUrl, publicKey, options) =>
-        (await import("../integration/sep10Auth")).initiateSep10Auth(serverUrl, publicKey, options),
+        (await import("../integration/sep10Auth")).initiateSep10Auth(
+          serverUrl,
+          publicKey,
+          options,
+        ),
       completeSep10Auth: async (challengeXdr, signedChallengeXdr, options) =>
-        (await import("../integration/sep10Auth")).completeSep10Auth(challengeXdr, signedChallengeXdr, options),
+        (await import("../integration/sep10Auth")).completeSep10Auth(
+          challengeXdr,
+          signedChallengeXdr,
+          options,
+        ),
       validateSep10Token: async (token, now) =>
-        (await import("../integration/sep10Auth")).validateSep10Token(token, now),
+        (await import("../integration/sep10Auth")).validateSep10Token(
+          token,
+          now,
+        ),
       initiateSep6Transfer: async (anchorUrl, asset, options) =>
-        (await import("../integration/anchors")).initiateSep6Transfer(anchorUrl, asset, options),
+        (await import("../integration/anchors")).initiateSep6Transfer(
+          anchorUrl,
+          asset,
+          options,
+        ),
       initiateSep24Interactive: async (anchorUrl, asset, options) =>
-        (await import("../integration/anchors")).initiateSep24Interactive(anchorUrl, asset, options),
+        (await import("../integration/anchors")).initiateSep24Interactive(
+          anchorUrl,
+          asset,
+          options,
+        ),
       getSep6TransactionStatus: async (anchorUrl, id, options) =>
-        (await import("../integration/anchors")).getSep6TransactionStatus(anchorUrl, id, options),
+        (await import("../integration/anchors")).getSep6TransactionStatus(
+          anchorUrl,
+          id,
+          options,
+        ),
       initiateDeposit: async (serverUrl, asset, options) =>
-        (await import("../integration/sep6Flow")).initiateDeposit(serverUrl, asset, options),
+        (await import("../integration/sep6Flow")).initiateDeposit(
+          serverUrl,
+          asset,
+          options,
+        ),
       initiateWithdraw: async (serverUrl, asset, options) =>
-        (await import("../integration/sep6Flow")).initiateWithdraw(serverUrl, asset, options),
+        (await import("../integration/sep6Flow")).initiateWithdraw(
+          serverUrl,
+          asset,
+          options,
+        ),
       trackTransaction: async (serverUrl, txId, options) =>
-        (await import("../integration/sep6Flow")).trackTransaction(serverUrl, txId, options),
+        (await import("../integration/sep6Flow")).trackTransaction(
+          serverUrl,
+          txId,
+          options,
+        ),
       getKycFields: async (serverUrl, account, options) =>
-        (await import("../integration/sep12Kyc")).getKycFields(serverUrl, account, options),
+        (await import("../integration/sep12Kyc")).getKycFields(
+          serverUrl,
+          account,
+          options,
+        ),
       submitKycInfo: async (serverUrl, account, info, options) =>
-        (await import("../integration/sep12Kyc")).submitKycInfo(serverUrl, account, info, options),
+        (await import("../integration/sep12Kyc")).submitKycInfo(
+          serverUrl,
+          account,
+          info,
+          options,
+        ),
       getKycStatus: async (serverUrl, account, options) =>
-        (await import("../integration/sep12Kyc")).getKycStatus(serverUrl, account, options),
+        (await import("../integration/sep12Kyc")).getKycStatus(
+          serverUrl,
+          account,
+          options,
+        ),
       initiateInteractiveDeposit: async (serverUrl, asset, options) =>
-        (await import("../integration/sep24Flow")).initiateInteractiveDeposit(serverUrl, asset, options),
+        (await import("../integration/sep24Flow")).initiateInteractiveDeposit(
+          serverUrl,
+          asset,
+          options,
+        ),
       initiateInteractiveWithdraw: async (serverUrl, asset, options) =>
-        (await import("../integration/sep24Flow")).initiateInteractiveWithdraw(serverUrl, asset, options),
+        (await import("../integration/sep24Flow")).initiateInteractiveWithdraw(
+          serverUrl,
+          asset,
+          options,
+        ),
       monitorTransaction: async (serverUrl, txId, options) =>
-        (await import("../integration/sep24Flow")).monitorTransaction(serverUrl, txId, options),
+        (await import("../integration/sep24Flow")).monitorTransaction(
+          serverUrl,
+          txId,
+          options,
+        ),
       quoteDirectPayment: async (serverUrl, sendingAsset, receiver, options) =>
-        (await import("../integration/sep31DirectPayment")).quoteDirectPayment(serverUrl, sendingAsset, receiver, options),
+        (await import("../integration/sep31DirectPayment")).quoteDirectPayment(
+          serverUrl,
+          sendingAsset,
+          receiver,
+          options,
+        ),
       sendDirectPayment: async (serverUrl, amount, receiver, options) =>
-        (await import("../integration/sep31DirectPayment")).sendDirectPayment(serverUrl, amount, receiver, options),
+        (await import("../integration/sep31DirectPayment")).sendDirectPayment(
+          serverUrl,
+          amount,
+          receiver,
+          options,
+        ),
       trackDirectPayment: async (serverUrl, txId, options) =>
-        (await import("../integration/sep31DirectPayment")).trackDirectPayment(serverUrl, txId, options),
+        (await import("../integration/sep31DirectPayment")).trackDirectPayment(
+          serverUrl,
+          txId,
+          options,
+        ),
       createDID,
-      resolveDID: async (did) => (await import("../integration/didSupport")).resolveDID(did),
-      linkAccountToDID: async (publicKey, did) => (await import("../integration/didSupport")).linkAccountToDID(publicKey, did),
-      verifyDIDOwnership: async (did, signature) => (await import("../integration/didSupport")).verifyDIDOwnership(did, signature),
+      resolveDID: async (did) =>
+        (await import("../integration/didSupport")).resolveDID(did),
+      linkAccountToDID: async (publicKey, did) =>
+        (await import("../integration/didSupport")).linkAccountToDID(
+          publicKey,
+          did,
+        ),
+      verifyDIDOwnership: async (
+        did: string,
+        publicKey: string,
+        proof: import("../integration/didSupport").DIDOwnershipProof,
+      ) =>
+        (await import("../integration/didSupport")).verifyDIDOwnership(
+          did,
+          publicKey,
+          proof,
+        ),
       // #686: governance, loaded on first use.
       getProposals: async (network, options) =>
-        (await import("../integration/governance")).getProposals(network ?? (networkConfig.network), options),
+        (await import("../integration/governance")).getProposals(
+          network ?? networkConfig.network,
+          options,
+        ),
       voteOnProposal: async (proposalId, vote, options) =>
-        (await import("../integration/governance")).voteOnProposal(proposalId, vote, { network: networkConfig.network, ...options }),
+        (await import("../integration/governance")).voteOnProposal(
+          proposalId,
+          vote,
+          { network: networkConfig.network, ...options },
+        ),
       getVotingPower: async (publicKey, options) =>
-        (await import("../integration/governance")).getVotingPower(publicKey, { network: networkConfig.network, ...options }),
+        (await import("../integration/governance")).getVotingPower(publicKey, {
+          network: networkConfig.network,
+          ...options,
+        }),
       trackProposal: async (proposalId, options) =>
-        (await import("../integration/governance")).trackProposal(proposalId, { network: networkConfig.network, ...options }),
+        (await import("../integration/governance")).trackProposal(proposalId, {
+          network: networkConfig.network,
+          ...options,
+        }),
     },
 
     shared: {
       deriveKey: async (mnemonic, path, passphrase) =>
-        (await import("../shared/keyManagement")).deriveKey(mnemonic, path, passphrase),
+        (await import("../shared/keyManagement")).deriveKey(
+          mnemonic,
+          path,
+          passphrase,
+        ),
       validateSecretKey: async (secretKey) =>
         (await import("../shared/keyManagement")).validateSecretKey(secretKey),
       rotateSecretKey: async (options) =>
@@ -1346,11 +1683,14 @@ export function createSorokitClient(
 
     wallet: {
       fingerprintDevice: (signals) => generateDeviceFingerprint(signals),
-      evaluateTrust: (fingerprint, history) => evaluateDeviceTrust(fingerprint, history, {
-        threshold: config.deviceTrustThreshold ?? DEFAULT_TRUST_THRESHOLD,
-      }),
+      evaluateTrust: (fingerprint, history) =>
+        evaluateDeviceTrust(fingerprint, history, {
+          threshold: config.deviceTrustThreshold ?? DEFAULT_TRUST_THRESHOLD,
+        }),
       connect: (adapter, optionsOrTimeoutMs) => {
-        const connectOpts: import("../wallet/types").WalletConnectOptions | undefined =
+        const connectOpts:
+          | import("../wallet/types").WalletConnectOptions
+          | undefined =
           typeof optionsOrTimeoutMs === "number"
             ? { timeoutMs: optionsOrTimeoutMs }
             : optionsOrTimeoutMs;
@@ -1428,9 +1768,12 @@ export function createSorokitClient(
                 }
                 return Promise.resolve(applyTx(ok(persisted)));
               } else {
-                logger.warn("wallet.connect.recover.persistence.validation_failed", {
-                  walletType: adapter.walletType,
-                });
+                logger.warn(
+                  "wallet.connect.recover.persistence.validation_failed",
+                  {
+                    walletType: adapter.walletType,
+                  },
+                );
                 persistenceAdapter.clear("state");
                 return Promise.resolve(
                   applyTx(
@@ -1484,8 +1827,8 @@ export function createSorokitClient(
               functionName: "wallet.disconnect",
               params: { walletType: adapter.walletType },
             },
-              async () =>
-                withLogging(
+            async () =>
+              withLogging(
                 logger,
                 "wallet.disconnect",
                 { walletType: adapter.walletType },
@@ -1501,7 +1844,9 @@ export function createSorokitClient(
         ).then((result) => {
           // Emit "disconnected" (#613) after the wrapped result is finalized
           if (result.status === "ok") {
-            walletEvents.emit("disconnected", { walletType: adapter.walletType });
+            walletEvents.emit("disconnected", {
+              walletType: adapter.walletType,
+            });
           }
           return result;
         }),
@@ -1523,12 +1868,14 @@ export function createSorokitClient(
           ).then(applyTx),
         ),
       emptyState: () => emptyWalletState(),
-      addAccount: (publicKey, metadata) => accountManager.addAccount(publicKey, metadata),
+      addAccount: (publicKey, metadata) =>
+        accountManager.addAccount(publicKey, metadata),
       removeAccount: (publicKey) => accountManager.removeAccount(publicKey),
       switchAccount: (publicKey) => accountManager.switchAccount(publicKey),
       getActiveAccount: () => accountManager.getActiveAccount(),
       listAccounts: () => accountManager.listAccounts(),
-      watchAccountSwitch: (listener) => accountManager.watchAccountSwitch(listener),
+      watchAccountSwitch: (listener) =>
+        accountManager.watchAccountSwitch(listener),
       on: (event, listener) => walletEvents.on(event, listener),
       off: (event, listener) => walletEvents.off(event, listener),
       saveSession: (connection, options) => saveSession(connection, options),
@@ -1538,14 +1885,28 @@ export function createSorokitClient(
     },
 
     account: {
-      calculateHealthScore: (publicKey) => calculateHealthScore(horizonUrl, publicKey),
+      calculateHealthScore: (publicKey) =>
+        calculateHealthScore(horizonUrl, publicKey),
       getRecoveryPlan: (publicKey) => getRecoveryPlan(horizonUrl, publicKey),
       addRecoverySigner: (account, recoveryKey, recoveryWeight) =>
-        addRecoverySigner(horizonUrl, networkConfig, account, recoveryKey, recoveryWeight),
+        addRecoverySigner(
+          horizonUrl,
+          networkConfig,
+          account,
+          recoveryKey,
+          recoveryWeight,
+        ),
       rotateKeys: (account, newKey, newKeyWeight) =>
         rotateKeys(horizonUrl, networkConfig, account, newKey, newKeyWeight),
       removeOldSigner: (account, oldKey, rotatedAt, options) =>
-        removeOldSigner(horizonUrl, networkConfig, account, oldKey, rotatedAt, options),
+        removeOldSigner(
+          horizonUrl,
+          networkConfig,
+          account,
+          oldKey,
+          rotatedAt,
+          options,
+        ),
       get: (publicKey, timeoutMs) =>
         guard("account_get", timeoutMs, (signal) =>
           deduplicator.deduplicate(
@@ -1555,31 +1916,46 @@ export function createSorokitClient(
                 errorHandler,
                 { functionName: "account.get", params: { publicKey } },
                 () =>
-                  withLogging(logger, "account.get", { publicKey }, async () => {
-                    const cacheKey = `account:get:${horizonUrl}:${publicKey}`;
-                    if (cache) {
-                      const cachedVal = cache.get(cacheKey);
-                      if (cachedVal) return ok(cachedVal as AccountInfo);
-                    }
-                    const res = await getAccount(horizonUrl, publicKey, { signal: dedupSignal });
-                    if (cache && res.status === "ok") cache.set(cacheKey, res.data);
-                    return res;
-                  }),
+                  withLogging(
+                    logger,
+                    "account.get",
+                    { publicKey },
+                    async () => {
+                      const cacheKey = `account:get:${horizonUrl}:${publicKey}`;
+                      if (cache) {
+                        const cachedVal = cache.get(cacheKey);
+                        if (cachedVal) return ok(cachedVal as AccountInfo);
+                      }
+                      const res = await getAccount(horizonUrl, publicKey, {
+                        signal: dedupSignal,
+                      });
+                      if (cache && res.status === "ok")
+                        cache.set(cacheKey, res.data);
+                      return res;
+                    },
+                  ),
               ).then(applyTx),
-            signal
-          )
+            signal,
+          ),
         ),
       getAccountsBatch: (publicKeys, timeoutMs) =>
         guard("account_get_batch", timeoutMs, (signal) =>
           withErrorHandling(
             errorHandler,
-            { functionName: "account.getAccountsBatch", params: { publicKeys } },
+            {
+              functionName: "account.getAccountsBatch",
+              params: { publicKeys },
+            },
             () =>
               withLogging(
                 logger,
                 "account.getAccountsBatch",
                 { publicKeys },
-                () => getAccountsBatch(horizonUrl, publicKeys, { signal, ...(cache && { cache }) }),
+                () =>
+                  getAccountsBatch(horizonUrl, publicKeys, {
+                    signal,
+                    ...(cache && { cache }),
+                  }),
               ),
           ).then(applyTx),
         ),
@@ -1602,14 +1978,17 @@ export function createSorokitClient(
                         const cachedVal = cache.get(cacheKey);
                         if (cachedVal) return ok(cachedVal as AssetBalance[]);
                       }
-                      const res = await getBalances(horizonUrl, publicKey, { signal: dedupSignal });
-                      if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+                      const res = await getBalances(horizonUrl, publicKey, {
+                        signal: dedupSignal,
+                      });
+                      if (cache && res.status === "ok")
+                        cache.set(cacheKey, res.data);
                       return res;
                     },
                   ),
               ).then(applyTx),
-            signal
-          )
+            signal,
+          ),
         ),
       getAssetBalances: (publicKey, filter, timeoutMs) =>
         guard("account_get_balances", timeoutMs, (signal) =>
@@ -1640,13 +2019,14 @@ export function createSorokitClient(
                         undefined,
                         { signal: dedupSignal },
                       );
-                      if (cache && res.status === "ok") cache.set(cacheKey, res.data);
+                      if (cache && res.status === "ok")
+                        cache.set(cacheKey, res.data);
                       return res;
                     },
                   ),
               ).then(applyTx),
-            signal
-          )
+            signal,
+          ),
         ),
       stream: (publicKey, streamConfig, signal) =>
         streamAccount(horizonUrl, publicKey, streamConfig, signal, logger),
@@ -1659,7 +2039,10 @@ export function createSorokitClient(
         guard("account_get_offers", timeoutMs, () =>
           withErrorHandling(
             errorHandler,
-            { functionName: "account.getOffers", params: { publicKey, options } },
+            {
+              functionName: "account.getOffers",
+              params: { publicKey, options },
+            },
             () => getOffers(horizonUrl, publicKey, options),
           ).then(applyTx),
         ),
@@ -1667,11 +2050,19 @@ export function createSorokitClient(
         guard("account_get_trades", timeoutMs, () =>
           withErrorHandling(
             errorHandler,
-            { functionName: "account.getTrades", params: { publicKey, options } },
+            {
+              functionName: "account.getTrades",
+              params: { publicKey, options },
+            },
             () => getTrades(horizonUrl, publicKey, options),
           ).then(applyTx),
         ),
-      simulateAccountMerge: (sourcePublicKey, destinationPublicKey, options, timeoutMs) =>
+      simulateAccountMerge: (
+        sourcePublicKey,
+        destinationPublicKey,
+        options,
+        timeoutMs,
+      ) =>
         guard("account_get", timeoutMs, (signal) =>
           withErrorHandling(
             errorHandler,
@@ -1685,10 +2076,19 @@ export function createSorokitClient(
                 "account.simulateAccountMerge",
                 { sourcePublicKey, destinationPublicKey },
                 () =>
-                  simulateAccountMerge(horizonUrl, sourcePublicKey, destinationPublicKey, {
-                    ...options,
-                    ...(signal !== undefined ? { signal } : options?.signal !== undefined ? { signal: options.signal } : {}),
-                  }),
+                  simulateAccountMerge(
+                    horizonUrl,
+                    sourcePublicKey,
+                    destinationPublicKey,
+                    {
+                      ...options,
+                      ...(signal !== undefined
+                        ? { signal }
+                        : options?.signal !== undefined
+                          ? { signal: options.signal }
+                          : {}),
+                    },
+                  ),
               ),
           ).then(applyTx),
         ),
@@ -1724,7 +2124,9 @@ export function createSorokitClient(
               params: { sourcePublicKey, ...params },
             },
             () => {
-              logger.debug("transaction.buildCreateAccount", { sourcePublicKey });
+              logger.debug("transaction.buildCreateAccount", {
+                sourcePublicKey,
+              });
               return buildCreateAccountTransaction(
                 horizonUrl,
                 networkConfig,
@@ -1831,7 +2233,10 @@ export function createSorokitClient(
             errorHandler,
             {
               functionName: "transaction.buildBumpSequence",
-              params: { sourcePublicKey, bumpToSequence: params.bumpToSequence },
+              params: {
+                sourcePublicKey,
+                bumpToSequence: params.bumpToSequence,
+              },
             },
             () => {
               logger.debug("transaction.buildBumpSequence", {
@@ -1850,8 +2255,17 @@ export function createSorokitClient(
         guard("tx_build", timeoutMs, () =>
           withErrorHandling(
             errorHandler,
-            { functionName: "transaction.buildSetOptions", params: { sourcePublicKey, ...params } },
-            () => buildSetOptionsTransaction(horizonUrl, networkConfig, sourcePublicKey, params),
+            {
+              functionName: "transaction.buildSetOptions",
+              params: { sourcePublicKey, ...params },
+            },
+            () =>
+              buildSetOptionsTransaction(
+                horizonUrl,
+                networkConfig,
+                sourcePublicKey,
+                params,
+              ),
           ).then(applyTx),
         ),
       compose: (sourcePublicKey, options) => {
@@ -1860,9 +2274,10 @@ export function createSorokitClient(
       },
       orchestrate: (options) => orchestrate(options),
       submit: async (signedXdr, optionsOrTimeoutMs) => {
-        const submitOptions = typeof optionsOrTimeoutMs === "number"
-          ? { timeoutMs: optionsOrTimeoutMs }
-          : optionsOrTimeoutMs;
+        const submitOptions =
+          typeof optionsOrTimeoutMs === "number"
+            ? { timeoutMs: optionsOrTimeoutMs }
+            : optionsOrTimeoutMs;
         const timeoutMs = submitOptions?.timeoutMs;
         return guard("tx_submit", timeoutMs, (signal) =>
           withErrorHandling(
@@ -1876,13 +2291,18 @@ export function createSorokitClient(
                 networkPassphrase,
                 signedXdr,
                 cache,
-                { ...submitOptions, signal, logger: submitOptions?.logger ?? safetyLogger },
+                {
+                  ...submitOptions,
+                  signal,
+                  logger: submitOptions?.logger ?? safetyLogger,
+                },
               );
             },
           ).then(applyTx),
         );
       },
-      submitTransaction: (signedXdr, options) => client.transaction.submit(signedXdr, options),
+      submitTransaction: (signedXdr, options) =>
+        client.transaction.submit(signedXdr, options),
       previewTransaction: (transactionXdr, _sourcePublicKey, timeoutMs) =>
         guard("tx_preview", timeoutMs, (signal) =>
           withErrorHandling(
@@ -1890,10 +2310,15 @@ export function createSorokitClient(
             { functionName: "transaction.previewTransaction" },
             () => {
               logger.debug("transaction.previewTransaction");
-              return previewTransaction(horizonUrl, networkPassphrase, transactionXdr, {
-                rpcUrl,
-                signal,
-              });
+              return previewTransaction(
+                horizonUrl,
+                networkPassphrase,
+                transactionXdr,
+                {
+                  rpcUrl,
+                  signal,
+                },
+              );
             },
           ).then(applyTx),
         ),
@@ -1907,11 +2332,13 @@ export function createSorokitClient(
                 { functionName: "transaction.getStatus", params: { hash } },
                 () => {
                   logger.debug("transaction.getStatus", { hash });
-                  return getTransactionStatus(horizonUrl, hash, cache, { signal: dedupSignal });
+                  return getTransactionStatus(horizonUrl, hash, cache, {
+                    signal: dedupSignal,
+                  });
                 },
               ).then(applyTx),
-            signal
-          )
+            signal,
+          ),
         ),
       estimateFee: (input, timeoutMs) =>
         guard("tx_estimate_fee", timeoutMs, () =>
@@ -1965,7 +2392,8 @@ export function createSorokitClient(
               logger.debug("transaction.queryHistory", { publicKey });
               return queryTransactionHistory(horizonUrl, publicKey, {
                 ...query,
-                networkPassphrase: query?.networkPassphrase ?? networkPassphrase,
+                networkPassphrase:
+                  query?.networkPassphrase ?? networkPassphrase,
               });
             },
           ).then(applyTx),
@@ -1997,7 +2425,9 @@ export function createSorokitClient(
               params: { publicKey, options },
             },
             () => {
-              logger.debug("transaction.exportTransactionHistory", { publicKey });
+              logger.debug("transaction.exportTransactionHistory", {
+                publicKey,
+              });
               return exportTransactionHistory(horizonUrl, publicKey, {
                 ...options,
                 networkPassphrase:
@@ -2011,91 +2441,169 @@ export function createSorokitClient(
     soroban: {
       getContractMethods: (contractId, ttlMs, timeoutMs) =>
         guard("soroban_get_methods", timeoutMs, () =>
-          withErrorHandling(errorHandler, { functionName: "soroban.getContractMethods", params: { contractId } }, async () =>
-            (await import("../soroban")).getContractMethods(rpcUrl, contractId, {
-              ...(cache ? { cache } : {}),
-              ...(ttlMs !== undefined ? { ttlMs } : {}),
-            }),
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "soroban.getContractMethods",
+              params: { contractId },
+            },
+            async () =>
+              (await import("../soroban")).getContractMethods(
+                rpcUrl,
+                contractId,
+                {
+                  ...(cache ? { cache } : {}),
+                  ...(ttlMs !== undefined ? { ttlMs } : {}),
+                },
+              ),
           ).then(applyTx),
         ),
       detectContractUpgrade: (contractId, onUpgrade, timeoutMs) =>
         guard("soroban_get_methods", timeoutMs, () =>
-          withErrorHandling(errorHandler, { functionName: "soroban.detectContractUpgrade", params: { contractId } }, async () =>
-            (await import("../soroban")).detectContractUpgrade(rpcUrl, contractId, {
-              ...(cache ? { cache } : {}),
-              ...(onUpgrade ? { onUpgrade } : {}),
-            }),
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "soroban.detectContractUpgrade",
+              params: { contractId },
+            },
+            async () =>
+              (await import("../soroban")).detectContractUpgrade(
+                rpcUrl,
+                contractId,
+                {
+                  ...(cache ? { cache } : {}),
+                  ...(onUpgrade ? { onUpgrade } : {}),
+                },
+              ),
           ).then(applyTx),
         ),
       simulate: (transactionXdr, timeoutMs) =>
         guard("soroban_simulate", timeoutMs, (signal) =>
           deduplicator.deduplicate(
             ["soroban.simulate", rpcUrl, networkPassphrase, transactionXdr],
-            () => withErrorHandling(errorHandler, { functionName: "soroban.simulate" }, async () =>
-              (await import("../soroban")).simulateTransaction(rpcUrl, networkPassphrase, transactionXdr),
-            ).then(applyTx),
+            () =>
+              withErrorHandling(
+                errorHandler,
+                { functionName: "soroban.simulate" },
+                async () =>
+                  (await import("../soroban")).simulateTransaction(
+                    rpcUrl,
+                    networkPassphrase,
+                    transactionXdr,
+                  ),
+              ).then(applyTx),
             signal,
           ),
         ),
       prepare: (params, timeoutMs) =>
         guard("soroban_prepare", timeoutMs, () =>
-          withErrorHandling(errorHandler, { functionName: "soroban.prepare", params: { contractId: params.contractId, method: params.method } }, async () =>
-            (await import("../soroban")).prepareContractCall(rpcUrl, networkConfig, horizonUrl, params),
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "soroban.prepare",
+              params: { contractId: params.contractId, method: params.method },
+            },
+            async () =>
+              (await import("../soroban")).prepareContractCall(
+                rpcUrl,
+                networkConfig,
+                horizonUrl,
+                params,
+              ),
           ).then(applyTx),
         ),
       execute: (signedXdr, pollConfig, timeoutMs, safetyOptions) =>
         guard("soroban_execute", timeoutMs, () =>
-          withErrorHandling(errorHandler, { functionName: "soroban.execute" }, async () =>
-            (await import("../soroban")).executeContract(
-              rpcUrl,
-              networkConfig,
-              signedXdr,
-              pollConfig ?? defaultPollConfig,
-              logger,
-              await getContractStateTracker(),
-              { ...safetyOptions, logger: safetyOptions?.logger ?? safetyLogger },
-            ),
+          withErrorHandling(
+            errorHandler,
+            { functionName: "soroban.execute" },
+            async () =>
+              (await import("../soroban")).executeContract(
+                rpcUrl,
+                networkConfig,
+                signedXdr,
+                pollConfig ?? defaultPollConfig,
+                logger,
+                await getContractStateTracker(),
+                {
+                  ...safetyOptions,
+                  logger: safetyOptions?.logger ?? safetyLogger,
+                },
+              ),
           ).then(applyTx),
         ),
       invoke: (params, signFn, pollConfig, timeoutMs, safetyOptions) =>
         guard("soroban_invoke", timeoutMs, () =>
-          withErrorHandling(errorHandler, { functionName: "soroban.invoke", params: { contractId: params.contractId, method: params.method } }, async () => {
-            const stateTracker = await getContractStateTracker();
-            return (await import("../soroban")).invokeContract(
-              rpcUrl,
-              networkConfig,
-              horizonUrl,
-              {
-                ...params,
-                ...(params.stateTracker === undefined && stateTracker ? { stateTracker } : {}),
-              },
-              signFn,
-              pollConfig ?? defaultPollConfig,
-              logger,
-              { ...safetyOptions, logger: safetyOptions?.logger ?? safetyLogger },
-            );
-          }).then(applyTx),
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "soroban.invoke",
+              params: { contractId: params.contractId, method: params.method },
+            },
+            async () => {
+              const stateTracker = await getContractStateTracker();
+              return (await import("../soroban")).invokeContract(
+                rpcUrl,
+                networkConfig,
+                horizonUrl,
+                {
+                  ...params,
+                  ...(params.stateTracker === undefined && stateTracker
+                    ? { stateTracker }
+                    : {}),
+                },
+                signFn,
+                pollConfig ?? defaultPollConfig,
+                logger,
+                {
+                  ...safetyOptions,
+                  logger: safetyOptions?.logger ?? safetyLogger,
+                },
+              );
+            },
+          ).then(applyTx),
         ),
       read: (params, timeoutMs) =>
         guard("soroban_read", timeoutMs, (signal) =>
           deduplicator.deduplicate(
             ["soroban.read", rpcUrl, params],
-            () => withErrorHandling(errorHandler, { functionName: "soroban.read", params: { contractId: params.contractId, method: params.method } }, async () => {
-              const stateTracker = await getContractStateTracker();
-              return (await import("../soroban")).readContract(rpcUrl, horizonUrl, networkConfig, {
-                ...params,
-                ...(params.stateTracker === undefined && stateTracker ? { stateTracker } : {}),
-              });
-            }).then(applyTx),
+            () =>
+              withErrorHandling(
+                errorHandler,
+                {
+                  functionName: "soroban.read",
+                  params: {
+                    contractId: params.contractId,
+                    method: params.method,
+                  },
+                },
+                async () => {
+                  const stateTracker = await getContractStateTracker();
+                  return (await import("../soroban")).readContract(
+                    rpcUrl,
+                    horizonUrl,
+                    networkConfig,
+                    {
+                      ...params,
+                      ...(params.stateTracker === undefined && stateTracker
+                        ? { stateTracker }
+                        : {}),
+                    },
+                  );
+                },
+              ).then(applyTx),
             signal,
           ),
         ),
       streamContractEventsRealTime: async function* (contractId, options) {
         logger.debug("soroban.streamContractEventsRealTime", { contractId });
-        yield* (await import("../soroban")).streamContractEventsRealTime(contractId, {
-          rpcUrl,
-          ...options,
-        });
+        yield* (await import("../soroban")).streamContractEventsRealTime(
+          contractId,
+          {
+            rpcUrl,
+            ...options,
+          },
+        );
       },
       filterEvents: (contractId, filters) =>
         filterContractEvents(contractId, filters, { rpcUrl }),
@@ -2107,13 +2615,19 @@ export function createSorokitClient(
           ...(options !== undefined ? { streamOptions: options } : {}),
         });
       },
-      decodeContractResult: (result, schema) => decodeSorobanResult(result, schema),
+      decodeContractResult: (result, schema) =>
+        decodeSorobanResult(result, schema),
       getContractState: (contractId, source) =>
         readContractState(contractId, source, contractStateHistory),
       getContractStateAt: (contractId, ledger) =>
         readContractStateAt(contractId, ledger, contractStateHistory),
       getStateChanges: (contractId, fromLedger, toLedger) =>
-        compareContractState(contractId, fromLedger, toLedger, contractStateHistory),
+        compareContractState(
+          contractId,
+          fromLedger,
+          toLedger,
+          contractStateHistory,
+        ),
       watchContractState: (contractId, source, options) =>
         streamContractState(contractId, source, options, contractStateHistory),
     },

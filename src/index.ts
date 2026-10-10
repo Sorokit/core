@@ -177,7 +177,13 @@ export type {
   WalletCapabilitySource,
   WalletCapabilities,
 } from "./wallet/types";
-export type { DeviceSignals, DeviceFingerprint, TrustHistoryEntry, TrustScoreOptions, TrustEvaluation } from "./wallet/deviceTrust";
+export type {
+  DeviceSignals,
+  DeviceFingerprint,
+  TrustHistoryEntry,
+  TrustScoreOptions,
+  TrustEvaluation,
+} from "./wallet/deviceTrust";
 
 // ─── Wallet Status Tracker ─────────────────────────────────────────────────────
 export {
@@ -253,14 +259,21 @@ export {
   ConnectionPool,
   createConnectionPool,
 } from "./network";
-export type { AdaptiveRateLimiterOptions, RateLimitState, RateLimitedResponse } from "./network";
+export type {
+  AdaptiveRateLimiterOptions,
+  RateLimitState,
+  RateLimitedResponse,
+} from "./network";
 export {
   MemoryCursorStore,
   LocalStorageCursorStore,
   PersistentEventDeduplicationStore,
   createCursorStore,
 } from "./streaming/cursorStore";
-export type { CursorStore, EventDeduplicationStore } from "./streaming/cursorStore";
+export type {
+  CursorStore,
+  EventDeduplicationStore,
+} from "./streaming/cursorStore";
 export type {
   CheckNetworkHealthOptions,
   NetworkEndpointHealth,
@@ -337,7 +350,14 @@ export type {
 // Standalone account functions for use without a client instance
 export { getAccount } from "./account/getAccount";
 export { getOffers, getTrades } from "./account/dexActivity";
-export type { DexActivityOptions, DexActivityResult, DexAsset, DexAssetAmount, OfferInfo, TradeInfo } from "./account/dexActivity";
+export type {
+  DexActivityOptions,
+  DexActivityResult,
+  DexAsset,
+  DexAssetAmount,
+  OfferInfo,
+  TradeInfo,
+} from "./account/dexActivity";
 export { getBalances } from "./account/getBalances";
 export { getAssetBalances } from "./account/getAssetBalances";
 export {
@@ -441,9 +461,7 @@ export type {
   MultiSigEnvelopeParams,
   MultiSigEnvelope,
 } from "./transaction/types";
-export {
-  verifyTransactionSignatures,
-} from "./transaction/witnessValidation";
+export { verifyTransactionSignatures } from "./transaction/witnessValidation";
 export type {
   SignatureValidationResult,
   WitnessValidationResult,
@@ -546,7 +564,10 @@ export type {
   SplitPaymentOptions,
 } from "./transaction/pathPayment";
 export { streamTransactions } from "./transaction/streamTransactions";
-export { streamTransactionsSSE, buildTransactionSSEUrl } from "./transaction/streamTransactionsSSE";
+export {
+  streamTransactionsSSE,
+  buildTransactionSSEUrl,
+} from "./transaction/streamTransactionsSSE";
 export {
   buildPathPayment,
   checkTrustlines,
@@ -597,8 +618,24 @@ export type {
 
 // ─── Fee-bump transactions (#398) ─────────────────────────────────────────────
 export { buildFeeBumpTransaction } from "./transaction/feeBumpTransaction";
-export { buildEscrowTransaction, validateEscrow, validateEscrowAction, createEscrowRelease, createEscrowRefund, createEscrowDispute, isEscrowExpired, calculateAdaptiveFee } from "./transaction";
-export type { EscrowAction, EscrowState, EscrowTiming, EscrowParams, EscrowValidation, AdaptiveFeeOptions } from "./transaction";
+export {
+  buildEscrowTransaction,
+  validateEscrow,
+  validateEscrowAction,
+  createEscrowRelease,
+  createEscrowRefund,
+  createEscrowDispute,
+  isEscrowExpired,
+  calculateAdaptiveFee,
+} from "./transaction";
+export type {
+  EscrowAction,
+  EscrowState,
+  EscrowTiming,
+  EscrowParams,
+  EscrowValidation,
+  AdaptiveFeeOptions,
+} from "./transaction";
 
 // ─── Webhook support (#395) ───────────────────────────────────────────────────
 export {
@@ -709,7 +746,10 @@ export {
   resetPairRegistry,
 } from "./transaction/assetPairs";
 export type { AssetPair, PairPrice } from "./transaction/assetPairs";
-export { validateTransaction, validateTransactionBatch } from "./transaction/validateTransaction";
+export {
+  validateTransaction,
+  validateTransactionBatch,
+} from "./transaction/validateTransaction";
 export type {
   ValidationIssue,
   TransactionValidationContext,
@@ -805,9 +845,7 @@ export { setSorobanSimulator } from "./shared/serverFactory";
 
 // ─── Soroban real-time event streaming (#541) ──────────────────────────────────
 export { streamContractEventsRealTime } from "./soroban/streamContractEventsRealTime";
-export type {
-  StreamContractEventsRealTimeOptions,
-} from "./soroban/streamContractEventsRealTime";
+export type { StreamContractEventsRealTimeOptions } from "./soroban/streamContractEventsRealTime";
 export {
   EventIndex,
   filterNewEvents,
@@ -917,9 +955,7 @@ export type {
   BuilderStateListener,
   BuilderStateUnsubscribe,
 } from "./soroban";
-export {
-  invokeContract,
-} from "./soroban/invokeContract";
+export { invokeContract } from "./soroban/invokeContract";
 export type { InvokeContractOptions } from "./soroban/invokeContract";
 export {
   withExecutionPolicy,
@@ -1043,8 +1079,14 @@ export type {
   ContractStateDiff,
   ContractStateReader,
 } from "./soroban/stateSnapshots";
-export { optimizeContractArgs, analyzeArgumentEncoding } from "./soroban/optimizeArgs";
-export type { ArgumentEncodingStats, OptimizedContractArgs } from "./soroban/optimizeArgs";
+export {
+  optimizeContractArgs,
+  analyzeArgumentEncoding,
+} from "./soroban/optimizeArgs";
+export type {
+  ArgumentEncodingStats,
+  OptimizedContractArgs,
+} from "./soroban/optimizeArgs";
 export {
   createClaimCommitment,
   createProofEnvelope,
@@ -1177,8 +1219,23 @@ export type {
 } from "./account/attestationTypes";
 
 export { SDK_VERSION } from "./shared/constants";
-export { createI18n, translateMessage, localizeError, DEFAULT_LOCALE, EN_TRANSLATIONS, ES_TRANSLATIONS } from "./shared/i18n";
-export type { I18n, I18nConfig, MessageKey, TranslationCatalog, TranslationMap, LocalizedError, SupportedLocale } from "./shared/i18n";
+export {
+  createI18n,
+  translateMessage,
+  localizeError,
+  DEFAULT_LOCALE,
+  EN_TRANSLATIONS,
+  ES_TRANSLATIONS,
+} from "./shared/i18n";
+export type {
+  I18n,
+  I18nConfig,
+  MessageKey,
+  TranslationCatalog,
+  TranslationMap,
+  LocalizedError,
+  SupportedLocale,
+} from "./shared/i18n";
 export type { SorokitCache } from "./shared/cache";
 export { createInMemoryCache, invalidateContractState } from "./shared/cache";
 
@@ -1354,7 +1411,10 @@ export type {
 } from "./transaction/bundles";
 
 // ─── Forecasting, storage analysis, and congestion monitoring ──────────────────
-export { forecastBalance, forecastAccountBalance } from "./account/balanceForecast";
+export {
+  forecastBalance,
+  forecastAccountBalance,
+} from "./account/balanceForecast";
 export type {
   BalanceForecastTransaction,
   BalanceForecastOptions,
@@ -1420,14 +1480,20 @@ export type {
   TimeGroupedMetrics,
 } from "./soroban/eventAnalytics";
 
-export { CongestionMonitor, createCongestionMonitor } from "./network/congestionMonitor";
+export {
+  CongestionMonitor,
+  createCongestionMonitor,
+} from "./network/congestionMonitor";
 export type {
   CongestionSample,
   CongestionMonitorOptions,
   CongestionLevel,
   CongestionSnapshot,
 } from "./network/congestionMonitor";
-export { SpendingPolicyEngine, createSpendingPolicyEngine } from "./transaction/spendingPolicy";
+export {
+  SpendingPolicyEngine,
+  createSpendingPolicyEngine,
+} from "./transaction/spendingPolicy";
 export type {
   SpendingLimitPeriod,
   SpendingLimit,
@@ -1470,7 +1536,10 @@ export type {
   ContractSigningRequest,
   SigningRequestState,
 } from "./soroban/multiSigExecution";
-export { auditWalletSecurity, isHighRiskConnection } from "./wallet/securityAudit";
+export {
+  auditWalletSecurity,
+  isHighRiskConnection,
+} from "./wallet/securityAudit";
 export type {
   RiskSeverity,
   RiskConfidence,
@@ -1610,7 +1679,11 @@ export type {
 } from "./account/portfolioAggregation";
 
 // ─── Account merge simulation & safety checks ─────────────────────────────────
-export { simulateAccountMerge, validateMerge, getDataLoss } from "./account/mergeSafety";
+export {
+  simulateAccountMerge,
+  validateMerge,
+  getDataLoss,
+} from "./account/mergeSafety";
 export type {
   MergeTrustlineInfo,
   AccountMergeSimulation,
@@ -1654,20 +1727,47 @@ export {
 } from "./shared/validation";
 
 // ─── Account signer, history, effects, and data entries (#556/#557/#558/#559) ─
-export { getSigners, getThresholds, analyzeSigningRequirement } from "./account/signers";
-export type { AccountSigner, AccountSigners, AccountThresholds, SigningOperation, SigningRequirement } from "./account/signers";
+export {
+  getSigners,
+  getThresholds,
+  analyzeSigningRequirement,
+} from "./account/signers";
+export type {
+  AccountSigner,
+  AccountSigners,
+  AccountThresholds,
+  SigningOperation,
+  SigningRequirement,
+} from "./account/signers";
 export { getPaymentHistory } from "./account/paymentHistory";
-export type { PaymentInfo, PaymentPage, PaymentHistoryOptions } from "./account/paymentHistory";
+export type {
+  PaymentInfo,
+  PaymentPage,
+  PaymentHistoryOptions,
+} from "./account/paymentHistory";
 export { getEffects } from "./account/getEffects";
-export type { EffectInfo, EffectsPage, GetEffectsOptions } from "./account/getEffects";
+export type {
+  EffectInfo,
+  EffectsPage,
+  GetEffectsOptions,
+} from "./account/getEffects";
 export { getDataEntries } from "./account/dataEntries";
 export type { AccountDataEntries } from "./account/dataEntries";
-export { buildSetDataEntryTransaction, buildDeleteDataEntryTransaction } from "./transaction/dataEntry";
+export {
+  buildSetDataEntryTransaction,
+  buildDeleteDataEntryTransaction,
+} from "./transaction/dataEntry";
 export { detectContractUpgrade } from "./soroban/upgradeDetection";
-export type { UpgradeEvent, ContractUpgradeDetectionOptions } from "./soroban/upgradeDetection";
+export type {
+  UpgradeEvent,
+  ContractUpgradeDetectionOptions,
+} from "./soroban/upgradeDetection";
 
 // ─── Account health score and risk assessment (#590) ──────────────────────────
-export { getAccountHealthScore, assessAccountHealth } from "./account/accountHealth";
+export {
+  getAccountHealthScore,
+  assessAccountHealth,
+} from "./account/accountHealth";
 export type {
   AccountHealthInput,
   AccountHealthReport,
@@ -1729,7 +1829,6 @@ export type {
   Sep7ValidationResult,
   Sep7BuildOptions,
 } from "./integration/sep7Handler";
-
 
 // ─── Smart Cache (#604) ──────────────────────────────────────────────────────
 export {
@@ -1847,14 +1946,24 @@ export type {
   VoteReceipt,
   VotingPower,
 } from "./integration/governance";
-export { connectLedger, LedgerSession, ledgerAccountPath, STELLAR_LEDGER_BIP32_PATH_PREFIX } from "./wallet/adapters/ledgerAdapter";
+export {
+  connectLedger,
+  LedgerSession,
+  ledgerAccountPath,
+  STELLAR_LEDGER_BIP32_PATH_PREFIX,
+} from "./wallet/adapters/ledgerAdapter";
 export type {
   LedgerStellarApp,
   LedgerTransportKind,
   LedgerConnectOptions,
   LedgerAccount,
 } from "./wallet/adapters/ledgerAdapter";
-export { connectTrezor, TrezorSession, trezorAccountPath, STELLAR_TREZOR_BIP32_PATH_PREFIX } from "./wallet/adapters/trezorAdapter";
+export {
+  connectTrezor,
+  TrezorSession,
+  trezorAccountPath,
+  STELLAR_TREZOR_BIP32_PATH_PREFIX,
+} from "./wallet/adapters/trezorAdapter";
 export type {
   TrezorStellarApi,
   TrezorTransportKind,
@@ -1883,7 +1992,10 @@ export type {
   ContractStateHistoryRetention,
   ContractStateHistoryStats,
 } from "./soroban/contractStateHistory";
-export type { MemoryUsageSample, MemoryMonitorOptions } from "./soroban/contractMemory";
+export type {
+  MemoryUsageSample,
+  MemoryMonitorOptions,
+} from "./soroban/contractMemory";
 // ─── Real-time transaction status dashboard (#708) ───────────────────────────
 export {
   TransactionStatusAggregator,
