@@ -1,8 +1,16 @@
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { SorokitCache } from "../shared/cache";
-import type { WalletAdapter, WalletConnectOptions, WalletConnectionProgress, WalletState } from "./types";
-import { traceWalletConnect, type TelemetrySpan } from "../performance/telemetry";
+import type {
+  WalletAdapter,
+  WalletConnectOptions,
+  WalletConnectionProgress,
+  WalletState,
+} from "./types";
+import {
+  traceWalletConnect,
+  type TelemetrySpan,
+} from "../performance/telemetry";
 import { isUserRejection } from "../shared/errors";
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -22,11 +30,24 @@ function getAdapterDisplayName(walletType: string): string {
   return map[walletType] ?? walletType;
 }
 
-function isNonRetryableError(code: string, message: string, cause?: unknown): boolean {
+function isNonRetryableError(
+  code: string,
+  message: string,
+  cause?: unknown,
+): boolean {
   if (code === SorokitErrorCode.WALLET_BROWSER_ONLY) return true;
   if (code === SorokitErrorCode.WALLET_SIGN_REJECTED) return true;
-  if ((cause && isUserRejection(cause)) || (message && isUserRejection(message))) return true;
-  if (message && (message.includes("Install") || message.includes("not installed") || message.includes("rejected"))) {
+  if (
+    (cause && isUserRejection(cause)) ||
+    (message && isUserRejection(message))
+  )
+    return true;
+  if (
+    message &&
+    (message.includes("Install") ||
+      message.includes("not installed") ||
+      message.includes("rejected"))
+  ) {
     return true;
   }
   return false;
@@ -54,7 +75,10 @@ export async function connectWallet(
   let cache: SorokitCache | undefined;
   let options: WalletConnectOptions | undefined;
 
-  if (cacheOrOptions && typeof (cacheOrOptions as SorokitCache).get === "function") {
+  if (
+    cacheOrOptions &&
+    typeof (cacheOrOptions as SorokitCache).get === "function"
+  ) {
     cache = cacheOrOptions as SorokitCache;
     options = optionsArg;
   } else {
@@ -141,7 +165,10 @@ async function connectWalletImpl(
 
       if (timedOut) {
         const timeoutErrorMsg = `The wallet connection timed out after ${Math.round(timeoutMs / 1000)} seconds. Make sure your wallet is open and try again.`;
-        lastError = err(SorokitErrorCode.WALLET_CONNECT_FAILED, timeoutErrorMsg);
+        lastError = err(
+          SorokitErrorCode.WALLET_CONNECT_FAILED,
+          timeoutErrorMsg,
+        );
         notifyProgress("failed", attempt, isRetry, timeoutErrorMsg, true);
         if (attempt >= maxRetries) return lastError;
         await sleep(backoffMs * Math.pow(2, attempt - 1));
@@ -152,20 +179,27 @@ async function connectWalletImpl(
         const errorMsg = rawResult.error.message;
         lastError = rawResult as SorokitResult<WalletState>;
 
-        if (isNonRetryableError(rawResult.error.code, errorMsg, rawResult.error.cause)) {
+        if (
+          isNonRetryableError(
+            rawResult.error.code,
+            errorMsg,
+            rawResult.error.cause,
+          )
+        ) {
           notifyProgress("failed", attempt, isRetry, errorMsg, false);
           return rawResult as SorokitResult<WalletState>;
         }
 
         notifyProgress("failed", attempt, isRetry, errorMsg, false);
-        if (attempt >= maxRetries) return rawResult as SorokitResult<WalletState>;
+        if (attempt >= maxRetries)
+          return rawResult as SorokitResult<WalletState>;
         await sleep(backoffMs * Math.pow(2, attempt - 1));
         continue;
       }
 
       const publicKey = rawResult.data;
       if (!publicKey || typeof publicKey !== "string" || publicKey === "") {
-        const emptyKeyMsg = `${adapterName} returned an empty public key. Make sure your wallet account is setup and try again.`;
+        const emptyKeyMsg = "Wallet returned an empty public key.";
         lastError = err(SorokitErrorCode.WALLET_CONNECT_FAILED, emptyKeyMsg);
         notifyProgress("failed", attempt, isRetry, emptyKeyMsg, false);
         return lastError;
@@ -192,7 +226,10 @@ async function connectWalletImpl(
 
       if (timedOut) {
         const timeoutErrorMsg = `The wallet connection timed out after ${Math.round(timeoutMs / 1000)} seconds. Make sure your wallet is open and try again.`;
-        lastError = err(SorokitErrorCode.WALLET_CONNECT_FAILED, timeoutErrorMsg);
+        lastError = err(
+          SorokitErrorCode.WALLET_CONNECT_FAILED,
+          timeoutErrorMsg,
+        );
         notifyProgress("failed", attempt, isRetry, timeoutErrorMsg, true);
         if (attempt >= maxRetries) return lastError;
         await sleep(backoffMs * Math.pow(2, attempt - 1));
@@ -215,4 +252,3 @@ async function connectWalletImpl(
     )
   );
 }
-

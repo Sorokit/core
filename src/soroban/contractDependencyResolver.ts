@@ -64,7 +64,7 @@ export interface VersionConstraint {
 export function parseVersionConstraint(
   constraint: string,
 ): SorokitResult<VersionConstraint> {
-  const match = constraint.match(/^([~^]?)([><=]?)([\d.]+)$/);
+  const match = constraint.match(/^([~^]?)(>=|<=|>|<|=)?([\d.]+)$/);
   if (!match) {
     return err(
       SorokitErrorCode.VALIDATION,
@@ -151,7 +151,10 @@ function compareVersions(v1: ParsedVersion, v2: ParsedVersion): number {
 // ─── Dependency Graph Construction ────────────────────────────────────────────
 
 export class ContractDependencyResolver {
-  private metadataCache: Map<string, { metadata: ContractMetadata; timestamp: number }>;
+  private metadataCache: Map<
+    string,
+    { metadata: ContractMetadata; timestamp: number }
+  >;
   private config: Required<DependencyResolverConfig>;
 
   constructor(config: DependencyResolverConfig = {}) {
@@ -308,7 +311,9 @@ export class ContractDependencyResolver {
 
           // Check version constraint if specified
           if (dep.versionConstraint) {
-            const constraintResult = parseVersionConstraint(dep.versionConstraint);
+            const constraintResult = parseVersionConstraint(
+              dep.versionConstraint,
+            );
             if (constraintResult.status === "error") {
               return constraintResult;
             }

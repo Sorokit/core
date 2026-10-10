@@ -29,6 +29,7 @@ import {
   discoverWallet,
   listLinkedAccounts,
   linkWallet,
+  clearLinkedAccounts,
 } from "../wallet/discovery";
 import {
   InMemorySigningHistoryStore,
@@ -36,7 +37,12 @@ import {
   exportSigningHistory,
   type SigningRecord,
 } from "../wallet/signingHistory";
-import { FreighterAdapter, XBullAdapter, LobstrAdapter, RabetAdapter } from "../wallet/adapters";
+import {
+  FreighterAdapter,
+  XBullAdapter,
+  LobstrAdapter,
+  RabetAdapter,
+} from "../wallet/adapters";
 import { WalletType } from "../wallet/types";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import { createSorokitClient } from "../client/createSorokitClient";
@@ -219,7 +225,9 @@ describe("wallet adapters", () => {
 
     it("connect() succeeds and returns public key when provider resolves", async () => {
       const mockProvider = {
-        connect: vi.fn().mockResolvedValue({ publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA" }),
+        connect: vi.fn().mockResolvedValue({
+          publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        }),
         sign: vi.fn(),
       };
       const adapter = new RabetAdapter(mockProvider);
@@ -227,13 +235,17 @@ describe("wallet adapters", () => {
       const result = await adapter.connect();
       expect(result.status).toBe("ok");
       if (result.status === "ok") {
-        expect(result.data).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+        expect(result.data).toBe(
+          "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        );
       }
     });
 
     it("connect() maps user rejection to WALLET_SIGN_REJECTED", async () => {
       const mockProvider = {
-        connect: vi.fn().mockRejectedValue(new Error("User rejected the request")),
+        connect: vi
+          .fn()
+          .mockRejectedValue(new Error("User rejected the request")),
         sign: vi.fn(),
       };
       const adapter = new RabetAdapter(mockProvider);
@@ -288,7 +300,9 @@ describe("wallet adapters", () => {
     it("signTransaction() maps user rejection to WALLET_SIGN_REJECTED", async () => {
       const mockProvider = {
         connect: vi.fn(),
-        sign: vi.fn().mockRejectedValue(new Error("User cancelled transaction")),
+        sign: vi
+          .fn()
+          .mockRejectedValue(new Error("User cancelled transaction")),
       };
       const adapter = new RabetAdapter(mockProvider);
 
@@ -395,7 +409,9 @@ describe("wallet module functions", () => {
       expect(result.status).toBe("error");
       if (result.status === "error") {
         expect(result.error.code).toBe(SorokitErrorCode.WALLET_CONNECT_FAILED);
-        expect(result.error.message).toBe("Wallet returned an empty public key.");
+        expect(result.error.message).toBe(
+          "Wallet returned an empty public key.",
+        );
       }
     });
 
@@ -436,7 +452,9 @@ describe("wallet module functions", () => {
       isAvailable: () => true,
       connect: vi.fn(),
       disconnect: vi.fn(),
-      signTransaction: vi.fn().mockRejectedValue(new Error("User rejected the request")),
+      signTransaction: vi
+        .fn()
+        .mockRejectedValue(new Error("User rejected the request")),
     };
     const result = await signTransaction(rejectingAdapter, {
       transactionXdr: "some-xdr",
@@ -510,7 +528,9 @@ describe("collectMultiSignatures (#22)", () => {
     const signFn = vi
       .fn()
       .mockResolvedValueOnce(ok("xdr-after-alice"))
-      .mockResolvedValueOnce(err(SorokitErrorCode.WALLET_SIGN_REJECTED, "Bob rejected"));
+      .mockResolvedValueOnce(
+        err(SorokitErrorCode.WALLET_SIGN_REJECTED, "Bob rejected"),
+      );
 
     const result = await collectMultiSignatures(
       "xdr-0",
@@ -527,7 +547,9 @@ describe("collectMultiSignatures (#22)", () => {
   it("stops immediately if the first signer fails", async () => {
     const signFn = vi
       .fn()
-      .mockResolvedValue(err(SorokitErrorCode.WALLET_NOT_CONNECTED, "not connected"));
+      .mockResolvedValue(
+        err(SorokitErrorCode.WALLET_NOT_CONNECTED, "not connected"),
+      );
 
     const result = await collectMultiSignatures(
       "xdr-0",
@@ -579,7 +601,9 @@ describe("envelope signature management (#118)", () => {
 
     expect(envelopeSignatures(signedXdr)).toHaveLength(2);
     expect(envelopeSignatures(updatedXdr)).toHaveLength(1);
-    expect(envelopeSignatures(updatedXdr)[0].hint()).toEqual(secondSignature.hint());
+    expect(envelopeSignatures(updatedXdr)[0].hint()).toEqual(
+      secondSignature.hint(),
+    );
   });
 
   it("removes signatures by 8-character hex hint", () => {
@@ -598,20 +622,20 @@ describe("envelope signature management (#118)", () => {
     expect(() => addSignatureToEnvelope("not-xdr", signature)).toThrow(
       "Invalid transaction envelope XDR",
     );
-    expect(() => removeSignatureFromEnvelope("not-xdr", signature.hint())).toThrow(
-      "Invalid transaction envelope XDR",
-    );
+    expect(() =>
+      removeSignatureFromEnvelope("not-xdr", signature.hint()),
+    ).toThrow("Invalid transaction envelope XDR");
   });
 
   it("rejects invalid signatures and invalid hints", () => {
     const envelopeXdr = createUnsignedEnvelopeXdr();
 
-    expect(() => addSignatureToEnvelope(envelopeXdr, "not-signature-xdr")).toThrow(
-      "Invalid decorated signature XDR",
-    );
-    expect(() => removeSignatureFromEnvelope(envelopeXdr, Buffer.alloc(3))).toThrow(
-      "Signature hint must be exactly 4 bytes",
-    );
+    expect(() =>
+      addSignatureToEnvelope(envelopeXdr, "not-signature-xdr"),
+    ).toThrow("Invalid decorated signature XDR");
+    expect(() =>
+      removeSignatureFromEnvelope(envelopeXdr, Buffer.alloc(3)),
+    ).toThrow("Signature hint must be exactly 4 bytes");
   });
 });
 
@@ -619,7 +643,8 @@ function fakeAdapter(overrides?: Partial<WalletAdapter>): WalletAdapter {
   return {
     walletType: WalletType.FREIGHTER,
     isAvailable: () => true,
-    connect: async () => ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
+    connect: async () =>
+      ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
     disconnect: async () => ok(undefined),
     signTransaction: async () => ok("signed"),
     ...overrides,
@@ -627,7 +652,10 @@ function fakeAdapter(overrides?: Partial<WalletAdapter>): WalletAdapter {
 }
 
 describe("diagnoseWalletConnection (#34)", () => {
-  function find(report: { checks: { name: string; status: string }[] }, name: string) {
+  function find(
+    report: { checks: { name: string; status: string }[] },
+    name: string,
+  ) {
     return report.checks.find((c) => c.name === name);
   }
 
@@ -661,18 +689,25 @@ describe("diagnoseWalletConnection (#34)", () => {
     if (result.status !== "ok") throw new Error("expected ok");
     expect(result.data.healthy).toBe(false);
     expect(find(result.data, "extension_responsive")?.status).toBe("fail");
-    expect(result.data.recommendations.some((r) => r.includes("approve"))).toBe(true);
+    expect(result.data.recommendations.some((r) => r.includes("approve"))).toBe(
+      true,
+    );
   });
 
   it("passes the network check when the endpoint is reachable", async () => {
-    const fetchFn = vi.fn(async () => ({ ok: true, status: 200 })) as unknown as typeof fetch;
+    const fetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+    })) as unknown as typeof fetch;
     const result = await diagnoseWalletConnection(fakeAdapter(), {
       networkUrl: "https://horizon.test",
       fetchFn,
     });
     if (result.status !== "ok") throw new Error("expected ok");
     expect(find(result.data, "network_connectivity")?.status).toBe("pass");
-    expect(fetchFn).toHaveBeenCalledWith("https://horizon.test", { method: "GET" });
+    expect(fetchFn).toHaveBeenCalledWith("https://horizon.test", {
+      method: "GET",
+    });
   });
 
   it("fails the network check when fetch throws", async () => {
@@ -689,7 +724,10 @@ describe("diagnoseWalletConnection (#34)", () => {
   });
 
   it("warns when the network endpoint returns a non-ok status", async () => {
-    const fetchFn = vi.fn(async () => ({ ok: false, status: 503 })) as unknown as typeof fetch;
+    const fetchFn = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+    })) as unknown as typeof fetch;
     const result = await diagnoseWalletConnection(fakeAdapter(), {
       networkUrl: "https://horizon.test",
       fetchFn,
@@ -706,10 +744,9 @@ describe("diagnoseWalletConnection (#34)", () => {
 
   it("skips the connection probe when probeConnection is false", async () => {
     const connect = vi.fn().mockResolvedValue(ok("G..."));
-    const result = await diagnoseWalletConnection(
-      fakeAdapter({ connect }),
-      { probeConnection: false },
-    );
+    const result = await diagnoseWalletConnection(fakeAdapter({ connect }), {
+      probeConnection: false,
+    });
     if (result.status !== "ok") throw new Error("expected ok");
     expect(find(result.data, "extension_responsive")?.status).toBe("skipped");
     expect(connect).not.toHaveBeenCalled();
@@ -789,12 +826,20 @@ describe("signing history export with filters (#387)", () => {
     const store = new InMemorySigningHistoryStore();
     sampleRecords.forEach((r) => store.record(r));
 
-    const result = exportSigningHistory(store, "json", { signer: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA" });
+    const result = exportSigningHistory(store, "json", {
+      signer: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+    });
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
       const parsed = JSON.parse(result.data);
       expect(parsed).toHaveLength(2);
-      expect(parsed.every((r: SigningRecord) => r.signer === "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA")).toBe(true);
+      expect(
+        parsed.every(
+          (r: SigningRecord) =>
+            r.signer ===
+            "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+        ),
+      ).toBe(true);
     }
   });
 
@@ -839,7 +884,14 @@ describe("signing history export with filters (#387)", () => {
     if (result.status === "ok") {
       const parsed = JSON.parse(result.data);
       expect(parsed).toHaveLength(2);
-      expect(parsed.every((r: SigningRecord) => r.signer === "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA" && r.status === "success")).toBe(true);
+      expect(
+        parsed.every(
+          (r: SigningRecord) =>
+            r.signer ===
+              "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA" &&
+            r.status === "success",
+        ),
+      ).toBe(true);
     }
   });
 
@@ -847,7 +899,9 @@ describe("signing history export with filters (#387)", () => {
     const store = new InMemorySigningHistoryStore();
     sampleRecords.forEach((r) => store.record(r));
 
-    const result = exportSigningHistory(store, "json", { signer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" });
+    const result = exportSigningHistory(store, "json", {
+      signer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    });
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
       const parsed = JSON.parse(result.data);
@@ -859,7 +913,9 @@ describe("signing history export with filters (#387)", () => {
     const store = new InMemorySigningHistoryStore();
     sampleRecords.forEach((r) => store.record(r));
 
-    const result = exportSigningHistory(store, "csv", { signer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" });
+    const result = exportSigningHistory(store, "csv", {
+      signer: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    });
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
       const lines = result.data.split("\n");
@@ -894,21 +950,26 @@ describe("wallet connection persistence and recovery", () => {
     const adapter = fakeAdapter({
       walletType: WalletType.FREIGHTER,
       isAvailable: () => true,
-      connect: async () => ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
+      connect: async () =>
+        ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
     });
 
     const result = await connectWallet(adapter, cache);
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
       expect(result.data.connected).toBe(true);
-      expect(result.data.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      expect(result.data.publicKey).toBe(
+        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      );
       expect(result.data.walletType).toBe(WalletType.FREIGHTER);
     }
 
     const cachedState = cache.get("wallet:state") as any;
     expect(cachedState).toBeDefined();
     expect(cachedState.connected).toBe(true);
-    expect(cachedState.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+    expect(cachedState.publicKey).toBe(
+      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+    );
     expect(cachedState.walletType).toBe(WalletType.FREIGHTER);
   });
 
@@ -937,7 +998,9 @@ describe("wallet connection persistence and recovery", () => {
     expect(connResult.status).toBe("ok");
     if (connResult.status === "ok") {
       expect(connResult.data.connected).toBe(true);
-      expect(connResult.data.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      expect(connResult.data.publicKey).toBe(
+        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      );
       expect(connResult.data.walletType).toBe(WalletType.FREIGHTER);
     }
 
@@ -983,14 +1046,17 @@ describe("wallet connection persistence and recovery", () => {
     const adapter = fakeAdapter({
       walletType: WalletType.FREIGHTER,
       isAvailable: () => true,
-      connect: async () => ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
+      connect: async () =>
+        ok("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA"),
     });
 
     const connResult = await client.wallet.connect(adapter);
     expect(connResult.status).toBe("ok");
     if (connResult.status === "ok") {
       expect(connResult.data.connected).toBe(true);
-      expect(connResult.data.publicKey).toBe("GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA");
+      expect(connResult.data.publicKey).toBe(
+        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA",
+      );
       expect(connResult.data.walletType).toBe(WalletType.FREIGHTER);
     }
   });
@@ -1017,7 +1083,10 @@ describe("wallet connection persistence and recovery", () => {
 
 describe("detectInstalledWallets (#44)", () => {
   it("returns available:true for adapters where isAvailable() is true", () => {
-    const adapter = fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER });
+    const adapter = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.FREIGHTER,
+    });
     const results = detectInstalledWallets([adapter]);
     expect(results).toHaveLength(1);
     expect(results[0].available).toBe(true);
@@ -1025,13 +1094,19 @@ describe("detectInstalledWallets (#44)", () => {
   });
 
   it("returns available:false for adapters where isAvailable() is false", () => {
-    const adapter = fakeAdapter({ isAvailable: () => false, walletType: WalletType.XBULL });
+    const adapter = fakeAdapter({
+      isAvailable: () => false,
+      walletType: WalletType.XBULL,
+    });
     const results = detectInstalledWallets([adapter]);
     expect(results[0].available).toBe(false);
   });
 
   it("returns features for known wallet types", () => {
-    const adapter = fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL });
+    const adapter = fakeAdapter({
+      isAvailable: () => true,
+      walletType: WalletType.XBULL,
+    });
     const results = detectInstalledWallets([adapter]);
     expect(results[0].features).toContain("multisig");
     expect(results[0].features).toContain("hardware");
@@ -1043,20 +1118,30 @@ describe("detectInstalledWallets (#44)", () => {
 
   it("handles multiple adapters mixed availability", () => {
     const adapters = [
-      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({
+        isAvailable: () => true,
+        walletType: WalletType.FREIGHTER,
+      }),
       fakeAdapter({ isAvailable: () => false, walletType: WalletType.LOBSTR }),
     ];
     const results = detectInstalledWallets(adapters);
     expect(results).toHaveLength(2);
-    expect(results.find((r) => r.walletType === WalletType.FREIGHTER)?.available).toBe(true);
-    expect(results.find((r) => r.walletType === WalletType.LOBSTR)?.available).toBe(false);
+    expect(
+      results.find((r) => r.walletType === WalletType.FREIGHTER)?.available,
+    ).toBe(true);
+    expect(
+      results.find((r) => r.walletType === WalletType.LOBSTR)?.available,
+    ).toBe(false);
   });
 });
 
 describe("recommendWallets (#44)", () => {
   it("returns only available wallets when no criteria provided", () => {
     const adapters = [
-      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({
+        isAvailable: () => true,
+        walletType: WalletType.FREIGHTER,
+      }),
       fakeAdapter({ isAvailable: () => false, walletType: WalletType.LOBSTR }),
     ];
     const results = recommendWallets(adapters);
@@ -1066,7 +1151,10 @@ describe("recommendWallets (#44)", () => {
 
   it("filters by required features", () => {
     const adapters = [
-      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({
+        isAvailable: () => true,
+        walletType: WalletType.FREIGHTER,
+      }),
       fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
     ];
     const results = recommendWallets(adapters, { features: ["hardware"] });
@@ -1076,7 +1164,10 @@ describe("recommendWallets (#44)", () => {
 
   it("returns empty when no available wallets match criteria", () => {
     const adapters = [
-      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({
+        isAvailable: () => true,
+        walletType: WalletType.FREIGHTER,
+      }),
     ];
     const results = recommendWallets(adapters, { features: ["hardware"] });
     expect(results).toHaveLength(0);
@@ -1084,7 +1175,10 @@ describe("recommendWallets (#44)", () => {
 
   it("returns all available wallets when criteria.features is empty", () => {
     const adapters = [
-      fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({
+        isAvailable: () => true,
+        walletType: WalletType.FREIGHTER,
+      }),
       fakeAdapter({ isAvailable: () => true, walletType: WalletType.XBULL }),
     ];
     const results = recommendWallets(adapters, { features: [] });
@@ -1154,7 +1248,10 @@ describe("prioritizeWallet (#95)", () => {
 
   it("handles list where no wallets are available", () => {
     const adapters = [
-      fakeAdapter({ isAvailable: () => false, walletType: WalletType.FREIGHTER }),
+      fakeAdapter({
+        isAvailable: () => false,
+        walletType: WalletType.FREIGHTER,
+      }),
       fakeAdapter({ isAvailable: () => false, walletType: WalletType.XBULL }),
     ];
     const result = prioritizeWallet(adapters, WalletType.FREIGHTER);
@@ -1164,12 +1261,15 @@ describe("prioritizeWallet (#95)", () => {
 });
 
 import { listConnectedAccounts, switchAccount } from "../wallet/index";
-import type { ConnectedAccountsResult, AccountSwitchResult } from "../wallet/types";
+import type {
+  ConnectedAccountsResult,
+  AccountSwitchResult,
+} from "../wallet/types";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const ACCOUNT_A = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNA";
-const ACCOUNT_B = "GBVV2ASSEN5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWWWB";
+const ACCOUNT_B = "GBVV2ASSEN5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWWWWA";
 const ACCOUNT_C = "GCCCCCSSEN5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWWWC";
 
 // ─── listConnectedAccounts ────────────────────────────────────────────────────
@@ -1204,7 +1304,9 @@ describe("listConnectedAccounts", () => {
         isAvailable: () => true,
         connect: async () => ok(ACCOUNT_A),
       }),
-      getAccounts: vi.fn().mockResolvedValue(ok([ACCOUNT_A, ACCOUNT_B, ACCOUNT_C])),
+      getAccounts: vi
+        .fn()
+        .mockResolvedValue(ok([ACCOUNT_A, ACCOUNT_B, ACCOUNT_C])),
     };
     const result = await listConnectedAccounts(adapter);
     expect(result.status).toBe("ok");
@@ -1227,7 +1329,9 @@ describe("listConnectedAccounts", () => {
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
       // ACCOUNT_A must not appear twice
-      expect(result.data.accounts.filter((k) => k === ACCOUNT_A)).toHaveLength(1);
+      expect(result.data.accounts.filter((k) => k === ACCOUNT_A)).toHaveLength(
+        1,
+      );
       expect(result.data.accounts).toContain(ACCOUNT_B);
     }
   });
@@ -1235,7 +1339,8 @@ describe("listConnectedAccounts", () => {
   it("propagates error when connect() fails", async () => {
     const adapter = fakeAdapter({
       isAvailable: () => true,
-      connect: async () => err(SorokitErrorCode.WALLET_CONNECT_FAILED, "wallet locked"),
+      connect: async () =>
+        err(SorokitErrorCode.WALLET_CONNECT_FAILED, "wallet locked"),
     });
     const result = await listConnectedAccounts(adapter);
     expect(result.status).toBe("error");
@@ -1250,9 +1355,11 @@ describe("listConnectedAccounts", () => {
         isAvailable: () => true,
         connect: async () => ok(ACCOUNT_A),
       }),
-      getAccounts: vi.fn().mockResolvedValue(
-        err(SorokitErrorCode.WALLET_CONNECT_FAILED, "accounts unavailable"),
-      ),
+      getAccounts: vi
+        .fn()
+        .mockResolvedValue(
+          err(SorokitErrorCode.WALLET_CONNECT_FAILED, "accounts unavailable"),
+        ),
     };
     const result = await listConnectedAccounts(adapter);
     expect(result.status).toBe("error");
@@ -1318,7 +1425,10 @@ describe("switchAccount", () => {
   it("calls setActiveAccount with the provided key and returns a connected WalletState", async () => {
     const setActiveAccount = vi.fn().mockResolvedValue(ok(ACCOUNT_B));
     const adapter: WalletAdapter = {
-      ...fakeAdapter({ isAvailable: () => true, walletType: WalletType.FREIGHTER }),
+      ...fakeAdapter({
+        isAvailable: () => true,
+        walletType: WalletType.FREIGHTER,
+      }),
       setActiveAccount,
     };
 
@@ -1337,9 +1447,11 @@ describe("switchAccount", () => {
   it("propagates error when setActiveAccount fails", async () => {
     const adapter: WalletAdapter = {
       ...fakeAdapter({ isAvailable: () => true }),
-      setActiveAccount: vi.fn().mockResolvedValue(
-        err(SorokitErrorCode.WALLET_SIGN_REJECTED, "user cancelled"),
-      ),
+      setActiveAccount: vi
+        .fn()
+        .mockResolvedValue(
+          err(SorokitErrorCode.WALLET_SIGN_REJECTED, "user cancelled"),
+        ),
     };
     const result = await switchAccount(adapter, ACCOUNT_B);
     expect(result.status).toBe("error");
@@ -1361,11 +1473,13 @@ describe("switchAccount", () => {
 
     const switchToB = await switchAccount(adapter, ACCOUNT_B);
     expect(switchToB.status).toBe("ok");
-    if (switchToB.status === "ok") expect(switchToB.data.publicKey).toBe(ACCOUNT_B);
+    if (switchToB.status === "ok")
+      expect(switchToB.data.publicKey).toBe(ACCOUNT_B);
 
     const switchToC = await switchAccount(adapter, ACCOUNT_C);
     expect(switchToC.status).toBe("ok");
-    if (switchToC.status === "ok") expect(switchToC.data.publicKey).toBe(ACCOUNT_C);
+    if (switchToC.status === "ok")
+      expect(switchToC.data.publicKey).toBe(ACCOUNT_C);
 
     expect(setActiveAccount).toHaveBeenCalledTimes(2);
     expect(activeKey).toBe(ACCOUNT_C);
@@ -1382,9 +1496,7 @@ describe("signTransactionOffline (#145)", () => {
         networkPassphrase: Networks.TESTNET,
       },
     )
-      .addOperation(
-        Operation.manageData({ name: "offline-sign", value: "ok" }),
-      )
+      .addOperation(Operation.manageData({ name: "offline-sign", value: "ok" }))
       .setTimeout(30)
       .build()
       .toXDR();
@@ -1508,7 +1620,9 @@ describe("adapter signTransaction() with browser simulation (#274)", () => {
 
   it("FreighterAdapter returns WALLET_SIGN_REJECTED when user rejects in simulated browser", async () => {
     const kit = mockKit({
-      signTransaction: vi.fn().mockRejectedValue(new Error("User rejected the request")),
+      signTransaction: vi
+        .fn()
+        .mockRejectedValue(new Error("User rejected the request")),
     });
     const adapter = new FreighterAdapter(kit);
     vi.spyOn(adapter, "isAvailable").mockReturnValue(true);
@@ -1642,13 +1756,19 @@ describe("signing delegation", () => {
       expiresAt: new Date(Date.now() - 1_000),
     });
     expect(() =>
-      mergeSignatures(expired, [{ signer: "GA", signature: createDecoratedSignature() }]),
+      mergeSignatures(expired, [
+        { signer: "GA", signature: createDecoratedSignature() },
+      ]),
     ).toThrow(/expired/);
   });
 });
 
 describe("wallet discovery (#wallet-discovery)", () => {
   const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    clearLinkedAccounts();
+  });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -1716,11 +1836,7 @@ describe("wallet discovery (#wallet-discovery)", () => {
           status: 200,
           json: async () => ({}),
           text: async () =>
-            [
-              "ACCOUNTS = [",
-              `  "${ACCOUNT_B}"`,
-              "]",
-            ].join("\n"),
+            ["ACCOUNTS = [", `  "${ACCOUNT_B}"`, "]"].join("\n"),
         }) as unknown as typeof fetch;
 
       const result = await discoverWallet("example.com", "alice", { fetchFn });
