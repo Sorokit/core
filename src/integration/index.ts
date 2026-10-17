@@ -21,6 +21,7 @@ export type {
 } from "../shared/keyManagement";
 export {
   clearFederationAddressCache,
+  parseFederatedAddress,
   resolveFederatedAddress,
 } from "./federationResolver";
 export {
@@ -68,6 +69,8 @@ export type {
   VotingPower,
 } from "./governance";
 export type {
+  FederationMemoType,
+  ParsedFederatedAddress,
   FederationResolverOptions,
   ResolvedAddress,
 } from "./federationResolver";

@@ -90,7 +90,14 @@ export async function initiateSep10Auth(
     if (normalized.protocol !== "https:" || normalized.pathname !== "/" || normalized.search || normalized.hash) {
       return err(SorokitErrorCode.INVALID_CONFIG, "SEP-10 server URL must be an HTTPS domain.");
     }
-    homeDomain = options.homeDomain ?? normalized.hostname;
+    const serverDomain = normalized.hostname.toLowerCase();
+    homeDomain = (options.homeDomain ?? serverDomain).trim().toLowerCase();
+    if (homeDomain !== serverDomain) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "Home domain does not match auth endpoint domain",
+      );
+    }
   } catch {
     return err(SorokitErrorCode.INVALID_CONFIG, "SEP-10 server URL must be a valid HTTPS domain.");
   }

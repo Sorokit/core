@@ -80,4 +80,19 @@ describe("SEP-10 auth", () => {
   it("rejects malformed tokens", () => {
     expect(validateSep10Token("not-a-jwt").status).toBe("error");
   });
+
+  it("rejects a home domain that differs from the TOML domain", async () => {
+    const fetcher = setup(vi.fn() as typeof fetch);
+    const result = await initiateSep10Auth(homeDomain, clientKey.publicKey(), {
+      homeDomain: "attacker.example",
+      fetch: fetcher,
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.message).toBe("Home domain does not match auth endpoint domain");
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(fetchToml).not.toHaveBeenCalled();
+  });
 });

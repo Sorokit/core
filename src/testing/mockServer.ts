@@ -1,7 +1,16 @@
 import { delay, http, HttpResponse, type JsonBodyType } from "msw";
 import { setupServer } from "msw/node";
 
-export type MockServerScenario = "success" | "timeout" | "error" | "rate-limit" | "malformed";
+export type MockServerScenario =
+  | "success"
+  | "timeout"
+  | "error"
+  | "rate-limit"
+  | "malformed"
+  | "fee_surge"
+  | "rate_limited"
+  | "slow_rpc"
+  | "degraded";
 export interface MockServerOptions {
   scenario?: MockServerScenario;
   delay?: number;
@@ -17,10 +26,23 @@ function payload(endpoint: string, fallback: JsonBodyType): JsonBodyType {
 }
 
 async function respond(endpoint: string, fallback: JsonBodyType): Promise<Response> {
-  if (scenario === "timeout") await delay(responseDelay || 5_000);
+  if (scenario === "timeout" || scenario === "slow_rpc") await delay(responseDelay || 5_000);
   if (scenario === "error") return HttpResponse.json({ error: "Mock server error" }, { status: 500 });
-  if (scenario === "rate-limit") return HttpResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+  if (scenario === "rate-limit" || scenario === "rate_limited") {
+    return HttpResponse.json({ code: "RATE_LIMIT_EXCEEDED", error: "Rate limit exceeded" }, { status: 429 });
+  }
+  if (scenario === "degraded") {
+    return HttpResponse.json({ code: "SERVICE_DEGRADED", error: "Mock service is degraded" }, { status: 503 });
+  }
   if (scenario === "malformed") return HttpResponse.text("{ malformed json", { status: 200 });
+  if (scenario === "fee_surge") {
+    if (endpoint === "simulateTransaction") {
+      return HttpResponse.json({ results: [], minResourceFee: "1000" });
+    }
+    if (endpoint === "sendTransaction") {
+      return HttpResponse.json({ status: "PENDING", hash: "mock-hash", feeCharged: "1000" });
+    }
+  }
   return HttpResponse.json(payload(endpoint, fallback));
 }
 
@@ -51,6 +73,14 @@ export function setupMockServerScenario(nextScenario: MockServerScenario, option
   scenario = nextScenario;
   responseDelay = options.delay ?? responseDelay;
   overrides = options.overrides ?? overrides;
+}
+
+/** Change the active response mode without restarting the MSW server. */
+export function setResponseMode(
+  nextScenario: MockServerScenario,
+  options: Omit<MockServerOptions, "scenario"> = {},
+): void {
+  setupMockServerScenario(nextScenario, options);
 }
 
 export function teardownMockServer(): void {

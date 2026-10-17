@@ -9,6 +9,15 @@ export interface ResolvedAddress {
   memoType?: "id" | "text" | "hash" | "return";
 }
 
+export type FederationMemoType = "id" | "text" | "hash" | "return";
+
+export interface ParsedFederatedAddress {
+  username: string;
+  domain: string;
+  memo?: string;
+  memoType?: FederationMemoType;
+}
+
 export interface FederationResolverOptions {
   /** Cache lifetime in milliseconds. Set to 0 to disable caching. Defaults to 60 seconds. */
   cacheTtlMs?: number;
@@ -29,16 +38,41 @@ const addressCache = new Map<string, CacheEntry>();
 
 export function parseFederatedAddress(
   value: string,
-): { username: string; domain: string } | null {
-  const match = /^([^*\s@]+)\*([^*\s@]+)$/.exec(value.trim());
+): ParsedFederatedAddress | null {
+  const [addressPart, query = ""] = value.trim().split("?", 2);
+  const match = /^([^*\s@]+)\*([^*\s@]+)$/.exec(addressPart ?? "");
   if (match?.[1] && match[2] && !match[2].includes("/")) {
-    return { username: match[1], domain: match[2].toLowerCase() };
+    return parseFederationMemo(match[1], match[2], query);
   }
-  const email = /^([^@\s]+)@([^@\s]+)$/.exec(value.trim());
+  const email = /^([^@\s]+)@([^@\s]+)$/.exec(addressPart ?? "");
   if (email?.[1] && email[2] && !email[2].includes("/")) {
-    return { username: email[1], domain: email[2].toLowerCase() };
+    return parseFederationMemo(email[1], email[2], query);
   }
   return null;
+}
+
+function parseFederationMemo(
+  username: string,
+  domain: string,
+  query: string,
+): ParsedFederatedAddress | null {
+  if (!query) return { username, domain: domain.toLowerCase() };
+
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(query);
+  } catch {
+    return null;
+  }
+
+  const memoType = params.get("memo_type") as FederationMemoType | null;
+  const memo = params.get("memo_id") ?? params.get("memo_text") ?? params.get("memo_hash") ?? params.get("memo_return");
+  if (!memoType || !memo || !["id", "text", "hash", "return"].includes(memoType)) return null;
+  if (memoType === "id" && (!/^\d+$/.test(memo) || BigInt(memo) > 18446744073709551615n)) return null;
+  if (memoType === "hash" && !/^[0-9a-fA-F]{64}$/.test(memo)) return null;
+  if (memoType === "text" && new TextEncoder().encode(memo).length > 28) return null;
+
+  return { username, domain: domain.toLowerCase(), memo, memoType };
 }
 
 /** Resolve a Stellar federation address (`name*domain` or `name@domain`). */
@@ -54,7 +88,7 @@ export async function resolveFederatedAddress(
     );
   }
 
-  const cacheKey = `${parsed.username}*${parsed.domain}`;
+  const cacheKey = value.trim();
   const cached = addressCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return ok(cached.value);
   if (cached) addressCache.delete(cacheKey);
@@ -85,11 +119,13 @@ export async function resolveFederatedAddress(
           )
             ? (data.memo_type as ResolvedAddress["memoType"])
             : undefined;
+          const resolvedMemo = data.memo ?? parsed.memo;
+          const resolvedMemoType = memoType ?? parsed.memoType;
           const resolved: ResolvedAddress = {
             publicKey,
             stellarAddress: cacheKey,
-            ...(data.memo !== undefined ? { memo: data.memo } : {}),
-            ...(memoType !== undefined ? { memoType } : {}),
+            ...(resolvedMemo !== undefined ? { memo: resolvedMemo } : {}),
+            ...(resolvedMemoType !== undefined ? { memoType: resolvedMemoType } : {}),
           };
           const ttl = Math.max(0, options.cacheTtlMs ?? 60_000);
           if (ttl > 0)
@@ -138,11 +174,13 @@ export async function resolveFederatedAddress(
       )
         ? (record.memo_type as ResolvedAddress["memoType"])
         : undefined;
+      const resolvedMemo = record.memo ?? parsed.memo;
+      const resolvedMemoType = memoType ?? parsed.memoType;
       const resolved: ResolvedAddress = {
         publicKey,
         stellarAddress: cacheKey,
-        ...(record.memo !== undefined ? { memo: record.memo } : {}),
-        ...(memoType !== undefined ? { memoType } : {}),
+        ...(resolvedMemo !== undefined ? { memo: resolvedMemo } : {}),
+        ...(resolvedMemoType !== undefined ? { memoType: resolvedMemoType } : {}),
       };
       const ttl = Math.max(0, options.cacheTtlMs ?? 60_000);
       if (ttl > 0)
