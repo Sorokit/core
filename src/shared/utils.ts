@@ -601,6 +601,30 @@ export function clearInflightRequests(): void {
 }
 
 /**
+ * Remove a specific in-flight request by key.
+ */
+export function removeInflightRequest(key: string): boolean {
+  return _inflightRequests.delete(key);
+}
+
+/**
+ * Invalidate in-flight requests matching a substring or regular expression.
+ */
+export function invalidateInflightRequests(prefixOrPattern: string | RegExp): number {
+  let count = 0;
+  for (const key of _inflightRequests.keys()) {
+    const match =
+      typeof prefixOrPattern === "string"
+        ? key.includes(prefixOrPattern)
+        : prefixOrPattern.test(key);
+    if (match) {
+      if (_inflightRequests.delete(key)) count++;
+    }
+  }
+  return count;
+}
+
+/**
  * Configuration for streaming poll retry behavior.
  */
 export interface StreamingRetryConfig {

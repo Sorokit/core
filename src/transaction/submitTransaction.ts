@@ -18,6 +18,7 @@ import { createHorizonServer, createSorobanServer } from "../shared/serverFactor
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
 import { mapHorizonError } from "../shared/horizonErrorMapper";
 import { traceTransactionSubmit, type TelemetrySpan } from "../performance/telemetry";
+import { invalidateAccount } from "../account/getAccount";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -228,9 +229,11 @@ async function submitTransactionImpl(
   }
 
   let txHash: string | undefined;
+  let parsedTx: unknown;
 
   try {
     const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+    parsedTx = tx;
     try {
       // Only needed to label webhook events on failure paths; never let hash
       // computation itself fail a submission.
@@ -275,6 +278,9 @@ async function submitTransactionImpl(
       });
     });
 
+    // Invalidate cached/inflight getAccount sequence state for the source account (#752)
+    invalidateSubmittedTxAccounts(tx, horizonUrl);
+
     const result: TransactionResult = {
       hash: response.hash,
       status: "success",
@@ -301,6 +307,9 @@ async function submitTransactionImpl(
     span?.setStatus("ok");
     return ok(result);
   } catch (cause) {
+    if (parsedTx) {
+      invalidateSubmittedTxAccounts(parsedTx, horizonUrl);
+    }
     const mapped = mapHorizonError(cause, {
       resource: "transaction",
       fallbackCode: SorokitErrorCode.TX_SUBMIT_FAILED,
@@ -325,5 +334,39 @@ async function submitTransactionImpl(
       undefined,
       mapped.recovery ? { recovery: mapped.recovery } : undefined,
     );
+  }
+}
+
+/**
+ * Invalidate cached and in-flight sequence fetches for all source accounts
+ * involved in the submitted transaction (#752).
+ */
+function invalidateSubmittedTxAccounts(tx: unknown, horizonUrl: string): void {
+  try {
+    const accountsToInvalidate = new Set<string>();
+    if (tx instanceof FeeBumpTransaction) {
+      if (tx.feeSource) accountsToInvalidate.add(tx.feeSource);
+      if (tx.innerTransaction?.source) accountsToInvalidate.add(tx.innerTransaction.source);
+    } else if (tx && typeof tx === "object" && "source" in tx && typeof (tx as any).source === "string") {
+      accountsToInvalidate.add((tx as any).source);
+    }
+    for (const acc of accountsToInvalidate) {
+      let sourceKey = acc;
+      if (sourceKey.startsWith("M")) {
+        try {
+          sourceKey = StrKey.encodeEd25519PublicKey(
+            StrKey.decodeMed25519PublicKey(sourceKey).subarray(0, 32),
+          );
+        } catch {
+          // Ignore muxed decode failure
+        }
+      }
+      invalidateAccount(sourceKey, horizonUrl);
+      if (acc !== sourceKey) {
+        invalidateAccount(acc, horizonUrl);
+      }
+    }
+  } catch {
+    // Ignore invalidation errors during submit
   }
 }

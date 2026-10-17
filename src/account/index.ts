@@ -1,4 +1,11 @@
-export { getAccount } from "./getAccount";
+export {
+  getAccount,
+  invalidateAccount,
+  invalidateAccountCache,
+  refreshAccountSequence,
+  clearAccountDeduplication,
+} from "./getAccount";
+export type { GetAccountOptions } from "./getAccount";
 export { getOffers, getTrades } from "./dexActivity";
 export type { DexActivityOptions, DexActivityResult, DexAsset, DexAssetAmount, OfferInfo, TradeInfo } from "./dexActivity";
 export { getAccountsBatch } from "./getAccountsBatch";

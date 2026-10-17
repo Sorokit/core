@@ -1,7 +1,14 @@
 import { Horizon } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { formatAddress, isNotFoundError, toMessage, retryWithBackoff, deduplicateRequest } from "../shared";
+import {
+  formatAddress,
+  isNotFoundError,
+  toMessage,
+  retryWithBackoff,
+  deduplicateRequest,
+  invalidateInflightRequests,
+} from "../shared";
 import { profileOperation } from "../shared/metrics";
 import { traceAccountFetch } from "../performance/telemetry";
 import type { AccountInfo, AssetBalance } from "./types";
@@ -15,6 +22,69 @@ const horizonCircuitBreaker = new CircuitBreakerRegistry({
   recoveryWindowMs: 30_000,
 });
 
+const _accountMutationVersions = new Map<string, number>();
+
+/**
+ * Invalidate in-flight and deduplicated requests for an account after a transaction
+ * submission or state mutation, ensuring subsequent fetches receive fresh sequence numbers (#752).
+ *
+ * @param publicKey  - The account public key to invalidate.
+ * @param horizonUrl - Optional Horizon URL. If omitted, all endpoints for this account are invalidated.
+ */
+export function invalidateAccount(publicKey: string, horizonUrl?: string): void {
+  if (horizonUrl) {
+    const key = `${horizonUrl}:${publicKey}`;
+    _accountMutationVersions.set(key, (_accountMutationVersions.get(key) ?? 0) + 1);
+    invalidateInflightRequests(`getAccount:${horizonUrl}:${publicKey}`);
+  } else {
+    for (const [k, v] of _accountMutationVersions.entries()) {
+      if (k.endsWith(`:${publicKey}`)) {
+        _accountMutationVersions.set(k, v + 1);
+      }
+    }
+    _accountMutationVersions.set(`:${publicKey}`, (_accountMutationVersions.get(`:${publicKey}`) ?? 0) + 1);
+    invalidateInflightRequests(`:${publicKey}`);
+  }
+}
+
+export const invalidateAccountCache = invalidateAccount;
+
+/**
+ * Refresh or set the known sequence for an account after mutation (#752).
+ */
+export function refreshAccountSequence(publicKey: string, horizonUrl?: string): void {
+  invalidateAccount(publicKey, horizonUrl);
+}
+
+/**
+ * Clear all account deduplication and mutation tracking state (for testing).
+ */
+export function clearAccountDeduplication(): void {
+  _accountMutationVersions.clear();
+  invalidateInflightRequests("getAccount:");
+}
+
+/**
+ * Options for `getAccount`.
+ */
+export interface GetAccountOptions {
+  /** Optional `signal` to abort in-flight requests on timeout (#392). */
+  signal?: AbortSignal | undefined;
+  /**
+   * Sequence number to include in the deduplication key so that concurrent
+   * fetches expecting different sequence states do not collide (#752).
+   */
+  sequence?: string | bigint | number | undefined;
+  /**
+   * Expected sequence number to include in the deduplication key (#752).
+   */
+  expectedSequence?: string | bigint | number | undefined;
+  /**
+   * Force a fresh request by bypassing and invalidating any currently in-flight deduplicated request (#752).
+   */
+  forceRefresh?: boolean | undefined;
+}
+
 /**
  * Fetch full account details including all balances from Horizon.
  *
@@ -24,7 +94,7 @@ const horizonCircuitBreaker = new CircuitBreakerRegistry({
  *
  * @param horizonUrl - Base URL of the Horizon server (e.g. `"https://horizon-testnet.stellar.org"`).
  * @param publicKey  - Stellar G-address of the account to look up.
- * @param options    - Optional `signal` to abort in-flight requests on timeout (#392).
+ * @param options    - Optional `signal`, `sequence`, `expectedSequence`, or `forceRefresh`.
  * @returns `ok(AccountInfo)` on success, or an `error` SorokitResult on failure.
  *
  * @example
@@ -38,9 +108,19 @@ const horizonCircuitBreaker = new CircuitBreakerRegistry({
 export function getAccount(
   horizonUrl: string,
   publicKey: string,
-  options?: { signal?: AbortSignal | undefined },
+  options?: GetAccountOptions,
 ): Promise<SorokitResult<AccountInfo>> {
-  const cacheKey = `getAccount:${horizonUrl}:${publicKey}`;
+  if (options?.forceRefresh) {
+    invalidateAccount(publicKey, horizonUrl);
+  }
+
+  const version =
+    (_accountMutationVersions.get(`${horizonUrl}:${publicKey}`) ?? 0) +
+    (_accountMutationVersions.get(`:${publicKey}`) ?? 0);
+  const explicitSeq = options?.sequence ?? options?.expectedSequence;
+  const seqSuffix = explicitSeq !== undefined ? `:seq:${explicitSeq}` : "";
+  const cacheKey = `getAccount:${horizonUrl}:${publicKey}:v${version}${seqSuffix}`;
+
   return traceAccountFetch(
     () =>
       profileOperation("account.get", () =>
