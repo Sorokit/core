@@ -76,11 +76,13 @@ export {
   getSigningHistory,
   exportSigningHistory,
   InMemorySigningHistoryStore,
+  DEFAULT_SIGNING_HISTORY_MAX_ENTRIES,
 } from "./signingHistory";
 export type {
   SigningRecord,
   SigningHistoryFilter,
   SigningHistoryStore,
+  InMemorySigningHistoryStoreOptions,
 } from "./signingHistory";
 export type {
   CreateSigningChallengeOptions,

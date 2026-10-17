@@ -36,6 +36,7 @@ import {
   InMemorySigningHistoryStore,
   getSigningHistory,
   exportSigningHistory,
+  DEFAULT_SIGNING_HISTORY_MAX_ENTRIES,
   type SigningRecord,
 } from "../wallet/signingHistory";
 import {
@@ -942,6 +943,85 @@ describe("signing history export with filters (#387)", () => {
       expect(parsed[0]).not.toHaveProperty("signature");
       expect(parsed[0]).not.toHaveProperty("privateKey");
     }
+  });
+
+  describe("InMemorySigningHistoryStore size limit and overflow (#743)", () => {
+    it("defaults to a maximum of 1000 entries and reports maxEntries", () => {
+      const store = new InMemorySigningHistoryStore();
+      expect(store.getMaxEntries()).toBe(1000);
+      expect(DEFAULT_SIGNING_HISTORY_MAX_ENTRIES).toBe(1000);
+      expect(store.size).toBe(0);
+    });
+
+    it("supports custom maxEntries via number or options object", () => {
+      const storeByNum = new InMemorySigningHistoryStore(50);
+      expect(storeByNum.getMaxEntries()).toBe(50);
+
+      const storeByObj = new InMemorySigningHistoryStore({ maxEntries: 250 });
+      expect(storeByObj.getMaxEntries()).toBe(250);
+
+      // Falls back to default if invalid/negative value is passed
+      const storeInvalid = new InMemorySigningHistoryStore({ maxEntries: -10 });
+      expect(storeInvalid.getMaxEntries()).toBe(DEFAULT_SIGNING_HISTORY_MAX_ENTRIES);
+
+      const storeZero = new InMemorySigningHistoryStore(0);
+      expect(storeZero.getMaxEntries()).toBe(DEFAULT_SIGNING_HISTORY_MAX_ENTRIES);
+    });
+
+    it("evicts the oldest entries in FIFO order when capacity is exceeded", () => {
+      const store = new InMemorySigningHistoryStore(3);
+
+      store.record({ txHash: "tx1", signer: "G1", timestamp: "2026-01-01T00:00:00Z", status: "success" });
+      store.record({ txHash: "tx2", signer: "G1", timestamp: "2026-01-02T00:00:00Z", status: "success" });
+      store.record({ txHash: "tx3", signer: "G1", timestamp: "2026-01-03T00:00:00Z", status: "failure" });
+
+      expect(store.size).toBe(3);
+      expect(store.query().map((r) => r.txHash)).toEqual(["tx1", "tx2", "tx3"]);
+
+      // Adding 4th record evicts oldest ("tx1")
+      store.record({ txHash: "tx4", signer: "G1", timestamp: "2026-01-04T00:00:00Z", status: "success" });
+      expect(store.size).toBe(3);
+      expect(store.query().map((r) => r.txHash)).toEqual(["tx2", "tx3", "tx4"]);
+
+      // Adding 5th record evicts oldest ("tx2")
+      store.record({ txHash: "tx5", signer: "G1", timestamp: "2026-01-05T00:00:00Z", status: "success" });
+      expect(store.size).toBe(3);
+      expect(store.query().map((r) => r.txHash)).toEqual(["tx3", "tx4", "tx5"]);
+    });
+
+    it("query() returns at most the capped count of records", () => {
+      const store = new InMemorySigningHistoryStore(5);
+
+      for (let i = 1; i <= 20; i++) {
+        store.record({
+          txHash: `tx${i}`,
+          signer: i % 2 === 0 ? "G_EVEN" : "G_ODD",
+          timestamp: `2026-01-${String(i).padStart(2, "0")}T00:00:00Z`,
+          status: "success",
+        });
+      }
+
+      // Query without filters returns at most maxEntries
+      const all = store.query();
+      expect(all).toHaveLength(5);
+      expect(all.map((r) => r.txHash)).toEqual(["tx16", "tx17", "tx18", "tx19", "tx20"]);
+
+      // Filtered queries also respect capped records
+      const evens = store.query({ signer: "G_EVEN" });
+      expect(evens.map((r) => r.txHash)).toEqual(["tx16", "tx18", "tx20"]);
+      expect(evens.length).toBeLessThanOrEqual(5);
+    });
+
+    it("clear() resets entries and size back to 0", () => {
+      const store = new InMemorySigningHistoryStore(3);
+      store.record({ txHash: "tx1", signer: "G1", timestamp: "2026-01-01T00:00:00Z", status: "success" });
+      store.record({ txHash: "tx2", signer: "G1", timestamp: "2026-01-02T00:00:00Z", status: "success" });
+
+      expect(store.size).toBe(2);
+      store.clear();
+      expect(store.size).toBe(0);
+      expect(store.query()).toHaveLength(0);
+    });
   });
 });
 

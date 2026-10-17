@@ -212,11 +212,13 @@ export {
   getSigningHistory,
   exportSigningHistory,
   InMemorySigningHistoryStore,
+  DEFAULT_SIGNING_HISTORY_MAX_ENTRIES,
 } from "./wallet/signingHistory";
 export type {
   SigningRecord,
   SigningHistoryFilter,
   SigningHistoryStore,
+  InMemorySigningHistoryStoreOptions,
 } from "./wallet/signingHistory";
 
 // ─── Wallet connection throttling and abuse detection (#506) ──────────────────

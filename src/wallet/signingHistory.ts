@@ -18,6 +18,22 @@ export interface SigningHistoryFilter {
   to?: string;
 }
 
+/**
+ * Default maximum number of signing records retained by {@link InMemorySigningHistoryStore} (#743).
+ */
+export const DEFAULT_SIGNING_HISTORY_MAX_ENTRIES = 1000;
+
+/**
+ * Options for {@link InMemorySigningHistoryStore}.
+ */
+export interface InMemorySigningHistoryStoreOptions {
+  /**
+   * Maximum number of signing records to retain in memory (default: 1000).
+   * When capacity is reached, the oldest entries are evicted in FIFO order.
+   */
+  maxEntries?: number;
+}
+
 export interface SigningHistoryStore {
   record(entry: SigningRecord): void;
   query(filter?: SigningHistoryFilter): SigningRecord[];
@@ -26,9 +42,38 @@ export interface SigningHistoryStore {
 
 export class InMemorySigningHistoryStore implements SigningHistoryStore {
   private entries: SigningRecord[] = [];
+  private readonly maxEntries: number;
+
+  /**
+   * @param options - Maximum entries number or options object with `maxEntries`. Defaults to 1000.
+   */
+  constructor(options?: number | InMemorySigningHistoryStoreOptions) {
+    const rawMax = typeof options === "number" ? options : options?.maxEntries;
+    this.maxEntries =
+      typeof rawMax === "number" && Number.isFinite(rawMax) && rawMax > 0
+        ? Math.floor(rawMax)
+        : DEFAULT_SIGNING_HISTORY_MAX_ENTRIES;
+  }
+
+  /**
+   * Return the configured maximum capacity of the store.
+   */
+  getMaxEntries(): number {
+    return this.maxEntries;
+  }
+
+  /**
+   * Return the current number of retained records.
+   */
+  get size(): number {
+    return this.entries.length;
+  }
 
   record(entry: SigningRecord): void {
     this.entries.push({ ...entry });
+    if (this.entries.length > this.maxEntries) {
+      this.entries.splice(0, this.entries.length - this.maxEntries);
+    }
   }
 
   query(filter?: SigningHistoryFilter): SigningRecord[] {
