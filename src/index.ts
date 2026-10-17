@@ -1036,6 +1036,9 @@ export type {
 } from "./soroban/validateDeployConfig";
 export {
   decodeContractEvent,
+  decodeContractEventWithAbi,
+  decodeFactoryEvent,
+  decodeRouterEvent,
 } from "./soroban/decodeContractEvent";
 export { getFactoryStatistics } from "./soroban/factoryStatistics";
 export type {

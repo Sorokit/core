@@ -3,13 +3,13 @@
  *
  * Unit tests for:
  *   - streamContractEventsRealTime
- *   - decodeContractEvent
+ *   - decodeContractEventWithAbi
  *   - EventIndex
  */
 
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import { streamContractEventsRealTime } from "../soroban/streamContractEventsRealTime";
-import { decodeContractEvent } from "../soroban/decodeContractEvent";
+import { decodeContractEventWithAbi } from "../soroban/decodeContractEvent";
 import { EventIndex } from "../soroban/eventIndex";
 import { SorokitErrorCode } from "../shared/response";
 import { createMockContractEventGenerator } from "../testing/mockEventStream";
@@ -205,7 +205,7 @@ describe("streamContractEventsRealTime", () => {
 
 // ─── decodeContractEvent ─────────────────────────────────────────────────────
 
-describe("decodeContractEvent", () => {
+describe("decodeContractEventWithAbi", () => {
   it.each([
     ["null", null],
     ["undefined", undefined],
@@ -216,14 +216,14 @@ describe("decodeContractEvent", () => {
   ])(
     "malformed input (%s) returns error with CONTRACT_READ_FAILED",
     (_label, input) => {
-      const result = decodeContractEvent(input);
+      const result = decodeContractEventWithAbi(input);
       expect(result.status).toBe("error");
       expect(result.error?.code).toBe(SorokitErrorCode.CONTRACT_READ_FAILED);
     },
   );
 
   it("unknown event type (no ABI) returns status ok with type=unknown", () => {
-    const result = decodeContractEvent({
+    const result = decodeContractEventWithAbi({
       contractId: "CTEST",
       name: "unknownEvent",
       topics: ["t1"],
@@ -236,7 +236,7 @@ describe("decodeContractEvent", () => {
 
   it("known event type with ABI returns status ok with type=known", () => {
     const abi = { methods: [{ name: "transfer", args: [] }] };
-    const result = decodeContractEvent(
+    const result = decodeContractEventWithAbi(
       { contractId: "CTEST", name: "transfer", topics: [], value: null },
       abi,
     );
@@ -246,7 +246,7 @@ describe("decodeContractEvent", () => {
   });
 
   it("valid event without ABI returns ok with correct contractId and name", () => {
-    const result = decodeContractEvent({
+    const result = decodeContractEventWithAbi({
       contractId: "C123",
       name: "mint",
       topics: ["t1", "t2"],
@@ -259,7 +259,7 @@ describe("decodeContractEvent", () => {
   });
 
   it("missing value field returns ok with undefined or null value", () => {
-    const result = decodeContractEvent({ contractId: "CTEST", name: "burn" });
+    const result = decodeContractEventWithAbi({ contractId: "CTEST", name: "burn" });
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
     // value should be undefined (no 'value' key present)
@@ -267,7 +267,7 @@ describe("decodeContractEvent", () => {
   });
 
   it("event with all undefined fields returns ok with empty strings", () => {
-    const result = decodeContractEvent({});
+    const result = decodeContractEventWithAbi({});
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
     expect(result.data.name).toBe("");
@@ -285,7 +285,7 @@ describe("EventIndex", () => {
     index.add(gen.next());
     index.add(gen.next());
     index.add(gen.next());
-    expect(index.size()).toBe(3);
+    expect(index.size).toBe(3);
   });
 
   it("query by contractId returns only matching events", () => {
@@ -357,10 +357,10 @@ describe("EventIndex", () => {
     index.add(event);
     index.add(event); // Same object reference — same fullKey
     // EventIndex.add already deduplicates same fullKey, so size stays 1
-    expect(index.size()).toBe(1);
+    expect(index.size).toBe(1);
     const removed = index.deduplicate();
     expect(removed).toBe(0);
-    expect(index.size()).toBe(1);
+    expect(index.size).toBe(1);
   });
 
   it("hash collision: distinct events with same hash bucket are both kept", () => {
@@ -389,7 +389,7 @@ describe("EventIndex", () => {
     index.add(e1);
     index.add(e2);
 
-    expect(index.size()).toBe(2);
+    expect(index.size).toBe(2);
   });
 
   it("clear empties the index", () => {
@@ -398,6 +398,6 @@ describe("EventIndex", () => {
     index.add(genClear.next());
     index.add(genClear.next());
     index.clear();
-    expect(index.size()).toBe(0);
+    expect(index.size).toBe(0);
   });
 });

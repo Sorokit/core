@@ -54,6 +54,7 @@ export {
 export { streamContractEventsRealTime } from "./streamContractEventsRealTime";
 export {
   EventIndex,
+  canonicalEventKey,
 } from "./eventIndex";
 export {
   getContractMethods,
@@ -153,6 +154,9 @@ export type {
 } from "./factoryStatistics";
 export {
   decodeContractEvent,
+  decodeContractEventWithAbi,
+  decodeFactoryEvent,
+  decodeRouterEvent,
 } from "./decodeContractEvent";
 export {
   snapshotContractState,
