@@ -152,6 +152,37 @@ describe("submitBatch call shapes", () => {
     expect(result.data.summary).toBe("all_failed");
     expect(result.data.atomicSupported).toBe(false);
   });
+
+  it("parallel + continueOnError: false is rejected instead of starting every submission", async () => {
+    const result = await submitBatch([XDR_1, XDR_2], { ...TARGET, mode: "parallel", continueOnError: false });
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") throw new Error("unreachable");
+    expect(result.error.code).toBe(SorokitErrorCode.VALIDATION);
+    expect(result.error.message).toMatch(/mode: "parallel"/);
+    expect(mockSubmitTransaction).not.toHaveBeenCalled();
+  });
+
+  it("timeout aborts the in-flight request and reports an unknown outcome", async () => {
+    let seenSignal: AbortSignal | undefined;
+    mockSubmitTransaction.mockImplementation((...args: unknown[]) => {
+      const submissionOptions = args[4] as { signal?: AbortSignal } | undefined;
+      seenSignal = submissionOptions?.signal;
+      return new Promise((_resolve, reject) => {
+        submissionOptions?.signal?.addEventListener("abort", () => reject(new Error("aborted by test")));
+      });
+    });
+
+    const result = await submitBatch([XDR_1], { ...TARGET, timeout: 25 });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") throw new Error("unreachable");
+    const entry = result.data.transactions[0];
+    expect(entry?.status).toBe("failed");
+    expect(String(entry?.error)).toMatch(/timed out after 25ms and was aborted/);
+    expect(String(entry?.error)).toMatch(/do not auto-retry/);
+    expect(seenSignal?.aborted).toBe(true);
+  });
 });
 
 // ─── Helper return contracts ─────────────────────────────────────────────────

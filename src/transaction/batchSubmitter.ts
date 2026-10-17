@@ -199,6 +199,13 @@ export function submitBatch(
     );
   }
 
+  if (options.mode === "parallel" && options.continueOnError === false) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      'continueOnError: false cannot be honoured with mode: "parallel": submissions start concurrently, so no entry can be skipped. Use mode: "sequential" for stop-on-first-failure semantics.',
+    );
+  }
+
   return submitBatchThroughHorizon(
     transactions,
     horizonUrl,
@@ -230,23 +237,41 @@ async function submitBatchThroughHorizon(
     const xdr = transactions[index];
     if (xdr === undefined) return;
 
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const attempt = submitTransaction(
-      horizonUrl,
-      networkPassphrase,
-      xdr,
-      options.cache,
-    ).catch((error: unknown) =>
-      err<TransactionResult>(SorokitErrorCode.TX_SUBMIT_FAILED, error instanceof Error ? error.message : String(error)),
-    );
     const timeoutMs = options.timeout && options.timeout > 0 ? options.timeout : 0;
+    const controller = new AbortController();
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = (
+      timeoutMs > 0
+        ? submitTransaction(horizonUrl, networkPassphrase, xdr, options.cache, {
+            signal: controller.signal,
+          })
+        : submitTransaction(horizonUrl, networkPassphrase, xdr, options.cache)
+    ).catch((error: unknown) => {
+      if (timedOut) {
+        return err<TransactionResult>(
+          SorokitErrorCode.TX_SUBMIT_FAILED,
+          `submission timed out after ${timeoutMs}ms and was aborted; the outcome is unknown, so do not auto-retry this signed XDR`,
+        );
+      }
+      return err<TransactionResult>(
+        SorokitErrorCode.TX_SUBMIT_FAILED,
+        error instanceof Error ? error.message : String(error),
+      );
+    });
     let result: Awaited<ReturnType<typeof submitTransaction>>;
     if (timeoutMs > 0) {
       const timeout = new Promise<Awaited<ReturnType<typeof submitTransaction>>>((resolve) => {
-        timer = setTimeout(
-          () => resolve(err<TransactionResult>(SorokitErrorCode.TX_SUBMIT_FAILED, `submission timed out after ${timeoutMs}ms`)),
-          timeoutMs,
-        );
+        timer = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+          resolve(
+            err<TransactionResult>(
+              SorokitErrorCode.TX_SUBMIT_FAILED,
+              `submission timed out after ${timeoutMs}ms and was aborted; the outcome is unknown, so do not auto-retry this signed XDR`,
+            ),
+          );
+        }, timeoutMs);
       });
       result = await Promise.race([attempt, timeout]);
     } else {
@@ -255,7 +280,6 @@ async function submitBatchThroughHorizon(
     if (timer !== undefined) {
       clearTimeout(timer);
     }
-
     if (result.status === "ok") {
       entries[index] = { xdr, status: "success", hash: result.data.hash };
       return;
