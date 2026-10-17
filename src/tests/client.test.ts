@@ -230,6 +230,156 @@ describe("createSorokitClient", () => {
     });
   });
 
+  describe("createSorokitClient required config validation (#755)", () => {
+    it("returns INVALID_CONFIG when configuration object is missing (null or undefined)", () => {
+      // @ts-expect-error — intentionally passing invalid config
+      const resNull = createSorokitClient(null);
+      expect(resNull.status).toBe("error");
+      if (resNull.status === "error") {
+        expect(resNull.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resNull.error.message).toContain("Configuration must be an object");
+      }
+
+      // @ts-expect-error — intentionally passing invalid config
+      const resUndef = createSorokitClient(undefined);
+      expect(resUndef.status).toBe("error");
+      if (resUndef.status === "error") {
+        expect(resUndef.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resUndef.error.message).toContain("Configuration must be an object");
+      }
+    });
+
+    it("returns error when network is missing or invalid", () => {
+      // @ts-expect-error — missing required network
+      const resMissing = createSorokitClient({});
+      expect(resMissing.status).toBe("error");
+      if (resMissing.status === "error") {
+        expect(resMissing.error.code).toBe(SorokitErrorCode.INVALID_NETWORK);
+        expect(resMissing.error.message).toContain("network");
+      }
+
+      // @ts-expect-error — invalid network string
+      const resInvalid = createSorokitClient({ network: "invalid-net" });
+      expect(resInvalid.status).toBe("error");
+      if (resInvalid.status === "error") {
+        expect(resInvalid.error.code).toBe(SorokitErrorCode.INVALID_NETWORK);
+        expect(resInvalid.error.message).toContain("Invalid network type: invalid-net");
+      }
+    });
+
+    it("returns INVALID_CONFIG when horizonUrl is invalid", () => {
+      const resEmpty = createSorokitClient({
+        network: "testnet",
+        horizonUrl: "",
+      });
+      expect(resEmpty.status).toBe("error");
+      if (resEmpty.status === "error") {
+        expect(resEmpty.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resEmpty.error.message).toContain("horizonUrl");
+      }
+
+      const resMalformed = createSorokitClient({
+        network: "testnet",
+        horizonUrl: "ftp://not-http-url",
+      });
+      expect(resMalformed.status).toBe("error");
+      if (resMalformed.status === "error") {
+        expect(resMalformed.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resMalformed.error.message).toContain("horizonUrl");
+      }
+
+      // @ts-expect-error — non-string type
+      const resType = createSorokitClient({
+        network: "testnet",
+        horizonUrl: 12345,
+      });
+      expect(resType.status).toBe("error");
+      if (resType.status === "error") {
+        expect(resType.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resType.error.message).toContain("horizonUrl");
+      }
+    });
+
+    it("returns INVALID_CONFIG when rpcUrl is invalid", () => {
+      const resEmpty = createSorokitClient({
+        network: "testnet",
+        rpcUrl: "",
+      });
+      expect(resEmpty.status).toBe("error");
+      if (resEmpty.status === "error") {
+        expect(resEmpty.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resEmpty.error.message).toContain("rpcUrl");
+      }
+
+      const resMalformed = createSorokitClient({
+        network: "testnet",
+        rpcUrl: "not-a-valid-url",
+      });
+      expect(resMalformed.status).toBe("error");
+      if (resMalformed.status === "error") {
+        expect(resMalformed.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resMalformed.error.message).toContain("rpcUrl");
+      }
+
+      // @ts-expect-error — non-string type
+      const resType = createSorokitClient({
+        network: "testnet",
+        rpcUrl: true,
+      });
+      expect(resType.status).toBe("error");
+      if (resType.status === "error") {
+        expect(resType.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resType.error.message).toContain("rpcUrl");
+      }
+    });
+
+    it("returns INVALID_CONFIG when networkPassphrase is empty or invalid", () => {
+      const resEmpty = createSorokitClient({
+        network: "testnet",
+        networkPassphrase: "",
+      });
+      expect(resEmpty.status).toBe("error");
+      if (resEmpty.status === "error") {
+        expect(resEmpty.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resEmpty.error.message).toContain("networkPassphrase");
+      }
+
+      const resWhitespace = createSorokitClient({
+        network: "testnet",
+        networkPassphrase: "   ",
+      });
+      expect(resWhitespace.status).toBe("error");
+      if (resWhitespace.status === "error") {
+        expect(resWhitespace.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resWhitespace.error.message).toContain("networkPassphrase");
+      }
+
+      // @ts-expect-error — non-string type
+      const resType = createSorokitClient({
+        network: "testnet",
+        networkPassphrase: 12345,
+      });
+      expect(resType.status).toBe("error");
+      if (resType.status === "error") {
+        expect(resType.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(resType.error.message).toContain("networkPassphrase");
+      }
+    });
+
+    it("allows valid networkPassphrase override and binds it to client", () => {
+      const customPassphrase = "Custom Private Network ; 2026";
+      const result = createSorokitClient({
+        network: "testnet",
+        networkPassphrase: customPassphrase,
+      });
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.networkConfig.networkPassphrase).toBe(customPassphrase);
+        expect(result.data.network.getConfig().networkPassphrase).toBe(customPassphrase);
+      }
+    });
+  });
+
   it("exposes version property matching package version", () => {
     const result = createSorokitClient({ network: "testnet" });
     expect(result.status).toBe("ok");

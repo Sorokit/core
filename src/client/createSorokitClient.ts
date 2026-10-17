@@ -318,6 +318,8 @@ export interface SorokitClientConfig {
   horizonUrl?: string;
   /** Override the default Soroban RPC URL */
   rpcUrl?: string;
+  /** Override the default network passphrase */
+  networkPassphrase?: string;
   /** Ordered Horizon endpoints: primary first, followed by backup endpoints. */
   horizonEndpoints?: string[];
   /** Ordered Soroban RPC endpoints: primary first, followed by backup endpoints. */
@@ -1077,7 +1079,13 @@ export function validateClientConfig(
   }
 
   const validNetworks = ["mainnet", "testnet", "futurenet"];
-  if (!config.network || !validNetworks.includes(config.network)) {
+  if (!config.network) {
+    return err(
+      SorokitErrorCode.INVALID_NETWORK,
+      "Missing required config: network. Must be one of: mainnet, testnet, futurenet",
+    );
+  }
+  if (!validNetworks.includes(config.network)) {
     return err(
       SorokitErrorCode.INVALID_NETWORK,
       `Invalid network type: ${String(config.network)}. Must be one of: mainnet, testnet, futurenet`,
@@ -1101,6 +1109,18 @@ export function validateClientConfig(
       return err(
         SorokitErrorCode.INVALID_CONFIG,
         `Invalid rpcUrl: ${String(config.rpcUrl)}`,
+      );
+    }
+  }
+
+  if (config.networkPassphrase !== undefined) {
+    if (
+      typeof config.networkPassphrase !== "string" ||
+      config.networkPassphrase.trim().length === 0
+    ) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `Invalid networkPassphrase: ${String(config.networkPassphrase)}`,
       );
     }
   }
@@ -1299,8 +1319,49 @@ export function createSorokitClient(
 
   if (networkResult.status === "error") return networkResult;
 
-  const networkConfig = networkResult.data;
-  const { horizonUrl, rpcUrl, networkPassphrase } = networkConfig;
+  const baseNetworkConfig = networkResult.data;
+  const horizonUrl =
+    config.horizonEndpoints?.[0] ?? config.horizonUrl ?? baseNetworkConfig.horizonUrl;
+  const rpcUrl =
+    config.rpcEndpoints?.[0] ?? config.rpcUrl ?? baseNetworkConfig.rpcUrl;
+  const networkPassphrase =
+    config.networkPassphrase ?? baseNetworkConfig.networkPassphrase;
+
+  if (
+    !horizonUrl ||
+    typeof horizonUrl !== "string" ||
+    !isValidUrlString(horizonUrl)
+  ) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      `Invalid horizonUrl: ${String(horizonUrl)}`,
+    );
+  }
+
+  if (!rpcUrl || typeof rpcUrl !== "string" || !isValidUrlString(rpcUrl)) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      `Invalid rpcUrl: ${String(rpcUrl)}`,
+    );
+  }
+
+  if (
+    !networkPassphrase ||
+    typeof networkPassphrase !== "string" ||
+    networkPassphrase.trim().length === 0
+  ) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      `Invalid networkPassphrase: ${String(networkPassphrase)}`,
+    );
+  }
+
+  const networkConfig: ResolvedNetworkConfig = {
+    ...baseNetworkConfig,
+    horizonUrl,
+    rpcUrl,
+    networkPassphrase,
+  };
   if (config.horizonEndpoints) {
     configureEndpointFailover(
       config.horizonEndpoints[0]!,
