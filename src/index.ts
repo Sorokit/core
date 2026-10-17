@@ -38,11 +38,13 @@ export {
   loadKeyManagement,
   loadSoroban,
   loadModule,
+  loadModuleOrThrow,
   preloadModules,
   isModuleLoaded,
   getLoadedModules,
   LAZY_MODULES,
   loadGovernance,
+  validateInteractiveCallback,
 } from "./lazy";
 export type {
   AnchorAsset,

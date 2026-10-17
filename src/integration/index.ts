@@ -99,12 +99,14 @@ export {
   initiateInteractiveDeposit,
   initiateInteractiveWithdraw,
   monitorTransaction,
+  validateInteractiveCallback,
 } from "./sep24Flow";
 export type { Sep24FlowAsset, Sep24FlowRequestOptions } from "./sep24Flow";
 export {
   quoteDirectPayment,
   sendDirectPayment,
   trackDirectPayment,
+  clearSubmittedDirectPaymentTransactions,
 } from "./sep31DirectPayment";
 export type {
   DirectPaymentAsset,
