@@ -10,8 +10,8 @@ Be respectful and constructive. We're building a framework for the Stellar ecosy
 
 ### Prerequisites
 
-- Node.js 18+
-- npm or yarn
+- Node.js 22 or newer
+- npm 10 or newer
 - Git
 
 ### Development Setup
@@ -19,14 +19,14 @@ Be respectful and constructive. We're building a framework for the Stellar ecosy
 1. **Fork and clone the repository**
 
    ```bash
-   git clone https://github.com/YOUR-USERNAME/sorokit-core.git
-   cd sorokit-core
+   git clone https://github.com/YOUR-USERNAME/core.git
+   cd core
    ```
 
 2. **Install dependencies**
 
    ```bash
-   npm install
+   npm ci
    ```
 
 3. **Verify the setup**
@@ -35,13 +35,15 @@ Be respectful and constructive. We're building a framework for the Stellar ecosy
    npm run typecheck
    npm run test
    npm run lint
+   npm run test:coverage
+   npm run build
    ```
 
 ## Development Workflow
 
 ### Before You Start
 
-- Check [existing issues](https://github.com/Just-Bamford/sorokit-core/issues) to see if the work is already in progress
+- Check [existing issues](https://github.com/Sorokit/core/issues) to see if the work is already in progress
 - For large changes, open a discussion or issue first to get feedback
 - Ensure you're working against the latest `main` branch
 
@@ -277,7 +279,7 @@ Bump the version in `package.json` for releases (maintainers handle this).
 
 ### Found a Bug?
 
-1. Check if it's already reported in [issues](https://github.com/Just-Bamford/sorokit-core/issues)
+1. Check if it's already reported in [issues](https://github.com/Sorokit/core/issues)
 2. If not, open a new issue with:
    - Clear title
    - Minimal reproduction code
@@ -286,7 +288,7 @@ Bump the version in `package.json` for releases (maintainers handle this).
 
 ### Feature Requests
 
-1. Open a discussion or issue describing the feature
+1. Open a [discussion or issue](https://github.com/Sorokit/core/issues/new/choose) describing the feature
 2. Explain the use case and why it's needed
 3. Propose an API design (or ask for suggestions)
 4. Wait for feedback before starting work
@@ -297,11 +299,11 @@ Bump the version in `package.json` for releases (maintainers handle this).
 - **Clean:** `npm run clean` — Removes `dist/`
 - **Dev:** `npm run dev` — Watch mode for development
 
-Releases are handled by maintainers and published to npm.
+Releases use [Release Please](https://github.com/googleapis/release-please). Conventional commits merged into `main` create or update a release PR. Merging that PR updates `package.json`, `CHANGELOG.md`, and the Git tag; the release workflow then verifies and publishes the tagged package to npm using the repository `NPM_TOKEN` secret.
 
 ## Asking for Help
 
-- Open a [discussion](https://github.com/Just-Bamford/sorokit-core/discussions) if you have questions
+- Open a [discussion](https://github.com/Sorokit/core/discussions) if you have questions
 - Tag maintainers in issues if you need clarification
 - Check existing docs and code before asking (good learning opportunity!)
 

@@ -1,0 +1,6 @@
+{
+  "release-type": "node",
+  "package-name": "sorokit-core",
+  "changelog-path": "CHANGELOG.md",
+  "include-component-in-tag": false
+}
