@@ -17,6 +17,11 @@ export interface DerivedStellarKey {
   path: string;
 }
 
+export interface DeriveFromMnemonicOptions {
+  /** Permit non-Stellar paths for advanced integrations. Defaults to false. */
+  allowNonStandardPath?: boolean;
+}
+
 export interface RotateSecretKeyOptions {
   account: Account;
   /** Public key of the existing non-master signer to remove. */
@@ -64,10 +69,18 @@ export async function deriveKey(
   mnemonic: string,
   path = "m/44'/148'/0'",
   passphrase = "",
+  options: DeriveFromMnemonicOptions = {},
 ): Promise<SorokitResult<DerivedStellarKey>> {
   const indices = parseHardenedPath(path);
   if (!indices || !validateMnemonic(mnemonic, englishWordlist)) {
     return err(SorokitErrorCode.VALIDATION, "A valid English BIP-39 mnemonic and hardened derivation path are required.");
+  }
+  const isStandardPath = /^m\/44'\/148'\/\d+'(?:\/0'\/\d+')?$/.test(path);
+  if (!options.allowNonStandardPath && !isStandardPath) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      "Derivation path must follow Stellar BIP-44 format m/44'/148'/account' or m/44'/148'/account'/0'/index'. Set allowNonStandardPath to opt out.",
+    );
   }
   try {
     const seed = await mnemonicToSeed(mnemonic, passphrase);

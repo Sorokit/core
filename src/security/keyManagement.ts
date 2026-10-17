@@ -26,6 +26,15 @@ export interface DerivedKey {
   mnemonic: string;
 }
 
+export interface DeriveFromMnemonicOptions {
+  /** Permit non-Stellar paths for advanced integrations. Defaults to false. */
+  allowNonStandardPath?: boolean;
+}
+
+export function isStandardStellarDerivationPath(path: string): boolean {
+  return /^m\/44'\/148'\/\d+'(?:\/0'\/\d+')?$/.test(path);
+}
+
 export interface EncryptedKey {
   ciphertext: string;
   salt: string;
@@ -149,7 +158,8 @@ export async function generateMnemonic(): Promise<SorokitResult<string>> {
  */
 export async function deriveFromMnemonic(
   mnemonic: string,
-  path: string = "m/44'/148'/0'"
+  path: string = "m/44'/148'/0'",
+  options: DeriveFromMnemonicOptions = {},
 ): Promise<SorokitResult<DerivedKey>> {
   try {
     // Validate mnemonic
@@ -188,6 +198,19 @@ export async function deriveFromMnemonic(
             parameters: { path },
           },
         }
+      );
+    }
+
+    if (!options.allowNonStandardPath && !isStandardStellarDerivationPath(path)) {
+      return err(
+        SorokitErrorCode.VALIDATION,
+        "Derivation path must follow Stellar BIP-44 format m/44'/148'/account' or m/44'/148'/account'/0'/index'. Set allowNonStandardPath to opt out.",
+        {
+          context: {
+            operation: "deriveFromMnemonic",
+            parameters: { path },
+          },
+        },
       );
     }
 

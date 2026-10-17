@@ -12,6 +12,7 @@ export {
   encryptKey,
   decryptKey,
   exportKey,
+  isStandardStellarDerivationPath,
 } from "./keyManagement";
 
 export type {
@@ -20,4 +21,5 @@ export type {
   EncryptedKey,
   KeyExportFormat,
   ExportedKey,
+  DeriveFromMnemonicOptions,
 } from "./keyManagement";
