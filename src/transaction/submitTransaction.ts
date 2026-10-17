@@ -270,6 +270,11 @@ async function submitTransactionImpl(
 
     const response = await horizonCircuitBreaker.call(horizonUrl, async () => {
       return await retryWithBackoff(async () => {
+        if (options?.signal?.aborted) {
+          throw new Error(
+            "submission cancelled: the request was aborted before it was sent to the network; the transaction was not broadcast",
+          );
+        }
         const server = createHorizonServer(horizonUrl, options);
         return await server.submitTransaction(tx);
       });
