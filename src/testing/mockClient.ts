@@ -31,7 +31,9 @@ import type {
   ContractCallResult,
   PreparedContractCall,
   SimulateTransactionResult,
+  ContractInvokeParams,
 } from "../soroban/types";
+import type { SorokitResult } from "../shared/response";
 import type { ResolvedNetworkConfig } from "../shared/types";
 
 const vi = { fn: createMockFunction };
@@ -126,6 +128,11 @@ export interface MockClientConfig {
   accountInfo?: AccountInfo;
 }
 
+export interface MockClient extends SorokitClient {
+  stubContractInvoke(contractId: string, method: string, result: SorokitResult<string>): void;
+  stubSimulateTransaction(result: SorokitResult<SimulateTransactionResult>): void;
+}
+
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
 /**
@@ -134,12 +141,14 @@ export interface MockClientConfig {
  * All stubs return happy-path SorokitResult values by default.
  * Override individual methods using `.mockResolvedValueOnce()` etc.
  */
-export function createMockClient(config?: MockClientConfig): SorokitClient {
+export function createMockClient(config?: MockClientConfig): MockClient {
   const networkConfig = config?.networkConfig ?? MOCK_NETWORK_CONFIG;
   const walletState = config?.walletState ?? MOCK_WALLET_STATE;
   const accountInfo = config?.accountInfo ?? MOCK_ACCOUNT_INFO;
 
-  return {
+  const contractInvokeStubs = new Map<string, SorokitResult<string>>();
+  let simulationStub: SorokitResult<SimulateTransactionResult> = ok(MOCK_SIMULATE_RESULT);
+  const client = {
     version: "0.1.0",
     networkConfig,
     trustedIssuers: null,
@@ -204,10 +213,10 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
 
     soroban: {
       getContractMethods: vi.fn().mockResolvedValue(ok(MOCK_CONTRACT_METHODS)),
-      simulate: vi.fn().mockResolvedValue(ok(MOCK_SIMULATE_RESULT)),
+      simulate: vi.fn().mockImplementation(async () => simulationStub),
       prepare: vi.fn().mockResolvedValue(ok(MOCK_PREPARED_CALL)),
       execute: vi.fn().mockResolvedValue(ok(MOCK_TX_RESULT.hash)),
-      invoke: vi.fn().mockResolvedValue(ok(MOCK_TX_RESULT.hash)),
+      invoke: vi.fn().mockImplementation(async (params: ContractInvokeParams) => contractInvokeStubs.get(`${params.contractId}:${params.method}`) ?? ok(MOCK_TX_RESULT.hash)),
       read: vi.fn().mockResolvedValue(ok(MOCK_CONTRACT_CALL_RESULT)),
     },
 
@@ -215,7 +224,14 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
       getConfig: vi.fn().mockReturnValue(networkConfig),
       getId: vi.fn().mockReturnValue(networkConfig.network),
     },
-  } as unknown as SorokitClient;
+    stubContractInvoke(contractId: string, method: string, result: SorokitResult<string>) {
+      contractInvokeStubs.set(`${contractId}:${method}`, result);
+    },
+    stubSimulateTransaction(result: SorokitResult<SimulateTransactionResult>) {
+      simulationStub = result;
+    },
+  } as unknown as MockClient;
+  return client;
 }
 
 /**

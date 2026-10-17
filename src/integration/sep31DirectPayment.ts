@@ -18,6 +18,17 @@ export interface DirectPaymentQuoteRequestOptions {
   authToken?: string;
   accountId?: string;
   params?: Record<string, string>;
+  /** Client-supplied SEP-31 transaction ID used for idempotency. */
+  transactionId?: string;
+  /** Explicitly allow a second submission of an already submitted ID. */
+  allowDuplicateTransactionId?: boolean;
+}
+
+const submittedTransactionIds = new Set<string>();
+
+/** Clear the local SEP-31 idempotency registry (primarily useful in tests). */
+export function clearSubmittedDirectPaymentTransactions(): void {
+  submittedTransactionIds.clear();
 }
 
 function normalizeServerUrl(serverUrl: string): URL {
@@ -123,6 +134,15 @@ export async function sendDirectPayment(
     url.searchParams.set("amount", amount);
     url.searchParams.set("recipient", receiverAddress);
     if (options.accountId) url.searchParams.set("account", options.accountId);
+    const transactionId = options.transactionId?.trim();
+    if (options.transactionId !== undefined && !transactionId) {
+      return err(SorokitErrorCode.VALIDATION, "A transaction ID must not be empty.");
+    }
+    const idempotencyKey = transactionId ? `${base.origin}${base.pathname}|${transactionId}` : undefined;
+    if (idempotencyKey && submittedTransactionIds.has(idempotencyKey) && !options.allowDuplicateTransactionId) {
+      return err(SorokitErrorCode.VALIDATION, `SEP-31 transaction ID "${transactionId}" has already been submitted.`);
+    }
+    if (transactionId) url.searchParams.set("transaction_id", transactionId);
     const fetcher = options.fetch ?? globalThis.fetch;
     if (typeof fetcher !== "function") {
       return err(SorokitErrorCode.INVALID_CONFIG, "A fetch implementation is required.");
@@ -136,6 +156,7 @@ export async function sendDirectPayment(
       },
       options.timeoutMs ?? 15_000,
     );
+    if (idempotencyKey) submittedTransactionIds.add(idempotencyKey);
     return ok(result);
   } catch (cause) {
     return err(SorokitErrorCode.NETWORK_ERROR, "SEP-31 direct payment submission failed.", cause);

@@ -20,6 +20,6 @@ export {
   MOCK_SIMULATE_RESULT,
   MOCK_CONTRACT_CALL_RESULT,
 } from "./mockClient";
-export type { MockClientConfig } from "./mockClient";
+export type { MockClient, MockClientConfig } from "./mockClient";
 export { setupMockServer, teardownMockServer, setupMockServerScenario } from "./mockServer";
 export type { MockServerScenario, MockServerOptions } from "./mockServer";

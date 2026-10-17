@@ -28,7 +28,8 @@
  * - each module is imported at most once; concurrent `loadModule` calls for
  *   the same name share one in-flight import;
  * - a failed import is not cached, so a later call retries it;
- * - `loadModule` never throws — failures come back as `SorokitResult` errors.
+ * - `loadModule` never throws — failures come back as `SorokitResult` errors;
+ *   `loadModuleOrThrow` is available when callers prefer exceptions.
  *
  * Automatic (implicit) loading is out of scope; callers decide when to load.
  */
@@ -132,6 +133,13 @@ export async function loadModule<N extends LazyModuleName>(name: N): Promise<Sor
   }
 }
 
+/** Load a module and throw its original initialization failure when it fails. */
+export async function loadModuleOrThrow<N extends LazyModuleName>(name: N): Promise<LazyModule<N>> {
+  const result = await loadModule(name);
+  if (result.status === "error") throw result.error.cause ?? new Error(result.error.message);
+  return result.data;
+}
+
 /** Load several modules in parallel; fails on the first module that fails. */
 export async function preloadModules(
   names: readonly LazyModuleName[] = LAZY_MODULES,
@@ -229,6 +237,10 @@ export async function initiateInteractiveWithdraw(serverUrl: string, asset: Sep2
 
 export async function monitorTransaction(serverUrl: string, txId: string, options?: Sep24FlowRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
   return (await import("../integration/sep24Flow")).monitorTransaction(serverUrl, txId, options);
+}
+
+export async function validateInteractiveCallback(serverUrl: string, callbackUrl: string): Promise<SorokitResult<Record<string, string>>> {
+  return (await import("../integration/sep24Flow")).validateInteractiveCallback(serverUrl, callbackUrl);
 }
 
 export async function quoteDirectPayment(serverUrl: string, sendingAsset: DirectPaymentAsset, receiver: string | DirectPaymentReceiver, options?: DirectPaymentQuoteRequestOptions): Promise<SorokitResult<Record<string, unknown>>> {
