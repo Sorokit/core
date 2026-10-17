@@ -1,8 +1,8 @@
-/**
- * React wallet-connect example — UI layer (#react-wallet-connect).
+/*
+ * React wallet-connect example -- UI layer (#react-wallet-connect).
  *
  * Renders connect/disconnect, a balance list, and a payment form.
- * All sorokit-core calls are in useSorokit.ts — this file only reads state
+ * All sorokit-core calls are in useSorokit.ts -- this file only reads state
  * and calls the callbacks the hook exposes.
  */
 
@@ -93,7 +93,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Payment form — only shown when connected */}
+      {/* Payment form -- only shown when connected */}
       {isConnected && (
         <form onSubmit={handleSend} style={{ marginTop: "1.5rem" }}>
           <h2>Send XLM</h2>
