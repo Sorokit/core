@@ -24,8 +24,8 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
 // Import under test after vi.mock so they pick up the mocked module
 import {
   buildTimeLockTransaction,
-  validateTimeBounds,
-  getTimeLockedTransactionStatus,
+  isTimeBoundsValid,
+  getTimeLockStatus,
 } from "./timeLocks";
 import type { TimeBounds } from "./timeLocks";
 
@@ -71,79 +71,79 @@ beforeEach(() => {
   mockLoadAccount.mockClear();
 });
 
-// ─── validateTimeBounds ───────────────────────────────────────────────────────
+// ─── isTimeBoundsValid ───────────────────────────────────────────────────────
 
-describe("validateTimeBounds", () => {
+describe("isTimeBoundsValid", () => {
   it("accepts zero/zero (no bounds)", () => {
-    expect(validateTimeBounds({ minTime: 0, maxTime: 0 })).toBe(true);
+    expect(isTimeBoundsValid({ minTime: 0, maxTime: 0 })).toBe(true);
   });
 
   it("accepts valid min < max", () => {
-    expect(validateTimeBounds({ minTime: 1000, maxTime: 2000 })).toBe(true);
+    expect(isTimeBoundsValid({ minTime: 1000, maxTime: 2000 })).toBe(true);
   });
 
   it("accepts minTime === maxTime", () => {
-    expect(validateTimeBounds({ minTime: 1000, maxTime: 1000 })).toBe(true);
+    expect(isTimeBoundsValid({ minTime: 1000, maxTime: 1000 })).toBe(true);
   });
 
   it("accepts minTime only (maxTime === 0 means no upper bound)", () => {
-    expect(validateTimeBounds({ minTime: 5000, maxTime: 0 })).toBe(true);
+    expect(isTimeBoundsValid({ minTime: 5000, maxTime: 0 })).toBe(true);
   });
 
   it("rejects inverted bounds where minTime > maxTime (and maxTime !== 0)", () => {
-    expect(validateTimeBounds({ minTime: 3000, maxTime: 2000 })).toBe(false);
+    expect(isTimeBoundsValid({ minTime: 3000, maxTime: 2000 })).toBe(false);
   });
 
   it("rejects negative minTime", () => {
-    expect(validateTimeBounds({ minTime: -1, maxTime: 0 })).toBe(false);
+    expect(isTimeBoundsValid({ minTime: -1, maxTime: 0 })).toBe(false);
   });
 
   it("rejects negative maxTime", () => {
-    expect(validateTimeBounds({ minTime: 0, maxTime: -1 })).toBe(false);
+    expect(isTimeBoundsValid({ minTime: 0, maxTime: -1 })).toBe(false);
   });
 });
 
-// ─── getTimeLockedTransactionStatus ──────────────────────────────────────────
+// ─── getTimeLockStatus ──────────────────────────────────────────
 
-describe("getTimeLockedTransactionStatus", () => {
+describe("getTimeLockStatus", () => {
   it("returns 'invalid' for inverted time bounds", () => {
     const bounds: TimeBounds = { minTime: 3000, maxTime: 2000 };
-    expect(getTimeLockedTransactionStatus(bounds, 2500)).toBe("invalid");
+    expect(getTimeLockStatus(bounds, 2500)).toBe("invalid");
   });
 
   it("returns 'pending' when now < minTime", () => {
     const bounds: TimeBounds = { minTime: FAR_FUTURE, maxTime: 0 };
     const now = FAR_FUTURE - 1000;
-    expect(getTimeLockedTransactionStatus(bounds, now)).toBe("pending");
+    expect(getTimeLockStatus(bounds, now)).toBe("pending");
   });
 
   it("returns 'executable' when now is within bounds", () => {
     const bounds: TimeBounds = { minTime: PAST_TIME, maxTime: FAR_FUTURE };
     const now = 1_000_000_000; // comfortably within range
-    expect(getTimeLockedTransactionStatus(bounds, now)).toBe("executable");
+    expect(getTimeLockStatus(bounds, now)).toBe("executable");
   });
 
   it("returns 'executable' when minTime === 0 and now < maxTime", () => {
     const bounds: TimeBounds = { minTime: 0, maxTime: FAR_FUTURE };
-    expect(getTimeLockedTransactionStatus(bounds, 1_000_000_000)).toBe("executable");
+    expect(getTimeLockStatus(bounds, 1_000_000_000)).toBe("executable");
   });
 
   it("returns 'expired' when now > maxTime", () => {
     const bounds: TimeBounds = { minTime: 0, maxTime: PAST_TIME };
     const now = PAST_TIME + 1;
-    expect(getTimeLockedTransactionStatus(bounds, now)).toBe("expired");
+    expect(getTimeLockStatus(bounds, now)).toBe("expired");
   });
 
   it("returns 'executable' when maxTime === 0 (no upper bound) and now >= minTime", () => {
     const bounds: TimeBounds = { minTime: PAST_TIME, maxTime: 0 };
     const now = 1_000_000_000;
-    expect(getTimeLockedTransactionStatus(bounds, now)).toBe("executable");
+    expect(getTimeLockStatus(bounds, now)).toBe("executable");
   });
 
   it("uses Date.now() when nowSeconds is omitted", () => {
     // With both bounds 0, the result should always be "executable"
     const bounds: TimeBounds = { minTime: 0, maxTime: 0 };
-    expect(getTimeLockedTransactionStatus(bounds)).toBe("executable");
+    expect(getTimeLockStatus(bounds)).toBe("executable");
   });
 });
 

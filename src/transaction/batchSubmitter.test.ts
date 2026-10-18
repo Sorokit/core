@@ -16,9 +16,9 @@ vi.mock("./submitTransaction", () => ({
 // Imports after vi.mock so they pick up the mock
 import {
   submitBatch,
-  wasAtomicExecuted,
-  suggestRetryStrategy,
-  generateRollbackInstructions,
+  isBatchAtomicComplete,
+  recommendRetryStrategy,
+  buildRollbackInstructions,
 } from "./batchSubmitter";
 import type { BatchSubmissionResult } from "./batchSubmitter";
 
@@ -300,7 +300,7 @@ describe("wasAtomicExecuted", () => {
       failed: 0,
       transactions: [],
     };
-    expect(wasAtomicExecuted(result)).toBe(true);
+    expect(isBatchAtomicComplete(result)).toBe(true);
   });
 
   it("returns false when summary is partial_success", () => {
@@ -311,7 +311,7 @@ describe("wasAtomicExecuted", () => {
       failed: 1,
       transactions: [],
     };
-    expect(wasAtomicExecuted(result)).toBe(false);
+    expect(isBatchAtomicComplete(result)).toBe(false);
   });
 
   it("returns false when summary is all_failed", () => {
@@ -322,7 +322,7 @@ describe("wasAtomicExecuted", () => {
       failed: 2,
       transactions: [],
     };
-    expect(wasAtomicExecuted(result)).toBe(false);
+    expect(isBatchAtomicComplete(result)).toBe(false);
   });
 });
 
@@ -335,7 +335,7 @@ describe("suggestRetryStrategy", () => {
       failed: 0,
       transactions: [],
     };
-    expect(suggestRetryStrategy(result)).toBe("none");
+    expect(recommendRetryStrategy(result)).toBe("none");
   });
 
   it("returns 'retry_all' for all_failed", () => {
@@ -346,7 +346,7 @@ describe("suggestRetryStrategy", () => {
       failed: 2,
       transactions: [],
     };
-    expect(suggestRetryStrategy(result)).toBe("retry_all");
+    expect(recommendRetryStrategy(result)).toBe("retry_all");
   });
 
   it("returns 'retry_failed' for partial_success", () => {
@@ -357,7 +357,7 @@ describe("suggestRetryStrategy", () => {
       failed: 1,
       transactions: [],
     };
-    expect(suggestRetryStrategy(result)).toBe("retry_failed");
+    expect(recommendRetryStrategy(result)).toBe("retry_failed");
   });
 });
 
@@ -373,7 +373,7 @@ describe("generateRollbackInstructions", () => {
         { xdr: XDR_2, status: "success", hash: "hash_2" },
       ],
     };
-    expect(generateRollbackInstructions(result)).toEqual([]);
+    expect(buildRollbackInstructions(result)).toEqual([]);
   });
 
   it("returns empty array when summary is all_failed", () => {
@@ -387,7 +387,7 @@ describe("generateRollbackInstructions", () => {
         { xdr: XDR_2, status: "failed", error: "Horizon error" },
       ],
     };
-    expect(generateRollbackInstructions(result)).toEqual([]);
+    expect(buildRollbackInstructions(result)).toEqual([]);
   });
 
   it("returns one instruction per successful tx when summary is partial_success", () => {
@@ -402,7 +402,7 @@ describe("generateRollbackInstructions", () => {
         { xdr: XDR_3, status: "success", hash: "hash_3" },
       ],
     };
-    const instructions = generateRollbackInstructions(result);
+    const instructions = buildRollbackInstructions(result);
     expect(instructions).toHaveLength(2);
     expect(instructions[0].hash).toBe("hash_1");
     expect(instructions[0].xdr).toBe(XDR_1);
@@ -422,7 +422,7 @@ describe("generateRollbackInstructions", () => {
         { xdr: XDR_2, status: "failed", error: "Horizon error" },
       ],
     };
-    const instructions = generateRollbackInstructions(result);
+    const instructions = buildRollbackInstructions(result);
     expect(instructions.every((i) => i.xdr !== XDR_2)).toBe(true);
     expect(instructions).toHaveLength(1);
   });

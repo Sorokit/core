@@ -25,7 +25,7 @@ describe("Performance: EventIndex", () => {
 
     // 10,000 events in under 10 seconds implies >1000/sec
     expect(elapsed).toBeLessThan(10_000);
-    expect(index.size()).toBe(10_000);
+    expect(index.size).toBe(10_000);
   });
 
   it("query 10,000 events in <200ms", () => {
