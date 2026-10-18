@@ -116,7 +116,7 @@ function resolveModule(meta?: StructuredLogMeta): string {
   return typeof moduleName === "string" && moduleName.length > 0 ? moduleName : "core";
 }
 
-function createTransportLogger(transports: LogTransport[]): SorokitLogger {
+function createTransportLogger(resolveTransports: () => LogTransport[]): SorokitLogger {
   const emit = (level: Exclude<LogLevel, "off">, message: string, meta?: StructuredLogMeta): void => {
     const sanitized = sanitizeLogMeta(meta);
     const record: StructuredLogRecord = {
@@ -126,7 +126,7 @@ function createTransportLogger(transports: LogTransport[]): SorokitLogger {
       message,
       ...(sanitized ? { context: sanitized } : {}),
     };
-    for (const transport of transports) {
+    for (const transport of resolveTransports()) {
       void transport.write(record);
     }
   };
@@ -181,13 +181,14 @@ function createLevelLogger(
 export function createLogger(options?: LoggerOptions): SorokitLogger {
   const level: LogLevel = options?.logLevel ?? (options?.debug ? "debug" : "off");
   if (level === "off") return createNoopLogger();
-  const transports = [
-    ...(options?.transports ?? []),
-    ...registeredTransports,
-  ];
-  const sink = options?.logger ?? createTransportLogger(
-    transports.length > 0 ? transports : [createConsoleTransport(options?.prefix)],
-  );
+  const ownTransports = options?.transports ?? [];
+  // Registered transports are resolved per emit so that unregister() takes effect
+  // for loggers created before the transport was removed.
+  const resolveTransports = (): LogTransport[] => {
+    const transports = [...ownTransports, ...registeredTransports];
+    return transports.length > 0 ? transports : [createConsoleTransport(options?.prefix)];
+  };
+  const sink = options?.logger ?? createTransportLogger(resolveTransports);
   return createLevelLogger(level, sink, options?.moduleLevels);
 }
 
