@@ -133,6 +133,14 @@ export type {
   ContractErrorMap,
   DecodedContractError,
 } from "./contractErrors";
+export {
+  SorobanErrorDecoder,
+  decodeSorobanPanic,
+} from "./sorobanErrorDecoder";
+export type {
+  DecodedPanic,
+  PanicType,
+} from "./sorobanErrorDecoder";
 export { ContractInteractionBuilder, createContractInteractionBuilder } from "./contractInteractionBuilder";
 export type {
   ContractInteractionBuilderConfig,

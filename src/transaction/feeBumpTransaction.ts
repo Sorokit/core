@@ -114,6 +114,15 @@ export function buildFeeBumpTransaction(
     );
   }
 
+  const innerFee = BigInt(inner.fee);
+  const bumpFee = BigInt(feeString);
+  if (bumpFee <= innerFee) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Fee bump fee (${feeString} stroops) must be higher than the inner transaction fee (${innerFee} stroops)`,
+    );
+  }
+
   try {
     const feeBump = TransactionBuilder.buildFeeBumpTransaction(
       feeAccount,

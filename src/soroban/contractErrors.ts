@@ -5,6 +5,7 @@
  * (factory/router) are plain data so applications can supply their own maps
  * without modifying the core decoder.
  */
+import { SorobanErrorDecoder } from "./sorobanErrorDecoder";
 
 export interface ContractErrorInfo {
   /** Human-readable description of what went wrong. */
@@ -326,6 +327,16 @@ export function decodeContractError(
         raw: error,
       };
     }
+  }
+
+  const panic = SorobanErrorDecoder.decode(error);
+  if (panic.isPanic) {
+    return {
+      decoded: true,
+      code: candidates[0] ?? (panic.code ? String(panic.code) : null),
+      message: panic.description,
+      raw: error,
+    };
   }
 
   if (candidates.length > 0) {

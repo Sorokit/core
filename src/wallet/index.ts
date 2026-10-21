@@ -4,6 +4,16 @@ export { disconnectWallet } from "./disconnect";
 export { WalletConnectionManager } from "./connection";
 export { signTransaction } from "./signTransaction";
 export { signTransactionOffline } from "./signTransactionOffline";
+export {
+  TransactionSigningSession,
+  createTransactionSigningSession,
+  signTransactionWithSession,
+  DEFAULT_SIGNING_SESSION_TIMEOUT_MS,
+} from "./transactionSigningSession";
+export type {
+  TransactionSigningSessionOptions,
+  TransactionSigningSessionStatus,
+} from "./transactionSigningSession";
 export { SigningRateLimiter } from "./signingRateLimiter";
 export type { SigningRateLimiterConfig, QueueState } from "./signingRateLimiter";
 export { createSigningChallenge, mergeSignatures } from "./signingDelegation";
