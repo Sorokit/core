@@ -45,6 +45,7 @@ export interface RecoveryGuidance {
   retryable: boolean;
   action: string;
   retryAfterMs?: number;
+  suggestions?: string[];
 }
 
 export interface SorokitError {
@@ -54,6 +55,7 @@ export interface SorokitError {
   cause?: unknown;
   context?: SorokitErrorContext;
   recovery?: RecoveryGuidance;
+  suggestions?: string[];
   traceId?: string;
   recoveryAttempts?: RecoveryAttempt[];
   degradedMode?: boolean;
@@ -62,6 +64,7 @@ export interface SorokitError {
 export interface SorokitErrorOptions {
   context?: SorokitErrorContext;
   recovery?: RecoveryGuidance;
+  suggestions?: string[];
 }
 
 export enum SorokitErrorCode {
@@ -72,6 +75,7 @@ export enum SorokitErrorCode {
   WALLET_SIGN_FAILED = "WALLET_SIGN_FAILED",
   WALLET_BROWSER_ONLY = "WALLET_BROWSER_ONLY",
   ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND",
+  SOURCE_ACCOUNT_NOT_FOUND = "SOURCE_ACCOUNT_NOT_FOUND",
   ACCOUNT_FETCH_FAILED = "ACCOUNT_FETCH_FAILED",
   TX_BUILD_FAILED = "TX_BUILD_FAILED",
   TX_SIMULATE_FAILED = "TX_SIMULATE_FAILED",
@@ -175,13 +179,38 @@ export function classifyError(code: SorokitErrorCode): SorokitErrorCategory {
     code.startsWith("ROUTER_")
   )
     return SorokitErrorCategory.TRANSACTION;
-  if (code.startsWith("ACCOUNT")) return SorokitErrorCategory.INTERNAL;
+  if (
+    code === SorokitErrorCode.SOURCE_ACCOUNT_NOT_FOUND ||
+    code.startsWith("ACCOUNT")
+  ) {
+    return SorokitErrorCategory.INTERNAL;
+  }
   return SorokitErrorCategory.UNKNOWN;
 }
 
+export const SOURCE_ACCOUNT_RECOVERY_SUGGESTIONS: readonly string[] = Object.freeze([
+  "retry: Verify network connectivity and endpoint status, then retry if the account fetch was transiently unavailable.",
+  "wait: Wait for a pending account creation or funding transaction to confirm on-chain before retrying.",
+  "create account: Create and fund the account with minimum reserve (at least 1 XLM) on the Stellar network before submitting transactions.",
+  "use fallback: Use a fallback account or different active keypair with sufficient balance as the source account.",
+]);
+
 export function defaultRecoveryGuidance(
   category: SorokitErrorCategory,
+  code?: SorokitErrorCode,
 ): RecoveryGuidance {
+  if (
+    code === SorokitErrorCode.SOURCE_ACCOUNT_NOT_FOUND ||
+    code === SorokitErrorCode.ACCOUNT_NOT_FOUND
+  ) {
+    return {
+      retryable: true,
+      action:
+        "Account was not found on-ledger. Create/fund the account, wait for on-chain confirmation, or use a fallback account.",
+      suggestions: [...SOURCE_ACCOUNT_RECOVERY_SUGGESTIONS],
+    };
+  }
+
   switch (category) {
     case SorokitErrorCategory.NETWORK:
       return {
@@ -233,6 +262,8 @@ export function err<T>(
   options?: SorokitErrorOptions,
 ): SorokitResult<T> {
   const category = classifyError(code);
+  const recovery = options?.recovery ?? defaultRecoveryGuidance(category, code);
+  const suggestions = options?.suggestions ?? recovery.suggestions;
   const error: SorokitError = {
     code,
     message,
@@ -241,7 +272,8 @@ export function err<T>(
     ...(options?.context
       ? { context: sanitizeErrorContext(options.context)! }
       : {}),
-    recovery: options?.recovery ?? defaultRecoveryGuidance(category),
+    recovery,
+    ...(suggestions !== undefined ? { suggestions } : {}),
     ...(traceId !== undefined ? { traceId } : {}),
   };
   return Object.freeze({
@@ -249,6 +281,52 @@ export function err<T>(
     data: null,
     error,
   }) as SorokitResult<T>;
+}
+
+export interface SourceAccountNotFoundOptions {
+  accountId?: string;
+  operation?: string;
+  cause?: unknown;
+  traceId?: string;
+  scenario?: "retry" | "wait" | "create_account" | "use_fallback" | "all";
+}
+
+/**
+ * Creates an error result for missing source accounts with actionable recovery suggestions.
+ */
+export function sourceAccountNotFoundError<T = never>(
+  accountIdOrOptions?: string | SourceAccountNotFoundOptions,
+  options?: SourceAccountNotFoundOptions,
+): SorokitResult<T> {
+  const accountId =
+    typeof accountIdOrOptions === "string"
+      ? accountIdOrOptions
+      : accountIdOrOptions?.accountId;
+  const opts =
+    typeof accountIdOrOptions === "object" ? accountIdOrOptions : (options ?? {});
+
+  const suggestions = [...SOURCE_ACCOUNT_RECOVERY_SUGGESTIONS];
+  return err<T>(
+    SorokitErrorCode.SOURCE_ACCOUNT_NOT_FOUND,
+    accountId
+      ? `Source account not found: ${accountId}. The account must exist on-ledger and maintain minimum reserve.`
+      : "Source account not found on the network. The account must exist on-ledger and maintain minimum reserve.",
+    opts.cause,
+    opts.traceId,
+    {
+      context: {
+        operation: opts.operation ?? "resolveSourceAccount",
+        parameters: accountId ? { accountId } : undefined,
+      },
+      recovery: {
+        retryable: true,
+        action:
+          "Account does not exist on-ledger. Create/fund the account, wait for on-chain confirmation, or use a fallback account.",
+        suggestions,
+      },
+      suggestions,
+    },
+  );
 }
 
 export function attachTraceId<T>(

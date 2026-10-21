@@ -170,11 +170,24 @@ async function buildPriceProtectedSwap(
       options.priceFeed.getPrice(buyingCode, "USD"),
     ]);
 
+    const now = Date.now();
+    const thresholdMs = 5 * 60 * 1000;
+    const isQuoteStale = (q: any) => {
+      const ts = q.timestamp ?? q.updatedAt;
+      if (ts !== undefined && ts !== null) {
+        const ms = typeof ts === "number" ? (ts < 1e11 ? ts * 1000 : ts) : (ts instanceof Date ? ts.getTime() : Date.parse(String(ts)));
+        if (Number.isFinite(ms) && now - ms > thresholdMs) return true;
+      }
+      return false;
+    };
+
     if (
       !sellingQuote ||
       !buyingQuote ||
       (sellingQuote.status !== undefined && sellingQuote.status !== "fresh") ||
       (buyingQuote.status !== undefined && buyingQuote.status !== "fresh") ||
+      isQuoteStale(sellingQuote) ||
+      isQuoteStale(buyingQuote) ||
       typeof sellingQuote.price !== "number" ||
       !Number.isFinite(sellingQuote.price) ||
       sellingQuote.price <= 0 ||

@@ -59,15 +59,28 @@ export interface AssetBalance {
  * - `below` — fire when the balance drops below the threshold.
  * - `above` — fire when the balance rises above the threshold.
  * - `change_percent` — fire when the absolute % change between polls meets the threshold.
+ * - `min_reserve` — fire when the balance approaches or drops below the calculated minimum reserve.
  */
-export type BalanceAlertCondition = "below" | "above" | "change_percent";
+export type BalanceAlertCondition = "below" | "above" | "change_percent" | "min_reserve";
+
+/**
+ * Account structure input used for calculating minimum reserve requirements.
+ */
+export interface AccountReserveStructure {
+  subentryCount?: number;
+  numSubentries?: number;
+  trustlines?: number | unknown[];
+  signers?: number | unknown[];
+  offers?: number | unknown[];
+  dataEntries?: number | unknown[];
+}
 
 /**
  * A rule describing a balance condition worth alerting on.
  * Used by `streamAccount` to emit {@link BalanceAlert}s as balances change.
  */
 export interface BalanceAlertRule {
-  /** Asset code to watch, e.g. "XLM" or "USDC". */
+  /** Asset code to watch, e.g. "XLM" or "USDC". For "min_reserve", watches native "XLM". */
   assetCode: string;
   /**
    * Optional issuer to disambiguate assets that share a code.
@@ -80,8 +93,11 @@ export interface BalanceAlertRule {
    * Threshold value.
    * - For `below`/`above`: an absolute balance threshold.
    * - For `change_percent`: a percentage magnitude (e.g. `10` means 10%).
+   * - For `min_reserve`: buffer in XLM above the minimum reserve to warn early (defaults to 0).
    */
   threshold: number;
+  /** Optional buffer in XLM above the reserve for min_reserve alerts. */
+  bufferXlm?: number;
   /** Optional identifier echoed back on every alert produced by this rule. */
   id?: string;
 }
@@ -221,6 +237,12 @@ export interface BalanceAlert {
   newBalance: string;
   /** Signed percentage change since the previous poll, or null when not computable. */
   changePercent: number | null;
+  /** Calculated minimum reserve in XLM when evaluating min_reserve rules. */
+  minimumReserve?: number;
+  /** Minimum reserve in stroops (1 XLM = 10,000,000 stroops). */
+  minimumReserveStroops?: bigint;
+  /** True when the balance has dropped below the calculated minimum reserve. */
+  isSubReserve?: boolean;
 }
 
 export type { SponsorshipResult } from "./sponsorship";

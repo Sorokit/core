@@ -50,7 +50,21 @@ export {
   clearPendingChallenges,
   CHALLENGE_TTL_MS,
   MAX_PENDING_CHALLENGES,
+  PriceOracle,
+  createPriceOracle,
+  checkPriceFeedStaleness,
+  validatePriceFeedQuote,
+  normalizeTimestampToMs,
+  DEFAULT_PRICE_FEED_STALENESS_THRESHOLD_MS,
 } from "./integration";
+export type {
+  PriceFeedQuote,
+  PriceFeedProvider,
+  PriceOracleOptions,
+  StalePriceFeedAction,
+  PriceFeedValidationResult,
+} from "./integration";
+
 export type {
   AnchorAsset,
   AnchorRequestOptions,
@@ -2142,6 +2156,15 @@ export type {
   MemoryUsageSample,
   MemoryMonitorOptions,
 } from "./soroban/contractMemory";
+export {
+  LedgerEntryCache,
+  createLedgerEntryCache,
+} from "./soroban/ledgerEntryCache";
+export type {
+  LedgerEntryCacheStats,
+  LedgerEntryCacheOptions,
+} from "./soroban/ledgerEntryCache";
+
 // ─── Real-time transaction status dashboard (#708) ───────────────────────────
 export {
   TransactionStatusAggregator,
@@ -2171,3 +2194,19 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+export {
+  evaluateBalanceAlerts,
+  calculateMinimumReserve,
+  calculateMinimumReserveStroops,
+  minReserveAlert,
+  BASE_RESERVE_XLM,
+  BASE_ACCOUNT_RESERVES,
+} from "./account";
+export type {
+  BalanceAlert,
+  BalanceAlertRule,
+  BalanceAlertCondition,
+  AccountReserveStructure,
+} from "./account";
+

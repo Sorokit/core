@@ -122,3 +122,19 @@ export type {
   DirectPaymentReceiver,
   DirectPaymentQuoteRequestOptions,
 } from "./sep31DirectPayment";
+export {
+  PriceOracle,
+  createPriceOracle,
+  checkPriceFeedStaleness,
+  validatePriceFeedQuote,
+  normalizeTimestampToMs,
+  DEFAULT_PRICE_FEED_STALENESS_THRESHOLD_MS,
+} from "./priceOracle";
+export type {
+  PriceFeedQuote,
+  PriceFeedProvider,
+  PriceOracleOptions,
+  StalePriceFeedAction,
+  PriceFeedValidationResult,
+} from "./priceOracle";
+

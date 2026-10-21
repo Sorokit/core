@@ -210,7 +210,13 @@ export function getAccount(
           : mapped.message || `Failed to fetch account: ${toMessage(cause)}`,
         cause,
         undefined,
-        mapped.recovery ? { recovery: mapped.recovery } : undefined,
+        {
+          context: {
+            operation: "account.get",
+            parameters: { publicKey },
+          },
+          ...(mapped.recovery ? { recovery: mapped.recovery } : {}),
+        },
       );
     }
         }),

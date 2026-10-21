@@ -7,9 +7,9 @@
  */
 
 import { Account, Asset, Memo, BASE_FEE } from "@stellar/stellar-sdk";
-import { ok, err, SorokitErrorCode } from "../shared/response";
+import { ok, err, SorokitErrorCode, sourceAccountNotFoundError } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { toMessage } from "../shared";
+import { toMessage, isNotFoundError } from "../shared";
 import { createHorizonServer } from "../shared/serverFactory";
 import { validateMemoPolicy } from "./buildTransaction";
 import type { MemoParams } from "./types";
@@ -52,6 +52,12 @@ export async function resolveSourceAccount(
     const sourceAccount = await server.loadAccount(sourcePublicKey);
     return ok(sourceAccount);
   } catch (cause) {
+    if (isNotFoundError(cause)) {
+      return sourceAccountNotFoundError(sourcePublicKey, {
+        cause,
+        operation: "resolveSourceAccount",
+      });
+    }
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
       `Failed to load source account: ${toMessage(cause)}`,

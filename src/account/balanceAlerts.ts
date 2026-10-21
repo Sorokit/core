@@ -1,8 +1,94 @@
 import type {
+  AccountReserveStructure,
   AssetBalance,
   BalanceAlert,
   BalanceAlertRule,
 } from "./types";
+
+/**
+ * Stellar protocol constants for reserve calculation.
+ * Base reserve is 0.5 XLM = 5,000,000 stroops.
+ * Base account reserves is 2 (account creation + master key).
+ */
+export const BASE_RESERVE_XLM = 0.5;
+export const BASE_ACCOUNT_RESERVES = 2;
+export const STROOPS_PER_XLM = 10_000_000n;
+
+/**
+ * Calculate the minimum required XLM balance (reserve) for an account structure.
+ *
+ * Reserve formula per Stellar protocol:
+ *   Minimum Reserve (XLM) = (2 + subentries) × 0.5 XLM
+ *
+ * Subentries are tracked by Horizon and include:
+ *   - Trustlines (non-native assets)
+ *   - Offers
+ *   - Additional signers (beyond master key)
+ *   - Data entries (manage_data)
+ *
+ * @param structure - Account reserve context (subentryCount, trustlines, signers, etc.).
+ * @param baseReserveXlm - Base reserve per entry in XLM (default: 0.5 XLM).
+ * @returns Minimum reserve in XLM.
+ */
+export function calculateMinimumReserve(
+  structure?: AccountReserveStructure,
+  baseReserveXlm = BASE_RESERVE_XLM,
+): number {
+  if (!structure) {
+    return BASE_ACCOUNT_RESERVES * baseReserveXlm;
+  }
+
+  let subentries = 0;
+  if (typeof structure.subentryCount === "number" && structure.subentryCount >= 0) {
+    subentries = structure.subentryCount;
+  } else if (typeof structure.numSubentries === "number" && structure.numSubentries >= 0) {
+    subentries = structure.numSubentries;
+  } else {
+    if (Array.isArray(structure.trustlines)) subentries += structure.trustlines.length;
+    else if (typeof structure.trustlines === "number" && structure.trustlines > 0) subentries += structure.trustlines;
+
+    if (Array.isArray(structure.signers)) subentries += Math.max(0, structure.signers.length - 1);
+    else if (typeof structure.signers === "number" && structure.signers > 0) subentries += Math.max(0, structure.signers - 1);
+
+    if (Array.isArray(structure.offers)) subentries += structure.offers.length;
+    else if (typeof structure.offers === "number" && structure.offers > 0) subentries += structure.offers;
+
+    if (Array.isArray(structure.dataEntries)) subentries += structure.dataEntries.length;
+    else if (typeof structure.dataEntries === "number" && structure.dataEntries > 0) subentries += structure.dataEntries;
+  }
+
+  return (BASE_ACCOUNT_RESERVES + subentries) * baseReserveXlm;
+}
+
+/**
+ * Calculate minimum reserve in stroops (1 XLM = 10,000,000 stroops).
+ */
+export function calculateMinimumReserveStroops(
+  structure?: AccountReserveStructure,
+  baseReserveXlm = BASE_RESERVE_XLM,
+): bigint {
+  const xlm = calculateMinimumReserve(structure, baseReserveXlm);
+  return BigInt(Math.round(xlm * 10_000_000));
+}
+
+/**
+ * Convenience helper to create a minReserveAlert rule.
+ */
+export function minReserveAlert(options?: {
+  bufferXlm?: number;
+  threshold?: number;
+  id?: string;
+}): BalanceAlertRule {
+  const buffer = options?.bufferXlm ?? options?.threshold ?? 0;
+  return {
+    id: options?.id ?? "min_reserve_alert",
+    assetCode: "XLM",
+    assetIssuer: null,
+    condition: "min_reserve",
+    threshold: buffer,
+    bufferXlm: buffer,
+  };
+}
 
 /**
  * Determine if a numeric value represents a valid Stellar balance amount.
@@ -59,25 +145,14 @@ function findBalance(
  *   alone decides — so an account that starts below a threshold alerts once.
  * - `change_percent` fires when the absolute percentage change between polls
  *   meets the threshold. It requires a non-zero baseline.
- *
- * Handling of Invalid and Null Values (#747):
- * - **Logged & Skipped**: If `newFloat` is null, NaN, negative, or non-finite,
- *   a warning is logged and the comparison is skipped to avoid false alerts or crashes.
- * - **Baseline Guards**: If an existing baseline (`oldFloat`) is NaN, negative,
- *   or non-finite, a warning is logged and the comparison is skipped.
- * - **Threshold Guards**: If `rule.threshold` is null, NaN, negative, or non-finite,
- *   a warning is logged and the rule is skipped.
- * - **Consistent Null Baseline**: When no baseline exists (`oldFloat === null`),
- *   `below` and `above` evaluate against current balance alone (firing if initial
- *   state crosses threshold), whereas `change_percent` requires a non-zero baseline
- *   and consistently does not fire.
- * - **No Errors Thrown**: All invalid states are safely handled by logging a warning
- *   and skipping without throwing, preserving stream stability.
+ * - `min_reserve` fires when native XLM balance approaches or drops below the
+ *   calculated minimum reserve requirements for the account.
  */
 export function evaluateBalanceAlerts(
   rules: BalanceAlertRule[],
   oldBalances: AssetBalance[],
   newBalances: AssetBalance[],
+  accountContext?: AccountReserveStructure,
 ): BalanceAlert[] {
   if (!Array.isArray(rules) || rules.length === 0) return [];
   if (!Array.isArray(newBalances) || newBalances.length === 0) return [];
@@ -86,34 +161,52 @@ export function evaluateBalanceAlerts(
   const alerts: BalanceAlert[] = [];
 
   for (const rule of rules) {
-    if (!rule || typeof rule !== "object" || typeof rule.assetCode !== "string") {
+    if (!rule || typeof rule !== "object") {
       continue;
     }
 
+    const isMinReserve = rule.condition === "min_reserve";
+    const assetCode = isMinReserve ? (rule.assetCode || "XLM") : rule.assetCode;
+    if (typeof assetCode !== "string") {
+      continue;
+    }
+
+    const thresholdVal = isMinReserve
+      ? (rule.threshold ?? rule.bufferXlm ?? 0)
+      : rule.threshold;
+
     if (
-      typeof rule.threshold !== "number" ||
-      Number.isNaN(rule.threshold) ||
-      !Number.isFinite(rule.threshold) ||
-      rule.threshold < 0
+      typeof thresholdVal !== "number" ||
+      Number.isNaN(thresholdVal) ||
+      !Number.isFinite(thresholdVal) ||
+      thresholdVal < 0
     ) {
       console.warn(
-        `[sorokit] evaluateBalanceAlerts: invalid threshold for rule "${rule.id ?? rule.assetCode}" (value: ${rule.threshold}). Skipping rule.`,
+        `[sorokit] evaluateBalanceAlerts: invalid threshold for rule "${rule.id ?? assetCode}" (value: ${thresholdVal}). Skipping rule.`,
       );
       continue;
     }
 
-    const newBal = findBalance(newBalances, rule.assetCode, rule.assetIssuer);
+    const newBal = findBalance(
+      newBalances,
+      assetCode,
+      isMinReserve ? null : rule.assetIssuer,
+    );
     if (!newBal) continue;
 
     const newFloat = extractBalanceFloat(newBal);
     if (!isValidBalance(newFloat)) {
       console.warn(
-        `[sorokit] evaluateBalanceAlerts: invalid new balance for asset "${rule.assetCode}" (value: ${newFloat}). Skipping alert evaluation.`,
+        `[sorokit] evaluateBalanceAlerts: invalid new balance for asset "${assetCode}" (value: ${newFloat}). Skipping alert evaluation.`,
       );
       continue;
     }
 
-    const oldBal = findBalance(safeOldBalances, rule.assetCode, rule.assetIssuer);
+    const oldBal = findBalance(
+      safeOldBalances,
+      assetCode,
+      isMinReserve ? null : rule.assetIssuer,
+    );
     let oldFloat: number | null = null;
 
     if (oldBal !== undefined) {
@@ -126,7 +219,7 @@ export function evaluateBalanceAlerts(
         const parsedOld = extractBalanceFloat(oldBal);
         if (!isValidBalance(parsedOld)) {
           console.warn(
-            `[sorokit] evaluateBalanceAlerts: invalid baseline balance for asset "${rule.assetCode}" (value: ${parsedOld}). Skipping alert evaluation.`,
+            `[sorokit] evaluateBalanceAlerts: invalid baseline balance for asset "${assetCode}" (value: ${parsedOld}). Skipping alert evaluation.`,
           );
           continue;
         }
@@ -136,32 +229,47 @@ export function evaluateBalanceAlerts(
 
     let fired = false;
     let changePercent: number | null = null;
+    let minReserve: number | undefined;
 
     switch (rule.condition) {
       case "below":
         fired =
-          newFloat < rule.threshold &&
-          (oldFloat === null || oldFloat >= rule.threshold);
+          newFloat < thresholdVal &&
+          (oldFloat === null || oldFloat >= thresholdVal);
         break;
       case "above":
         fired =
-          newFloat > rule.threshold &&
-          (oldFloat === null || oldFloat <= rule.threshold);
+          newFloat > thresholdVal &&
+          (oldFloat === null || oldFloat <= thresholdVal);
         break;
       case "change_percent":
         if (oldFloat !== null && oldFloat !== 0) {
           changePercent = ((newFloat - oldFloat) / oldFloat) * 100;
-          fired = Math.abs(changePercent) >= rule.threshold;
+          fired = Math.abs(changePercent) >= thresholdVal;
         }
         break;
+      case "min_reserve": {
+        minReserve = calculateMinimumReserve(accountContext);
+        const buffer = rule.bufferXlm ?? rule.threshold ?? 0;
+        const effectiveLimit = minReserve + buffer;
+        fired =
+          newFloat <= effectiveLimit &&
+          (oldFloat === null || oldFloat > effectiveLimit);
+        break;
+      }
       default:
         console.warn(
-          `[sorokit] evaluateBalanceAlerts: unknown alert condition "${(rule as any).condition}" for asset "${rule.assetCode}". Skipping rule.`,
+          `[sorokit] evaluateBalanceAlerts: unknown alert condition "${(rule as any).condition}" for asset "${assetCode}". Skipping rule.`,
         );
         continue;
     }
 
     if (fired) {
+      const minReserveStroops =
+        minReserve !== undefined
+          ? BigInt(Math.round(minReserve * 10_000_000))
+          : undefined;
+
       alerts.push({
         rule,
         assetCode: newBal.assetCode,
@@ -170,10 +278,16 @@ export function evaluateBalanceAlerts(
           oldBal?.balance != null ? String(oldBal.balance) : String(newBal.balance),
         newBalance: String(newBal.balance),
         changePercent,
+        ...(minReserve !== undefined ? { minimumReserve: minReserve } : {}),
+        ...(minReserveStroops !== undefined ? { minimumReserveStroops } : {}),
+        ...(isMinReserve && minReserve !== undefined
+          ? { isSubReserve: newFloat < minReserve }
+          : {}),
       });
     }
   }
 
   return alerts;
 }
+
 

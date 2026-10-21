@@ -597,3 +597,13 @@ export type {
   UpgradeEvent,
   ContractUpgradeDetectionOptions,
 } from "./upgradeDetection";
+
+export {
+  LedgerEntryCache,
+  createLedgerEntryCache,
+} from "./ledgerEntryCache";
+export type {
+  LedgerEntryCacheStats,
+  LedgerEntryCacheOptions,
+} from "./ledgerEntryCache";
+

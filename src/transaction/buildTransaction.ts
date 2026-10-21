@@ -8,7 +8,7 @@ import {
   Account,
   StrKey,
 } from "@stellar/stellar-sdk";
-import { ok, err, SorokitErrorCode } from "../shared/response";
+import { ok, err, SorokitErrorCode, sourceAccountNotFoundError } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 
 import { validateIssuer } from "../shared/validateIssuer";
@@ -121,6 +121,12 @@ async function resolveSourceAccount(
     const sourceAccount = await server.loadAccount(sourcePublicKey);
     return ok(sourceAccount);
   } catch (cause) {
+    if (isNotFoundError(cause)) {
+      return sourceAccountNotFoundError(sourcePublicKey, {
+        cause,
+        operation: "resolveSourceAccount",
+      });
+    }
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
       `Failed to load source account: ${toMessage(cause)}`,

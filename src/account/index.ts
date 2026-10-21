@@ -20,7 +20,15 @@ export { getAssetBalances } from "./getAssetBalances";
 export { getMultipleAssetBalances } from "./getMultipleAssetBalances";
 export { streamAccount } from "./streamAccount";
 export { subscribeToAccountEvents } from "./subscriptions";
-export { evaluateBalanceAlerts } from "./balanceAlerts";
+export {
+  evaluateBalanceAlerts,
+  calculateMinimumReserve,
+  calculateMinimumReserveStroops,
+  minReserveAlert,
+  BASE_RESERVE_XLM,
+  BASE_ACCOUNT_RESERVES,
+} from "./balanceAlerts";
+export type { AccountReserveStructure } from "./types";
 export { createBalanceAlert } from "./createBalanceAlert";
 export {
   rotateAccountKey,
