@@ -149,6 +149,36 @@ describe("buildFeeBumpTransaction (#398)", () => {
     );
     expect(result.status).toBe("error");
     expect(result.error?.code).toBe("TX_BUILD_FAILED");
+    expect(result.error?.message).toContain("must be higher than the inner transaction fee");
+  });
+
+  it("rejects a base fee equal to the inner transaction's base fee (downgrade prevention)", () => {
+    const source = Keypair.random();
+    const account = new Account(source.publicKey(), "0");
+    const tx = new TransactionBuilder(account, {
+      fee: "200",
+      networkPassphrase: PASSPHRASE,
+    })
+      .addOperation(
+        Operation.payment({
+          destination: Keypair.random().publicKey(),
+          asset: Asset.native(),
+          amount: "1",
+        }),
+      )
+      .setTimeout(30)
+      .build();
+    tx.sign(source);
+
+    const result = buildFeeBumpTransaction(
+      tx.toXDR(),
+      feeAccount,
+      "200",
+      PASSPHRASE,
+    );
+    expect(result.status).toBe("error");
+    expect(result.error?.code).toBe("TX_BUILD_FAILED");
+    expect(result.error?.message).toContain("must be higher than the inner transaction fee");
   });
 
   it("rejects wrapping an existing fee-bump transaction", () => {

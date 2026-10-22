@@ -90,10 +90,18 @@ export {
   pruneExpiredChallenges,
   getPendingChallengesCount,
   clearPendingChallenges,
+  generateSep10Nonce,
+  generateSep10Challenge,
+  buildSep10Challenge,
+  buildSep10ChallengeTx,
   CHALLENGE_TTL_MS,
   MAX_PENDING_CHALLENGES,
 } from "./sep10Auth";
-export type { AuthToken, InitiateSep10AuthOptions } from "./sep10Auth";
+export type {
+  AuthToken,
+  InitiateSep10AuthOptions,
+  GenerateSep10ChallengeOptions,
+} from "./sep10Auth";
 export {
   initiateDeposit,
   initiateWithdraw,

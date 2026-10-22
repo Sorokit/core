@@ -1,8 +1,18 @@
-import { StrKey, TransactionBuilder, WebAuth } from "@stellar/stellar-sdk";
+import {
+  Account,
+  BASE_FEE,
+  Keypair,
+  Networks,
+  Operation,
+  StrKey,
+  TransactionBuilder,
+  WebAuth,
+} from "@stellar/stellar-sdk";
 import type { Transaction } from "@stellar/stellar-sdk";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { fetchStellarToml } from "./sep1Toml";
+import { crypto } from "../shared/environment";
 
 export interface InitiateSep10AuthOptions {
   networkPassphrase?: string;
@@ -312,3 +322,131 @@ export async function completeSep10Auth(
     return err(SorokitErrorCode.NETWORK_ERROR, "Failed to complete SEP-10 authentication.", cause);
   }
 }
+
+/**
+ * Generate a cryptographically secure random nonce for SEP-10 challenge generation (#861).
+ *
+ * Uses the environment's CSPRNG (Web Crypto API getRandomValues or Node.js crypto.randomBytes).
+ * Format: 48 bytes (or custom length) providing 384+ bits of cryptographic entropy.
+ *
+ * @param length - Nonce length in bytes (default: 48 bytes per SEP-10 standard).
+ */
+export function generateSep10Nonce(length = 48): Buffer {
+  const bytes = crypto.randomBytes(length);
+  return Buffer.from(bytes);
+}
+
+export interface GenerateSep10ChallengeOptions {
+  /** Lifetime of the challenge in seconds (default: 300, 5 minutes per SEP-10). */
+  timeoutSec?: number;
+  /** Stellar network passphrase (defaults to Testnet). */
+  networkPassphrase?: string;
+  /** Optional secondary web auth domain if different from homeDomain. */
+  webAuthDomain?: string;
+  /** Optional client domain for custodial/managed clients. */
+  clientDomain?: string;
+  /** Length of the random nonce in bytes (default: 48 bytes). */
+  nonceLength?: number;
+  /** Explicit pre-generated nonce buffer (optional). */
+  nonce?: Buffer;
+}
+
+/**
+ * Generate a cryptographically random, replay-resistant SEP-10 challenge transaction (#861).
+ *
+ * Generates a fresh cryptographically secure random nonce for every challenge transaction,
+ * ensuring challenge uniqueness and preventing replay attacks.
+ *
+ * @param serverKey - Keypair of the server signing the challenge.
+ * @param clientAccountId - Stellar public key (G...) of the authenticating client.
+ * @param homeDomain - Domain name of the service (e.g. "example.com").
+ * @param options - Configuration options for timeout, domains, and nonce length.
+ */
+export function generateSep10Challenge(
+  serverKey: Keypair,
+  clientAccountId: string,
+  homeDomain: string,
+  options: GenerateSep10ChallengeOptions = {},
+): SorokitResult<string> {
+  if (!StrKey.isValidEd25519PublicKey(clientAccountId)) {
+    return err(
+      SorokitErrorCode.INVALID_ADDRESS,
+      "A valid client Stellar public key (G...) is required for SEP-10 challenge generation.",
+    );
+  }
+
+  if (!homeDomain || typeof homeDomain !== "string" || !homeDomain.trim()) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "homeDomain must be a non-empty string.",
+    );
+  }
+
+  const networkPassphrase =
+    options.networkPassphrase ?? Networks.TESTNET;
+  const timeoutSec = options.timeoutSec ?? 300;
+  const nonceLength = options.nonceLength ?? 48;
+
+  try {
+    const nonce = options.nonce ?? generateSep10Nonce(nonceLength);
+    const now = Math.floor(Date.now() / 1000);
+    const minTime = now - 300;
+    const maxTime = now + timeoutSec;
+
+    const serverAccount = new Account(serverKey.publicKey(), "-1");
+    const txBuilder = new TransactionBuilder(serverAccount, {
+      fee: BASE_FEE,
+      networkPassphrase,
+      timebounds: { minTime, maxTime },
+    });
+
+    // Operation 1: ManageData on client account with unique random nonce
+    txBuilder.addOperation(
+      Operation.manageData({
+        source: clientAccountId,
+        name: `${homeDomain} auth`,
+        value: nonce,
+      }),
+    );
+
+    // Optional Operation 2: web_auth_domain
+    if (options.webAuthDomain && options.webAuthDomain !== homeDomain) {
+      txBuilder.addOperation(
+        Operation.manageData({
+          source: serverKey.publicKey(),
+          name: "web_auth_domain",
+          value: Buffer.from(options.webAuthDomain),
+        }),
+      );
+    }
+
+    // Optional Operation 3: client_domain
+    if (options.clientDomain) {
+      txBuilder.addOperation(
+        Operation.manageData({
+          source: clientAccountId,
+          name: "client_domain",
+          value: Buffer.from(options.clientDomain),
+        }),
+      );
+    }
+
+    const tx = txBuilder.build();
+    tx.sign(serverKey);
+
+    return ok(tx.toXDR());
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Failed to generate SEP-10 challenge: ${String(cause)}`,
+      cause,
+    );
+  }
+}
+
+/** Backward-compatible alias for generateSep10Challenge. */
+export const buildSep10Challenge = generateSep10Challenge;
+
+/** Backward-compatible alias for generateSep10Challenge. */
+export const buildSep10ChallengeTx = generateSep10Challenge;
+
