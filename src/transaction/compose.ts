@@ -53,6 +53,7 @@ import { buildDataEntryOperation } from "../account/dataEntries";
 import type { DataEntryValue } from "./dataEntry";
 import type { MemoType, SetOptionsParams } from "./types";
 import type { ClaimPredicateInput } from "./types";
+import { warnOnExtremeOfferPrice } from "./offerPrice";
 
 export type ComposeNetwork = ResolvedNetworkConfig | NetworkType;
 
@@ -96,6 +97,10 @@ export interface ComposeOptions {
   memoize?: boolean;
   /** Disable the mutable-operation warning for deliberate expert reuse. */
   warnOnMutableMemoized?: boolean;
+  /** Suppress extreme offer-price warnings for this builder. */
+  suppressPriceWarnings?: boolean;
+  /** Override the default offer-price warning bounds (0.001–1000). */
+  priceWarningRange?: { min?: number; max?: number };
 }
 
 export interface ComposePaymentParams {
@@ -122,8 +127,15 @@ export interface ComposeOfferParams {
   /**
    * Price of 1 unit of `selling` in terms of `buying`: a decimal string
    * (e.g. `"1.5"`) or a rational `{ n, d }`.
+   *
+   * Prices below 0.001 or above 1000 trigger an advisory warning unless
+   * `suppressPriceWarnings` is true.
    */
   price: string | { n: number; d: number };
+  /** Suppress the extreme-price warning for this operation. */
+  suppressPriceWarnings?: boolean;
+  /** Override the default offer-price warning bounds (0.001–1000). */
+  priceWarningRange?: { min?: number; max?: number };
 }
 
 export interface ComposePathPaymentBase {
@@ -336,6 +348,17 @@ export function compose(
     }
   };
 
+  const warnOnOfferPrice = (params: ComposeOfferParams): void => {
+    if (!(Number(params.amount) > 0)) return;
+    const range = params.priceWarningRange ?? options.priceWarningRange;
+    warnOnExtremeOfferPrice(params.price, {
+      suppress:
+        params.suppressPriceWarnings === true ||
+        options.suppressPriceWarnings === true,
+      ...(range !== undefined && { range }),
+    });
+  };
+
   const push = (op: PendingComposeOperation): void => {
     pendingOps.push(op);
   };
@@ -460,6 +483,7 @@ export function compose(
         });
         return builder;
       }
+      warnOnOfferPrice(params);
       push({
         kind: "manageOffer",
         build: () => {
@@ -505,6 +529,7 @@ export function compose(
         });
         return builder;
       }
+      warnOnOfferPrice(params);
       push({
         kind: "manageBuyOffer",
         build: () => {

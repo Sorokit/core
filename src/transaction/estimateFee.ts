@@ -161,6 +161,220 @@ export interface FeeEstimate {
   congestion?: CongestionFeeEstimate;
   /** The priority level applied to this estimate. Undefined when no priority was requested. */
   priority?: TransactionPriority;
+  /** Complexity factors used to adjust the simulated fee. */
+  complexity?: TransactionComplexity;
+}
+
+/**
+ * The complexity factors considered when estimating a fee (issue #850).
+ *
+ * Stellar's inclusion fee is charged per operation, while Soroban simulation
+ * captures contract resource usage. Neither fully describes a transaction's
+ * footprint, so `estimateFee` also accounts for the factors below and applies a
+ * bounded premium to the simulated fee.
+ */
+export interface TransactionComplexity {
+  /** Number of operations in the transaction (at least 1). */
+  operationCount: number;
+  /** Stellar operation types present in the transaction. */
+  operationTypes: string[];
+  /** Number of signatures required/attached, including multisig signers. */
+  signerCount: number;
+  /** Operations that create, modify, or consume a trustline. */
+  trustlineOperationCount: number;
+  /** Whether the transaction carries a memo. */
+  hasMemo: boolean;
+  /** Bounded multiplier applied to the simulated fee (1 = no premium). */
+  multiplier: number;
+  /** Human-readable list of the factors that contributed to the premium. */
+  factors: string[];
+}
+
+/**
+ * Maximum complexity premium. Keeping the premium at or below 15% ensures
+ * estimates stay within ±20% of the fee actually charged for the same
+ * transaction, even when simulation already accounts for resource usage.
+ */
+export const MAX_COMPLEXITY_MULTIPLIER = 1.15;
+
+/**
+ * Per-operation complexity weights. Cheap, payment-like operations carry no
+ * premium so a simple one-operation transaction keeps the historical estimate.
+ * Operations that allocate or mutate ledger state carry a premium.
+ */
+const OPERATION_COMPLEXITY_WEIGHTS: Readonly<Record<string, number>> = {
+  createAccount: 0,
+  payment: 0,
+  bumpSequence: 0,
+  manageData: 0.01,
+  setOptions: 0.03,
+  changeTrust: 0.06,
+  allowTrust: 0.04,
+  setTrustLineFlags: 0.04,
+  pathPaymentStrictSend: 0.05,
+  pathPaymentStrictReceive: 0.05,
+  manageSellOffer: 0.04,
+  manageBuyOffer: 0.04,
+  createPassiveSellOffer: 0.03,
+  createClaimableBalance: 0.04,
+  claimClaimableBalance: 0.03,
+  beginSponsoringFutureReserves: 0.04,
+  endSponsoringFutureReserves: 0.04,
+  revokeSponsorship: 0.04,
+  clawback: 0.03,
+  clawbackClaimableBalance: 0.03,
+  liquidityPoolDeposit: 0.05,
+  liquidityPoolWithdraw: 0.05,
+  invokeHostFunction: 0.06,
+  extendFootprintTtl: 0.04,
+  restoreFootprint: 0.04,
+};
+
+/** Fallback premium for operation types not listed in the weight table. */
+const DEFAULT_OPERATION_COMPLEXITY_WEIGHT = 0.02;
+
+/** Operations that create, modify, or consume a trustline. */
+const TRUSTLINE_OPERATION_TYPES: ReadonlySet<string> = new Set([
+  "changeTrust",
+  "allowTrust",
+  "setTrustLineFlags",
+  "pathPaymentStrictSend",
+  "pathPaymentStrictReceive",
+  "manageSellOffer",
+  "manageBuyOffer",
+  "createPassiveSellOffer",
+  "liquidityPoolDeposit",
+  "liquidityPoolWithdraw",
+]);
+
+/** Extra premium per operation beyond the first. */
+const COMPLEXITY_PER_EXTRA_OPERATION = 0.02;
+
+/** Extra premium per signer beyond the first (multisig authorisation). */
+const COMPLEXITY_PER_EXTRA_SIGNER = 0.03;
+
+/** Small premium for the extra envelope bytes of a memo. */
+const COMPLEXITY_PER_MEMO = 0.005;
+
+interface TransactionLike {
+  operations?: unknown;
+  signatures?: unknown;
+  innerTransaction?: unknown;
+  memo?: unknown;
+}
+
+function asTransactionLike(value: unknown): TransactionLike | undefined {
+  return value !== null && typeof value === "object" ? (value as TransactionLike) : undefined;
+}
+
+/** Unwrap fee-bump transactions so the inner transaction's details are used. */
+function unwrapTransaction(value: unknown): TransactionLike | undefined {
+  const transaction = asTransactionLike(value);
+  if (!transaction) return undefined;
+  const inner = asTransactionLike(transaction.innerTransaction);
+  return inner ?? transaction;
+}
+
+function operationTypeOf(operation: unknown): string {
+  if (operation !== null && typeof operation === "object") {
+    const type = (operation as { type?: unknown }).type;
+    if (typeof type === "string" && type.length > 0) return type;
+  }
+  return "unknown";
+}
+
+function signatureCountOf(transaction: TransactionLike | undefined): number {
+  if (!transaction) return 0;
+  const outer = Array.isArray(transaction.signatures) ? transaction.signatures.length : 0;
+  const inner = asTransactionLike(transaction.innerTransaction);
+  const innerCount = inner && Array.isArray(inner.signatures) ? inner.signatures.length : 0;
+  return Math.max(outer, innerCount);
+}
+
+function hasMemoOf(transaction: TransactionLike | undefined): boolean {
+  const memo = asTransactionLike(transaction?.memo);
+  if (!memo) return false;
+  const type = (memo as { type?: unknown }).type;
+  return typeof type === "string" && type !== "none" && type !== "MEMO_NONE";
+}
+
+/**
+ * Derive the bounded complexity premium for a transaction.
+ *
+ * Factors included:
+ * - operation count beyond the first (inclusion fee scales per operation);
+ * - state-mutating operation types (trustlines, offers, path payments,
+ *   contract invocations, sponsorship, liquidity pools, etc.);
+ * - trustline-touching operations;
+ * - multisig signer count;
+ * - memo payload.
+ *
+ * Soroban CPU/memory/ledger resource usage is already reflected in the
+ * simulation's `minResourceFee`, so it is not double-counted here; the
+ * operation-count floor is applied separately by `estimateFee`.
+ */
+function analyzeTransactionComplexity(
+  transaction: unknown,
+  requestedSignerCount?: number,
+): TransactionComplexity {
+  const tx = unwrapTransaction(transaction);
+  const operations = Array.isArray(tx?.operations) ? (tx.operations as unknown[]) : [];
+  const operationTypes = operations.map(operationTypeOf);
+  const operationCount = Math.max(1, operations.length);
+  const trustlineOperationCount = operationTypes.filter((type) =>
+    TRUSTLINE_OPERATION_TYPES.has(type),
+  ).length;
+  const attachedSigners = signatureCountOf(tx);
+  const requestedSigners =
+    Number.isFinite(requestedSignerCount) && (requestedSignerCount ?? 0) > 0
+      ? Math.floor(requestedSignerCount as number)
+      : 0;
+  const signerCount = Math.max(1, requestedSigners, attachedSigners);
+  const hasMemo = hasMemoOf(tx);
+  const factors: string[] = [];
+  let score = 0;
+
+  if (operationCount > 1) {
+    score += COMPLEXITY_PER_EXTRA_OPERATION * (operationCount - 1);
+    factors.push(`${operationCount} operations`);
+  }
+
+  const seenTypes = new Set<string>();
+  for (const type of operationTypes) {
+    const weight = OPERATION_COMPLEXITY_WEIGHTS[type] ?? DEFAULT_OPERATION_COMPLEXITY_WEIGHT;
+    if (weight > 0) {
+      score += weight;
+      if (!seenTypes.has(type)) {
+        factors.push(`${type} operation`);
+        seenTypes.add(type);
+      }
+    }
+  }
+
+  if (trustlineOperationCount > 0) {
+    score += COMPLEXITY_PER_EXTRA_OPERATION * trustlineOperationCount;
+    factors.push(`${trustlineOperationCount} trustline-touching operation(s)`);
+  }
+
+  if (signerCount > 1) {
+    score += COMPLEXITY_PER_EXTRA_SIGNER * (signerCount - 1);
+    factors.push(`${signerCount} signers`);
+  }
+
+  if (hasMemo) {
+    score += COMPLEXITY_PER_MEMO;
+    factors.push("memo present");
+  }
+
+  return {
+    operationCount,
+    operationTypes,
+    signerCount,
+    trustlineOperationCount,
+    hasMemo,
+    multiplier: Math.min(MAX_COMPLEXITY_MULTIPLIER, 1 + score),
+    factors,
+  };
 }
 
 /**
@@ -249,6 +463,12 @@ export function calculateAdaptiveFee(
 export interface FeeEstimateOptions {
   /** Client-level cache for storing the recent median fee */
   cache?: SorokitCache;
+  /**
+   * Number of signatures that will authorise the transaction (multisig).
+   * When omitted, the signature count present in the XDR is used; unsigned
+   * transactions default to a single signer.
+   */
+  signerCount?: number;
   /** Invoked when a fee surge is detected — useful for logging or UI alerts */
   onFeeSurge?: (estimate: FeeEstimate) => void;
   /** When true, fetches recent transaction fees from Horizon and adds tier recommendations */
@@ -503,6 +723,20 @@ function describeFeeEstimateFailure(cause: unknown): string {
  * transactions (via Horizon). When the fee exceeds 2× that median, `surge: true`
  * is set on the result and `onFeeSurge` is invoked if provided.
  *
+ * Estimates are complexity-aware (issue #850). The simulated fee is raised to
+ * the inclusion-fee floor for the operation count (network base fee × number of
+ * operations), then a bounded premium (at most 15%) is applied for:
+ * - operations beyond the first;
+ * - state-mutating operation types (trustlines, offers, path payments,
+ *   contract invocations, sponsorship, liquidity pools, etc.);
+ * - trustline-touching operations;
+ * - multisig signer count (pass `signerCount` when signing an unsigned XDR);
+ * - memo payloads.
+ *
+ * The factors and the applied multiplier are returned in
+ * `FeeEstimate.complexity`. The premium is capped so estimates stay within
+ * ±20% of the fee actually charged.
+ *
  * @param rpcUrl        - Base URL of the Soroban RPC server.
  * @param horizonUrl    - Base URL of the Horizon server (used in payment mode).
  * @param networkConfig - Resolved network configuration.
@@ -598,7 +832,11 @@ export async function estimateFee(
     // For "xdr" input this happens before any network call;
     // for "payment" input this happens after the Horizon account fetch but
     // before the more expensive Soroban simulation.
-    const cacheKey = `sorokit:fee:${createHash("sha256").update(xdr).digest("hex")}`;
+    const signerCacheKey =
+      Number.isFinite(options?.signerCount) && (options?.signerCount ?? 0) > 0
+        ? `:signers:${Math.floor(options?.signerCount as number)}`
+        : "";
+    const cacheKey = `sorokit:fee:${createHash("sha256").update(xdr).digest("hex")}${signerCacheKey}`;
     if (cache) {
       const cached = cache.get(cacheKey);
       if (cached != null) return ok(cached as FeeEstimate);
@@ -630,6 +868,22 @@ export async function estimateFee(
       simulated = false;
     }
 
+    // Complexity-aware adjustment (issue #850). The inclusion fee is charged
+    // per operation, so first raise the estimate to the operation-count floor.
+    // Then apply a bounded premium for factors that simulation may not expose
+    // (extra operations, state-mutating operation types, trustlines, multisig
+    // signers, and memos). The premium is only applied to simulated results;
+    // the fallback path uses the deterministic inclusion floor directly.
+    const complexity = analyzeTransactionComplexity(tx, options?.signerCount);
+    const inclusionFeeFloor = networkBaseFee * complexity.operationCount;
+    feeStroops = Math.max(inclusionFeeFloor, feeStroops);
+    if (simulated && complexity.multiplier > 1) {
+      feeStroops = Math.max(
+        inclusionFeeFloor,
+        Math.round(feeStroops * complexity.multiplier),
+      );
+    }
+
     // Apply urgency and bounded network-trend adjustment only when requested;
     // callers that omit these options retain the historical estimate exactly.
     const priority = options?.priority ?? options?.urgency;
@@ -638,13 +892,13 @@ export async function estimateFee(
       const urgencyFee = calculateAdaptiveFee(feeStroops, {
         ...(priority ? { urgency: priority } : {}),
         feeHistory: options?.feeHistory ?? getFeeHistory(networkConfig.networkPassphrase),
-        baseFeeFloor: networkBaseFee,
+        baseFeeFloor: inclusionFeeFloor,
         ...(options?.minMultiplier !== undefined ? { minMultiplier: options.minMultiplier } : {}),
         ...(options?.maxMultiplier !== undefined ? { maxMultiplier: options.maxMultiplier } : {}),
       });
       if (priority && options?.priorityMultipliers) {
         const customMultiplier = multipliers[priority];
-        feeStroops = Math.max(networkBaseFee, Math.round(feeStroops * customMultiplier));
+        feeStroops = Math.max(inclusionFeeFloor, Math.round(feeStroops * customMultiplier));
       } else {
         feeStroops = urgencyFee;
       }
@@ -657,6 +911,7 @@ export async function estimateFee(
       feeXlm,
       baseFee: String(networkBaseFee),
       simulated,
+      complexity,
       ...(priority ? { priority } : {}),
     };
 

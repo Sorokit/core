@@ -70,12 +70,73 @@ export interface BuildPathPaymentParams {
   amount: string;
   /** Mode: strict-send or strict-receive */
   mode: "strict-send" | "strict-receive";
-  /** Optional pre-computed path */
+  /**
+   * Pre-computed intermediate path.
+   *
+   * When provided, it must contain between 1 and 5 intermediate assets. An
+   * explicit empty array is rejected as ambiguous: omit `path` to let the
+   * builder auto-discover a route, or use a regular payment for a direct
+   * same-asset transfer. A path discovered as empty is a valid direct
+   * conversion under the Stellar protocol.
+   */
   path?: SwapRouteAsset[];
   /** How to handle a destination equal to sourcePublicKey. Defaults to "warn". */
   selfPaymentBehavior?: "warn" | "error" | "allow";
   /** Convenience opt-in for callers that intentionally make self-payments. */
   allowSelfPayment?: boolean;
+}
+
+/**
+ * Maximum number of intermediate assets a Stellar path payment can contain.
+ * @see https://developers.stellar.org/docs/learn/fundamentals/operations/overview
+ */
+export const MAX_PATH_PAYMENT_INTERMEDIATE_ASSETS = 5;
+
+/** Options for {@link validatePathPaymentPathLength}. */
+export interface PathPaymentPathLengthOptions {
+  /** Allow a zero-length path for a direct conversion. Defaults to false. */
+  allowEmpty?: boolean;
+  /** Field name used in error messages. Defaults to "path". */
+  fieldName?: string;
+}
+
+/**
+ * Validate the number of intermediate hops in a path payment.
+ *
+ * Stellar allows direct conversions with an empty path, but an explicit empty
+ * path is ambiguous for callers of this module. By default the path must
+ * contain at least one intermediate asset and no more than
+ * {@link MAX_PATH_PAYMENT_INTERMEDIATE_ASSETS}. Pass `allowEmpty: true` for
+ * paths returned by Horizon, where an empty path means a direct conversion.
+ */
+export function validatePathPaymentPathLength(
+  pathLength: number,
+  options?: PathPaymentPathLengthOptions,
+): SorokitResult<number> {
+  const fieldName = options?.fieldName ?? "path";
+
+  if (!Number.isInteger(pathLength) || pathLength < 0) {
+    return err(
+      SorokitErrorCode.ROUTER_INVALID_PATH,
+      `${fieldName} length must be a non-negative integer`,
+    );
+  }
+
+  if (pathLength === 0 && options?.allowEmpty !== true) {
+    return err(
+      SorokitErrorCode.ROUTER_INVALID_PATH,
+      `${fieldName} must contain at least one intermediate asset; omit it to auto-discover a route`,
+    );
+  }
+
+  if (pathLength > MAX_PATH_PAYMENT_INTERMEDIATE_ASSETS) {
+    return err(
+      SorokitErrorCode.ROUTER_INVALID_PATH,
+      `${fieldName} cannot contain more than ${MAX_PATH_PAYMENT_INTERMEDIATE_ASSETS} intermediate assets`,
+    );
+  }
+
+  return ok(pathLength);
 }
 
 /**
@@ -154,7 +215,12 @@ export async function findSwapPath(
 
 /**
  * Build a path payment transaction XDR.
- * 
+ *
+ * `params.path` must contain between 1 and 5 intermediate assets. Empty paths
+ * are rejected here because this builder does not auto-discover routes; use
+ * `buildPathPayment` to auto-discover, or a regular payment for a direct
+ * same-asset transfer.
+ *
  * @param params - Path payment parameters
  * @returns Transaction XDR or error
  */
@@ -173,6 +239,12 @@ export async function buildPathPaymentTransaction(
       console.warn(message);
     }
   }
+
+  const pathLengthResult = validatePathPaymentPathLength(
+    params.path?.length ?? 0,
+  );
+  if (pathLengthResult.status === "error") return pathLengthResult;
+
   // Placeholder implementation
   // In production, this would use Stellar SDK to build the transaction
 

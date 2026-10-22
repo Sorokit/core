@@ -141,6 +141,13 @@ export interface ManageOfferParams extends MemoParams {
   buyingAssetIssuer?: string;
   amount: string;
   price: string;
+  /**
+   * Suppress warnings when `price` is outside the typical range
+   * (below 0.001 or above 1000 buying units per selling unit).
+   */
+  suppressPriceWarnings?: boolean;
+  /** Override the default offer-price warning bounds (0.001–1000). */
+  priceWarningRange?: { min?: number; max?: number };
   offerId?: string;
   autoFetchSequence?: boolean;
 }
