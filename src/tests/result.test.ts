@@ -11,10 +11,43 @@ import {
   defaultRecoveryGuidance,
   sanitizeErrorContext,
   attachTraceId,
+  toSorokitResult,
   SorokitErrorCategory,
 } from "../shared/response";
 
 describe("shared/response", () => {
+  describe("toSorokitResult()", () => {
+    it("wraps successful synchronous values", async () => {
+      await expect(toSorokitResult(() => 42)).resolves.toMatchObject({
+        status: "ok",
+        data: 42,
+        error: null,
+      });
+    });
+
+    it("converts synchronous throws into structured errors", async () => {
+      const result = await toSorokitResult(() => {
+        throw new Error("legacy helper failed");
+      });
+      expect(result.status).toBe("error");
+      if (result.status !== "error") return;
+      expect(result.error.code).toBe(SorokitErrorCode.INTERNAL);
+      expect(result.error.message).toBe("legacy helper failed");
+    });
+
+    it("converts rejected promises using the caller's error code", async () => {
+      const result = await toSorokitResult(
+        async () => {
+          throw new Error("adapter rejected");
+        },
+        SorokitErrorCode.WALLET_CONNECT_FAILED,
+      );
+      expect(result.status).toBe("error");
+      if (result.status !== "error") return;
+      expect(result.error.code).toBe(SorokitErrorCode.WALLET_CONNECT_FAILED);
+    });
+  });
+
   describe("ok()", () => {
     it("returns status ok with data", () => {
       const result = ok({ value: 42 });

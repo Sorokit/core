@@ -304,6 +304,42 @@ describe("resolveDID", () => {
     expect(result.error.code).toBe("INVALID_CONFIG");
     expect(result.error.message).toContain("expired");
   });
+
+  it("rejects a custom resolver document with a mismatched id", async () => {
+    const result = await resolveDID(TEST_DID, {
+      resolver: resolverReturning({ ...PREBUILT_DOCUMENT, id: OTHER_DID }),
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe("INVALID_CONFIG");
+    expect(result.error.message).toContain("id must match");
+  });
+
+  it("rejects a custom resolver document without a verification method", async () => {
+    const result = await resolveDID(TEST_DID, {
+      resolver: resolverReturning({ ...PREBUILT_DOCUMENT, verificationMethod: [] }),
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe("INVALID_CONFIG");
+    expect(result.error.message).toContain("verification method");
+  });
+
+  it("rejects a custom resolver document with an invalid DID context", async () => {
+    const result = await resolveDID(TEST_DID, {
+      resolver: resolverReturning({
+        ...PREBUILT_DOCUMENT,
+        "@context": ["https://example.com/not-a-did-context"],
+      }),
+    });
+
+    expect(result.status).toBe("error");
+    if (result.status !== "error") return;
+    expect(result.error.code).toBe("INVALID_CONFIG");
+    expect(result.error.message).toContain("DID Core context");
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════

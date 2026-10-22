@@ -1322,6 +1322,7 @@ export {
   isErrorCode,
   isOk,
   ok,
+  toSorokitResult,
 } from "./shared/response";
 export type {
   RecoveryAttempt,
