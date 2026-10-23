@@ -232,6 +232,19 @@ export {
   formatTransactionsToJson,
 } from "./exportTransactionHistory";
 export { validateTransaction, validateTransactionBatch } from "./validateTransaction";
+// ─── Transaction size tracking and early-warning (#858) ───────────────────────
+export {
+  TransactionSizeTracker,
+  createTransactionSizeTracker,
+  MAX_OPERATIONS,
+  RECOMMENDED_MAX_OPERATIONS,
+  RECOMMENDED_MAX_BYTES,
+} from "./transactionSizeTracker";
+export type {
+  TransactionSizeWarning,
+  TransactionSizeSnapshot,
+  TransactionSizeTrackerOptions,
+} from "./transactionSizeTracker";
 export { validateTransactionOffline } from "./validateTransactionOffline";
 export type { OfflineValidationIssue, OfflineValidationReport, OfflineValidationOptions } from "./validateTransactionOffline";
 export {
