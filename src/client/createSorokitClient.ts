@@ -1575,6 +1575,17 @@ export function createSorokitClient(
   const walletEvents = createWalletEventEmitter();
   accountManager.watchAccountSwitch((activeAccount, previousAccount) => {
     walletEvents.emit("accountChanged", { activeAccount, previousAccount });
+    try {
+      const { emitObservabilityEvent } = await import("../shared/observability");
+      emitObservabilityEvent({
+        type: "wallet_state_change",
+        event: "account_changed",
+        walletType: activeAccount?.walletType ?? previousAccount?.walletType,
+        publicKey: activeAccount?.publicKey ?? null,
+      });
+    } catch {
+      // Ignore observability hook errors
+    }
   });
   const contractStateHistory = createContractStateHistory();
 
@@ -1948,7 +1959,20 @@ export function createSorokitClient(
           // Emit "connected" (#613) after the wrapped result is finalized
           if (result.status === "ok") {
             const connectedEvent = toConnectedEvent(result.data);
-            if (connectedEvent) walletEvents.emit("connected", connectedEvent);
+            if (connectedEvent) {
+              walletEvents.emit("connected", connectedEvent);
+              try {
+                const { emitObservabilityEvent } = await import("../shared/observability");
+                emitObservabilityEvent({
+                  type: "wallet_state_change",
+                  event: "connected",
+                  walletType: connectedEvent.walletType,
+                  publicKey: connectedEvent.publicKey,
+                });
+              } catch {
+                // Ignore observability hook errors
+              }
+            }
           }
           return result;
         });
@@ -1979,8 +2003,18 @@ export function createSorokitClient(
           // Emit "disconnected" (#613) after the wrapped result is finalized
           if (result.status === "ok") {
             walletEvents.emit("disconnected", {
-              walletType: adapter.walletType,
+              walletType: previousState.walletType,
             });
+            try {
+              const { emitObservabilityEvent } = await import("../shared/observability");
+              emitObservabilityEvent({
+                type: "wallet_state_change",
+                event: "disconnected",
+                walletType: previousState.walletType,
+              });
+            } catch {
+              // Ignore observability hook errors
+            }
           }
           return result;
         }),

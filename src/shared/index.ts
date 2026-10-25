@@ -71,3 +71,6 @@ export type {
 // ─── OpenTelemetry (#600) & SmartCache (#604) ────────────────────────────────
 export * from "./openTelemetry";
 export * from "./smartCache";
+
+// ─── Observability (#) ───────────────────────────────────────────────────────
+export * from "./observability";

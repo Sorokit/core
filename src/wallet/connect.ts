@@ -12,6 +12,7 @@ import {
   type TelemetrySpan,
 } from "../performance/telemetry";
 import { isUserRejection } from "../shared/errors";
+import { emitObservabilityEvent } from "../shared/observability";
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_RETRIES = 3;
@@ -216,6 +217,16 @@ async function connectWalletImpl(
       }
 
       span?.setStatus("ok");
+      try {
+        emitObservabilityEvent({
+          type: "wallet_state_change",
+          event: "connected",
+          walletType: adapter.walletType,
+          publicKey,
+        });
+      } catch {
+        // Ignore observability hook errors
+      }
       notifyProgress("connected", attempt, isRetry, null, false, publicKey);
       return ok(state);
     } catch (cause) {

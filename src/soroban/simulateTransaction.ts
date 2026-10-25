@@ -15,6 +15,7 @@ import type {
 import type { SorokitCache } from "../shared/cache";
 import { createSimulationCacheKey } from "./contractCallIdentity";
 import { createSorobanServer } from "../shared/serverFactory";
+import { emitObservabilityEvent } from "../shared/observability";
 
 export interface ExtractResourceUsageOptions {
   /**
@@ -307,10 +308,23 @@ export async function simulateTransaction(
     }
   }
 
+  const start = Date.now();
   try {
     const rpc = createSorobanServer(rpcUrl);
     const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase);
     const simResult = await rpc.simulateTransaction(tx);
+
+    try {
+      emitObservabilityEvent({
+        type: "rpc_call",
+        method: "simulateTransaction",
+        url: rpcUrl,
+        durationMs: Date.now() - start,
+        success: true,
+      });
+    } catch {
+      // Ignore observability hook errors
+    }
 
     if (SorobanRpc.Api.isSimulationError(simResult)) {
       const result: SimulateTransactionResult = { success: false, fee: "0", error: simResult.error };
@@ -343,12 +357,36 @@ export async function simulateTransaction(
       return ok(result);
     }
 
+    try {
+      emitObservabilityEvent({
+        type: "rpc_call",
+        method: "simulateTransaction",
+        url: rpcUrl,
+        durationMs: Date.now() - start,
+        success: false,
+        errorCode: SorokitErrorCode.TX_SIMULATE_FAILED,
+      });
+    } catch {
+      // Ignore
+    }
     return err(
       SorokitErrorCode.TX_SIMULATE_FAILED,
       "Transaction simulation returned an unexpected result.",
       simResult,
     );
   } catch (cause) {
+    try {
+      emitObservabilityEvent({
+        type: "rpc_call",
+        method: "simulateTransaction",
+        url: rpcUrl,
+        durationMs: Date.now() - start,
+        success: false,
+        errorCode: SorokitErrorCode.TX_SIMULATE_FAILED,
+      });
+    } catch {
+      // Ignore observability hook errors
+    }
     return err(
       SorokitErrorCode.TX_SIMULATE_FAILED,
       describeSimulationFailure(cause),

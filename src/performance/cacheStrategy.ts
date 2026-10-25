@@ -29,6 +29,7 @@
  */
 
 import { ok, err, SorokitErrorCode, type SorokitResult } from "../shared/response";
+import { emitObservabilityEvent } from "../shared/observability";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -235,6 +236,11 @@ export class CacheBuilder<T> {
       this.hits++;
       const entry = this.store.get(key)!;
       this.touch(key, entry);
+      try {
+        emitObservabilityEvent({ type: "cache_operation", operation: "hit", key });
+      } catch {
+        // Ignore observability hook errors
+      }
       return ok({
         value: entry.value,
         cachedAt: entry.cachedAt,
@@ -244,6 +250,11 @@ export class CacheBuilder<T> {
     }
 
     this.misses++;
+    try {
+      emitObservabilityEvent({ type: "cache_operation", operation: "miss", key });
+    } catch {
+      // Ignore observability hook errors
+    }
     const fetchPromise = this.fetchAndStore(key, fetcher);
     this.inFlight.set(key, fetchPromise);
     try {
@@ -261,6 +272,11 @@ export class CacheBuilder<T> {
       this.invalidations++;
     }
     this.pendingWarmKeys.delete(key);
+    try {
+      emitObservabilityEvent({ type: "cache_operation", operation: "invalidate", key });
+    } catch {
+      // Ignore observability hook errors
+    }
   }
 
   /** Manually invalidates every cache entry. */
@@ -268,6 +284,11 @@ export class CacheBuilder<T> {
     this.invalidations += this.store.size;
     this.store.clear();
     this.pendingWarmKeys.clear();
+    try {
+      emitObservabilityEvent({ type: "cache_operation", operation: "clear" });
+    } catch {
+      // Ignore observability hook errors
+    }
   }
 
   /** Returns hit-rate and memory-usage statistics for this cache instance. */

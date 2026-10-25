@@ -2,6 +2,7 @@ import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { SorokitCache } from "../shared/cache";
 import type { WalletAdapter, WalletState } from "./types";
+import { emitObservabilityEvent } from "../shared/observability";
 
 /**
  * Disconnect a wallet via its adapter and return a clean disconnected `WalletState`.
@@ -36,6 +37,16 @@ export async function disconnectWallet(
 
   if (cache) {
     cache.invalidate("wallet:state");
+  }
+
+  try {
+    emitObservabilityEvent({
+      type: "wallet_state_change",
+      event: "disconnected",
+      walletType: adapter.walletType,
+    });
+  } catch {
+    // Ignore observability hook errors
   }
 
   return ok({
