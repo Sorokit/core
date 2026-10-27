@@ -2187,3 +2187,6 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+// ─── Observability ───────────────────────────────────────────────────────────
+export * from "./shared/observability";

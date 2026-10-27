@@ -16,16 +16,35 @@ export interface SorokitCache {
   clear(): void;
 }
 
+import { emitObservabilityEvent } from "./observability";
+
 export function createInMemoryCache(defaultTtlMs?: number): SorokitCache {
   const store = new Map<string, { value: unknown; expiresAt?: number }>();
 
   return {
     get(key: string): unknown {
       const entry = store.get(key);
-      if (!entry) return undefined;
+      if (!entry) {
+        try {
+          emitObservabilityEvent({ type: "cache_operation", operation: "miss", key });
+        } catch {
+          // Ignore observability hook errors
+        }
+        return undefined;
+      }
       if (entry.expiresAt !== undefined && Date.now() > entry.expiresAt) {
         store.delete(key);
+        try {
+          emitObservabilityEvent({ type: "cache_operation", operation: "miss", key });
+        } catch {
+          // Ignore observability hook errors
+        }
         return undefined;
+      }
+      try {
+        emitObservabilityEvent({ type: "cache_operation", operation: "hit", key });
+      } catch {
+        // Ignore observability hook errors
       }
       return entry.value;
     },
@@ -39,9 +58,19 @@ export function createInMemoryCache(defaultTtlMs?: number): SorokitCache {
       } else {
         store.set(key, { value });
       }
+      try {
+        emitObservabilityEvent({ type: "cache_operation", operation: "set", key });
+      } catch {
+        // Ignore observability hook errors
+      }
     },
     invalidate(key: string): void {
       store.delete(key);
+      try {
+        emitObservabilityEvent({ type: "cache_operation", operation: "invalidate", key });
+      } catch {
+        // Ignore observability hook errors
+      }
       if (key.includes("*")) {
         const regex = new RegExp(
           "^" +
@@ -54,17 +83,34 @@ export function createInMemoryCache(defaultTtlMs?: number): SorokitCache {
         for (const k of Array.from(store.keys())) {
           if (regex.test(k)) {
             store.delete(k);
+            try {
+              emitObservabilityEvent({ type: "cache_operation", operation: "invalidate", key: k });
+            } catch {
+              // Ignore observability hook errors
+            }
           }
         }
       }
     },
     invalidateByPrefix(prefix: string): void {
       for (const key of store.keys()) {
-        if (key.startsWith(prefix)) store.delete(key);
+        if (key.startsWith(prefix)) {
+          store.delete(key);
+          try {
+            emitObservabilityEvent({ type: "cache_operation", operation: "invalidate", key });
+          } catch {
+            // Ignore observability hook errors
+          }
+        }
       }
     },
     clear(): void {
       store.clear();
+      try {
+        emitObservabilityEvent({ type: "cache_operation", operation: "clear" });
+      } catch {
+        // Ignore observability hook errors
+      }
     },
   };
 }

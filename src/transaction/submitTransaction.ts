@@ -20,6 +20,7 @@ import { mapHorizonError, isSequenceError } from "../shared/horizonErrorMapper";
 import { traceTransactionSubmit, type TelemetrySpan } from "../performance/telemetry";
 import { invalidateAccount } from "../account/getAccount";
 import { invalidateSequenceCacheEntry } from "./buildTransaction";
+import { emitObservabilityEvent } from "../shared/observability";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -329,6 +330,13 @@ async function submitTransactionImpl(
     dispatchTransactionEvent("tx_submitted", result);
     dispatchTransactionEvent("tx_confirmed", result);
 
+    try {
+      emitObservabilityEvent({ type: "transaction_submission", hash: result.hash, status: "submitted", success: true });
+      emitObservabilityEvent({ type: "transaction_submission", hash: result.hash, status: "confirmed", success: true });
+    } catch {
+      // Ignore observability hook errors
+    }
+
     span?.setAttribute("transaction.hash", result.hash);
     span?.setStatus("ok");
     return ok(result);
@@ -358,6 +366,17 @@ async function submitTransactionImpl(
         hash: txHash,
         status: timedOut ? "pending" : "failed",
       });
+      try {
+        emitObservabilityEvent({
+          type: "transaction_submission",
+          hash: txHash,
+          status: timedOut ? "timeout" : "failed",
+          success: false,
+          errorCode: mapped.code,
+        });
+      } catch {
+        // Ignore observability hook errors
+      }
     }
     return err(
       mapped.code,

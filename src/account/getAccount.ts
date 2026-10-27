@@ -15,6 +15,7 @@ import type { AccountInfo, AssetBalance } from "./types";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
 import { mapHorizonError } from "../shared/horizonErrorMapper";
+import { emitObservabilityEvent } from "../shared/observability";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -125,6 +126,7 @@ export function getAccount(
     () =>
       profileOperation("account.get", () =>
         deduplicateRequest(cacheKey, async () => {
+          const start = Date.now();
     try {
       const account = await horizonCircuitBreaker.call(horizonUrl, async () => {
         return await retryWithBackoff(async () => {
@@ -132,6 +134,18 @@ export function getAccount(
           return await server.loadAccount(publicKey);
         });
       });
+
+      try {
+        emitObservabilityEvent({
+          type: "rpc_call",
+          method: "getAccount",
+          url: horizonUrl,
+          durationMs: Date.now() - start,
+          success: true,
+        });
+      } catch {
+        // Ignore observability hook errors
+      }
 
       const balances: AssetBalance[] = account.balances.map((b) => {
         // Note: parseFloat is used here for convenience/backward compatibility.
@@ -197,6 +211,18 @@ export function getAccount(
         balances,
       });
     } catch (cause) {
+      try {
+        emitObservabilityEvent({
+          type: "rpc_call",
+          method: "getAccount",
+          url: horizonUrl,
+          durationMs: Date.now() - start,
+          success: false,
+          errorCode: isNotFoundError(cause) ? SorokitErrorCode.ACCOUNT_NOT_FOUND : SorokitErrorCode.ACCOUNT_FETCH_FAILED,
+        });
+      } catch {
+        // Ignore observability hook errors
+      }
       const mapped = mapHorizonError(cause, {
         resource: "account",
         fallbackCode: isNotFoundError(cause)

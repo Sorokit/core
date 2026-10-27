@@ -890,3 +890,20 @@ await client.soroban.execute(signedXdr, undefined, undefined, {
   bypassMainnetSafety: true,
 });
 ```
+
+## Observability
+
+Sorokit provides a pluggable observability layer. Register hooks for key operations (RPC calls, transaction submissions, wallet events, cache operations):
+
+```ts
+import { registerObservabilityHook } from "sorokit-core";
+
+registerObservabilityHook({
+  onRpcCall: (event) => console.log("rpc", event.method, event.success),
+  onTransactionSubmit: (event) => console.log("tx", event.status),
+  onWalletStateChange: (event) => console.log("wallet", event.event),
+  onCacheOperation: (event) => console.log("cache", event.operation),
+});
+```
+
+See `examples/observability-opentelemetry.ts` and `examples/observability-prometheus.ts` for integrations.
