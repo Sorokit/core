@@ -148,6 +148,15 @@ export interface ManageOfferParams extends MemoParams {
   suppressPriceWarnings?: boolean;
   /** Override the default offer-price warning bounds (0.001–1000). */
   priceWarningRange?: { min?: number; max?: number };
+  /**
+   * By default, an offer where `sellingAssetCode`/`sellingAssetIssuer` and
+   * `buyingAssetCode`/`buyingAssetIssuer` are identical is rejected with a
+   * `TX_BUILD_FAILED` error, since such an offer can never fill and only
+   * wastes fees. Set `true` to downgrade this to a console warning and build
+   * the transaction anyway, for callers with a deliberate same-asset use case
+   * (e.g. a sequence-number bump disguised as a cancel-and-recreate offer).
+   */
+  allowSameAsset?: boolean;
   offerId?: string;
   autoFetchSequence?: boolean;
 }

@@ -1984,9 +1984,17 @@ export async function buildManageOfferTransaction(
 
   // ── Selling and buying must differ ────────────────────────────────────────
   if (sellingResult.data.equals(buyingResult.data)) {
-    return err(
-      SorokitErrorCode.TX_BUILD_FAILED,
-      "Selling and buying assets must be different.",
+    if (params.allowSameAsset !== true) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        "Selling and buying assets must be different.",
+      );
+    }
+    console.warn(
+      `[sorokit] Offer selling and buying asset are both ` +
+        `${params.sellingAssetCode}${params.sellingAssetIssuer ? `:${params.sellingAssetIssuer}` : ""}. ` +
+        "This offer can never fill and only wastes fees. Proceeding because " +
+        "allowSameAsset: true was passed.",
     );
   }
 
