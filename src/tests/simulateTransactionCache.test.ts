@@ -21,14 +21,18 @@ import {
 } from "@stellar/stellar-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createInMemoryCache } from "../shared/cache";
+import { isOk } from "../shared/response";
 import { simulateTransaction } from "../soroban/simulateTransaction";
 
-const { mockSimulateTransaction, mockIsSimulationSuccess, mockIsSimulationError } =
-  vi.hoisted(() => ({
-    mockSimulateTransaction: vi.fn(),
-    mockIsSimulationSuccess: vi.fn(),
-    mockIsSimulationError: vi.fn(),
-  }));
+const {
+  mockSimulateTransaction,
+  mockIsSimulationSuccess,
+  mockIsSimulationError,
+} = vi.hoisted(() => ({
+  mockSimulateTransaction: vi.fn(),
+  mockIsSimulationSuccess: vi.fn(),
+  mockIsSimulationError: vi.fn(),
+}));
 
 vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
@@ -55,7 +59,11 @@ function randomContractId(): string {
 const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
 const RPC_URL = "https://soroban-testnet.stellar.org";
 
-function buildInvocationXdr(contractId: string, method: string, args: string[] = []) {
+function buildInvocationXdr(
+  contractId: string,
+  method: string,
+  args: string[] = [],
+) {
   const source = Keypair.random();
   const contract = new Contract(contractId);
   const scArgs = args.map((a) => nativeToScVal(a, { type: "string" }));
@@ -96,15 +104,19 @@ describe("simulateTransaction — cache behaviour (#856)", () => {
     const contractId = randomContractId();
     const xdr = buildInvocationXdr(contractId, "balance", ["GABC"]);
 
-    const first = await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, xdr, { cache });
-    expect(first.ok).toBe(true);
+    const first = await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, xdr, {
+      cache,
+    });
+    expect(isOk(first)).toBe(true);
     expect(mockSimulateTransaction).toHaveBeenCalledTimes(1);
 
-    const second = await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, xdr, { cache });
-    expect(second.ok).toBe(true);
+    const second = await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, xdr, {
+      cache,
+    });
+    expect(isOk(second)).toBe(true);
     expect(mockSimulateTransaction).toHaveBeenCalledTimes(1);
-    if (second.ok) {
-      expect(second.value).toEqual(first.ok ? first.value : undefined);
+    if (isOk(second) && isOk(first)) {
+      expect(second.data).toEqual(first.data);
     }
   });
 
@@ -112,12 +124,20 @@ describe("simulateTransaction — cache behaviour (#856)", () => {
     const cache = createInMemoryCache();
     const contractId = randomContractId();
     const balanceXdr = buildInvocationXdr(contractId, "balance", ["GABC"]);
-    const transferXdr = buildInvocationXdr(contractId, "transfer", ["GABC", "GXYZ", "10"]);
+    const transferXdr = buildInvocationXdr(contractId, "transfer", [
+      "GABC",
+      "GXYZ",
+      "10",
+    ]);
 
-    await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, balanceXdr, { cache });
+    await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, balanceXdr, {
+      cache,
+    });
     expect(mockSimulateTransaction).toHaveBeenCalledTimes(1);
 
-    await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, transferXdr, { cache });
+    await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, transferXdr, {
+      cache,
+    });
     expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
   });
 
@@ -140,7 +160,11 @@ describe("simulateTransaction — cache behaviour (#856)", () => {
 
     await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, xdr, { cache });
 
-    expect(setSpy).toHaveBeenCalledWith(expect.any(String), expect.anything(), 5 * 60 * 1000);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      5 * 60 * 1000,
+    );
   });
 
   it("respects a custom ttlMs", async () => {
@@ -148,19 +172,26 @@ describe("simulateTransaction — cache behaviour (#856)", () => {
     const setSpy = vi.spyOn(cache, "set");
     const xdr = buildInvocationXdr(randomContractId(), "balance", ["GABC"]);
 
-    await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, xdr, { cache, ttlMs: 1000 });
+    await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, xdr, {
+      cache,
+      ttlMs: 1000,
+    });
 
-    expect(setSpy).toHaveBeenCalledWith(expect.any(String), expect.anything(), 1000);
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      1000,
+    );
   });
 
   it("does not throw and does not cache when no cache is passed", async () => {
     const xdr = buildInvocationXdr(randomContractId(), "balance", ["GABC"]);
 
     const result = await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, xdr);
-    expect(result.ok).toBe(true);
+    expect(isOk(result)).toBe(true);
 
     const second = await simulateTransaction(RPC_URL, NETWORK_PASSPHRASE, xdr);
-    expect(second.ok).toBe(true);
+    expect(isOk(second)).toBe(true);
     // No cache supplied, so both calls must hit the RPC.
     expect(mockSimulateTransaction).toHaveBeenCalledTimes(2);
   });
