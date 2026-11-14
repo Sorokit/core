@@ -2187,3 +2187,13 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+// ─── Stroop / native asset amount conversion utilities (#962) ─────────────────
+export {
+  stroopsToAmount,
+  amountToStroops,
+  amountToStroopsString,
+  STROOPS_DECIMALS,
+  MAX_SUPPORTED_DECIMALS,
+} from "./utilities";
+export type { AmountConversionOptions } from "./utilities";
