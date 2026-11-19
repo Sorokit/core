@@ -6,6 +6,14 @@ export {
   clearAccountDeduplication,
 } from "./getAccount";
 export type { GetAccountOptions } from "./getAccount";
+// Operations query (#912): publicly exported so callers can fetch an
+// account's Horizon operation history without a client instance.
+export { getOperations } from "./getOperations";
+export type {
+  GetOperationsOptions,
+  OperationInfo,
+  OperationsPage,
+} from "./types";
 export { getOffers, getTrades } from "./dexActivity";
 export type { DexActivityOptions, DexActivityResult, DexAsset, DexAssetAmount, OfferInfo, TradeInfo } from "./dexActivity";
 export { getAccountsBatch } from "./getAccountsBatch";
