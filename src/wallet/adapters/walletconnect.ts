@@ -30,7 +30,7 @@ import { isUserRejection, isTimeoutError, toMessage } from "../../shared";
 //     consumer installs @walletconnect/sign-client) ───────────────────────────
 
 interface WCSessionNamespace {
-  accounts: string[];   // "stellar:<network>:<publicKey>"
+  accounts: string[]; // "stellar:<network>:<publicKey>"
   methods: string[];
   events: string[];
 }
@@ -51,14 +51,24 @@ interface WCSignClient {
     get(topic: string): WCSession;
   };
   connect(params: {
-    requiredNamespaces: Record<string, {
-      methods: string[];
-      chains: string[];
-      events: string[];
-    }>;
+    requiredNamespaces: Record<
+      string,
+      {
+        methods: string[];
+        chains: string[];
+        events: string[];
+      }
+    >;
   }): Promise<WCConnectResult>;
-  disconnect(params: { topic: string; reason: { code: number; message: string } }): Promise<void>;
-  request<T>(params: { topic: string; chainId: string; request: { method: string; params: unknown } }): Promise<T>;
+  disconnect(params: {
+    topic: string;
+    reason: { code: number; message: string };
+  }): Promise<void>;
+  request<T>(params: {
+    topic: string;
+    chainId: string;
+    request: { method: string; params: unknown };
+  }): Promise<T>;
   on(event: string, handler: (...args: unknown[]) => void): void;
   off(event: string, handler: (...args: unknown[]) => void): void;
 }
@@ -96,9 +106,11 @@ const STELLAR_NAMESPACE = "stellar";
 /** Resolve a Stellar network passphrase to the WalletConnect chain ID. */
 function chainIdFromPassphrase(passphrase: string): string {
   const p = passphrase.trim();
-  if (p === "Public Global Stellar Network ; September 2015") return STELLAR_CHAIN.MAINNET;
+  if (p === "Public Global Stellar Network ; September 2015")
+    return STELLAR_CHAIN.MAINNET;
   if (p === "Test SDF Network ; September 2015") return STELLAR_CHAIN.TESTNET;
-  if (p === "Test SDF Future Network ; October 2022") return STELLAR_CHAIN.FUTURENET;
+  if (p === "Test SDF Future Network ; October 2022")
+    return STELLAR_CHAIN.FUTURENET;
   // For custom/private networks fall back to testnet chain — wallets will
   // verify the passphrase themselves via the XDR.
   return STELLAR_CHAIN.TESTNET;
@@ -189,11 +201,16 @@ export class WalletConnectAdapter implements WalletAdapter {
       metadata: config.metadata ?? {
         name: "Sorokit dApp",
         description: "Stellar application powered by sorokit-core",
-        url: typeof window !== "undefined" ? window.location.origin : "https://sorokit.dev",
+        url:
+          typeof window !== "undefined"
+            ? window.location.origin
+            : "https://sorokit.dev",
         icons: [],
       },
       chains: config.chains ?? [STELLAR_CHAIN.MAINNET, STELLAR_CHAIN.TESTNET],
-      ...(config.onPairingUri !== undefined ? { onPairingUri: config.onPairingUri } : {}),
+      ...(config.onPairingUri !== undefined
+        ? { onPairingUri: config.onPairingUri }
+        : {}),
       ...(config.relayUrl !== undefined ? { relayUrl: config.relayUrl } : {}),
     };
   }
@@ -281,7 +298,9 @@ export class WalletConnectAdapter implements WalletAdapter {
           method: STELLAR_SIGN_METHOD,
           params: {
             xdr: input.transactionXdr,
-            ...(input.accountToSign !== undefined && { accountToSign: input.accountToSign }),
+            ...(input.accountToSign !== undefined && {
+              accountToSign: input.accountToSign,
+            }),
           },
         },
       });
@@ -295,7 +314,7 @@ export class WalletConnectAdapter implements WalletAdapter {
       if (!signedXdr) {
         return err(
           SorokitErrorCode.WALLET_SIGN_FAILED,
-          "WalletConnect returned an empty signed XDR.",
+          "Wallet returned an empty signed transaction XDR.",
         );
       }
 
@@ -370,7 +389,7 @@ export class WalletConnectAdapter implements WalletAdapter {
     } catch {
       throw new Error(
         "WalletConnect requires @walletconnect/sign-client. " +
-        "Install it: npm install @walletconnect/sign-client",
+          "Install it: npm install @walletconnect/sign-client",
       );
     }
 
@@ -384,7 +403,9 @@ export class WalletConnectAdapter implements WalletAdapter {
 
     // Automatically clear the local session reference when the wallet
     // terminates the session from the other end.
-    const onDelete = () => { this.session = null; };
+    const onDelete = () => {
+      this.session = null;
+    };
     this.client.on("session_delete", onDelete);
     this.client.on("session_expire", onDelete);
 
