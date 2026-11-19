@@ -1,5 +1,5 @@
 import { StrKey, TransactionBuilder, WebAuth } from "@stellar/stellar-sdk";
-import type { Transaction } from "@stellar/stellar-sdk";
+import type { Transaction, FeeBumpTransaction } from "@stellar/stellar-sdk";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { fetchStellarToml } from "./sep1Toml";
@@ -311,4 +311,108 @@ export async function completeSep10Auth(
   } catch (cause) {
     return err(SorokitErrorCode.NETWORK_ERROR, "Failed to complete SEP-10 authentication.", cause);
   }
+}
+
+/** Normalize a domain to the hostname used as `home_domain` in SEP-10. */
+function normalizeSep10Domain(domain: string): string | null {
+  if (typeof domain !== "string" || !domain.trim()) return null;
+  try {
+    const value = domain.trim();
+    const url = /^[a-z][a-z\d+.-]*:\/\//i.test(value)
+      ? new URL(value)
+      : new URL(`https://${value}`);
+    if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash) {
+      return null;
+    }
+    return url.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Step 1 of the SEP-10 flow: fetch and validate a challenge transaction for a
+ * Stellar account. The wallet signs the returned XDR before submitting it.
+ */
+export function getAuthChallenge(
+  domain: string,
+  publicKey: string,
+  options: InitiateSep10AuthOptions = {},
+): Promise<SorokitResult<string>> {
+  return initiateSep10Auth(domain, publicKey, options);
+}
+
+/**
+ * Steps 3 and 4 of the SEP-10 flow: locate the challenge that produced a
+ * wallet-signed transaction, verify its signatures, and exchange it for a
+ * token. The challenge is matched by transaction hash so callers only need to
+ * keep the signed XDR returned by their wallet.
+ */
+export async function submitSignedChallenge(
+  domain: string,
+  signedXdr: string,
+  options: { now?: number; timeoutMs?: number } = {},
+): Promise<SorokitResult<AuthToken>> {
+  const expectedDomain = normalizeSep10Domain(domain);
+  if (!expectedDomain) {
+    return err(SorokitErrorCode.INVALID_CONFIG, "SEP-10 domain must be a valid HTTPS domain.");
+  }
+  if (typeof signedXdr !== "string" || !signedXdr.trim()) {
+    return err(SorokitErrorCode.INVALID_AUTH, "A signed challenge XDR is required.");
+  }
+
+  let matchingChallenge: string | undefined;
+  for (const [challengeXdr, context] of pendingChallenges) {
+    if (context.homeDomain.toLowerCase() !== expectedDomain) continue;
+    try {
+      const challenge = TransactionBuilder.fromXDR(
+        challengeXdr,
+        context.networkPassphrase,
+      ) as Transaction | FeeBumpTransaction;
+      const signed = TransactionBuilder.fromXDR(
+        signedXdr,
+        context.networkPassphrase,
+      ) as Transaction | FeeBumpTransaction;
+      if (challenge.hash().equals(signed.hash())) {
+        matchingChallenge = challengeXdr;
+        break;
+      }
+    } catch {
+      // An unrelated passphrase or malformed XDR cannot match this challenge.
+    }
+  }
+
+  if (!matchingChallenge) {
+    return err(
+      SorokitErrorCode.INVALID_AUTH,
+      "No matching SEP-10 challenge found for this domain and signed transaction.",
+    );
+  }
+  return completeSep10Auth(matchingChallenge, signedXdr, options);
+}
+
+/**
+ * Verify a SEP-10 JWT returned by an auth server. Signature verification is
+ * performed by the server consuming the token, so this checks the structure,
+ * required claims, expiry and SEP-10 subject format.
+ */
+export function verifyAuthToken(
+  token: string,
+  options: { now?: number } = {},
+): SorokitResult<AuthToken> {
+  const result = validateSep10Token(token, options.now);
+  if (result.status === "error") return result;
+
+  const subject = result.data.claims.sub;
+  if (typeof subject !== "string" || !StrKey.isValidEd25519PublicKey(subject)) {
+    return err(
+      SorokitErrorCode.INVALID_AUTH,
+      "SEP-10 token must contain a valid Ed25519 public key in the sub claim.",
+    );
+  }
+  const issuedAt = result.data.claims.iat;
+  if (issuedAt !== undefined && (typeof issuedAt !== "number" || !Number.isFinite(issuedAt))) {
+    return err(SorokitErrorCode.INVALID_AUTH, "SEP-10 token has an invalid iat claim.");
+  }
+  return result;
 }

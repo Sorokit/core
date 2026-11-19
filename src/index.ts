@@ -14,6 +14,7 @@ export {
   completeSep10Auth,
   deriveKey,
   fetchStellarToml,
+  getAuthChallenge,
   getSep6TransactionStatus,
   getKycFields,
   getKycStatus,
@@ -30,10 +31,12 @@ export {
   rotateSecretKey,
   sendDirectPayment,
   submitKycInfo,
+  submitSignedChallenge,
   trackDirectPayment,
   trackTransaction,
   validateSecretKey,
   validateSep10Token,
+  verifyAuthToken,
   loadIntegration,
   loadKeyManagement,
   loadSoroban,
@@ -844,6 +847,17 @@ export {
 export type { MainnetSafetyOptions } from "./shared/mainnetSafety";
 export { getTransactionStatus } from "./transaction/status";
 export { buildSetOptionsTransaction } from "./transaction/setOptions";
+export {
+  buildManageOffer,
+  buildSetOptions,
+  ManageOfferBuilder,
+  SetOptionsBuilder,
+} from "./transaction/builders";
+export type {
+  FluentBuilderContext,
+  ManageOfferPrice,
+  SetOptionsFlags,
+} from "./transaction/builders";
 export { buildAtomicSwap } from "./transaction/atomicSwap";
 export type { SetOptionsParams } from "./transaction/types";
 
@@ -1965,12 +1979,19 @@ export type {
 
 // ─── SEP-7 Handler (#602) ────────────────────────────────────────────────────
 export {
-  parseSep7Uri,
-  validateSep7Uri,
   buildFromSep7Uri,
+  buildSep7SigningRedirect,
+  createSep7SigningRedirect,
+  encodeSep7TransactionXdr,
   generateSep7Uri,
+  isValidSep7XdrBase64,
+  parseSep7Uri,
+  validateSep7CallbackUrl,
+  validateSep7Uri,
 } from "./integration/sep7Handler";
 export type {
+  Sep7SigningRedirect,
+  Sep7SigningRedirectOptions,
   Sep7OperationType,
   Sep7BaseParams,
   Sep7PayParams,
