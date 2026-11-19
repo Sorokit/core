@@ -263,6 +263,17 @@ export type {
   TransactionOperation,
   SetMemoOptions,
 } from "./transactionBuilder";
+
+// ─── Fluent single-operation builders (#909/#910/#911) ─────────────────────────
+export {
+  AccountMergeBuilder,
+  BumpSequenceBuilder,
+  ClawbackBuilder,
+} from "./builders";
+export type {
+  TransactionBuilderOptions,
+  ClawbackAssetInput,
+} from "./builders";
 export type {
   TransactionResult,
   TransactionStatus,

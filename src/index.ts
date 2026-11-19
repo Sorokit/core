@@ -649,6 +649,17 @@ export type {
 } from "./transaction/transactionContext";
 export { buildAccountMerge, validateMemoPolicy } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
+
+// ─── Fluent single-operation builders (#909/#910/#911) ─────────────────────────
+export {
+  AccountMergeBuilder,
+  BumpSequenceBuilder,
+  ClawbackBuilder,
+} from "./transaction/builders";
+export type {
+  TransactionBuilderOptions,
+  ClawbackAssetInput,
+} from "./transaction/builders";
 export {
   evaluateTrustlineApproval,
   buildApprovedTrustlineTransaction,
