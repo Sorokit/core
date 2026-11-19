@@ -374,6 +374,14 @@ export type {
 } from "./account/types";
 // Standalone account functions for use without a client instance
 export { getAccount } from "./account/getAccount";
+// Operations query (#912): fetch an account's Horizon operation history with
+// type/cursor/limit/order filtering. Source account is included in each result.
+export { getOperations } from "./account/getOperations";
+export type {
+  GetOperationsOptions,
+  OperationInfo,
+  OperationsPage,
+} from "./account/types";
 export { getOffers, getTrades } from "./account/dexActivity";
 export type {
   DexActivityOptions,
@@ -641,6 +649,17 @@ export type {
 } from "./transaction/transactionContext";
 export { buildAccountMerge, validateMemoPolicy } from "./transaction";
 export type { AccountMergeOptions } from "./transaction";
+
+// ─── Fluent single-operation builders (#909/#910/#911) ─────────────────────────
+export {
+  AccountMergeBuilder,
+  BumpSequenceBuilder,
+  ClawbackBuilder,
+} from "./transaction/builders";
+export type {
+  TransactionBuilderOptions,
+  ClawbackAssetInput,
+} from "./transaction/builders";
 export {
   evaluateTrustlineApproval,
   buildApprovedTrustlineTransaction,

@@ -224,6 +224,9 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
     account: {
       get: vi.fn().mockResolvedValue(ok(accountInfo)),
       getBalances: vi.fn().mockResolvedValue(ok(accountInfo.balances)),
+      getAccountOperations: vi.fn().mockResolvedValue(
+        ok({ operations: [], nextCursor: null }),
+      ),
       getAssetBalances: vi.fn().mockResolvedValue(ok(accountInfo.balances)),
       formatAddress: vi.fn().mockReturnValue(accountInfo.displayAddress),
       isValidPublicKey: vi.fn().mockReturnValue(true),
