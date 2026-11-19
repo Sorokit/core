@@ -61,6 +61,11 @@ import { getAccount } from "../account/getAccount";
 import { getAccountsBatch } from "../account/getAccountsBatch";
 import { getBalances } from "../account/getBalances";
 import { getAssetBalances } from "../account/getAssetBalances";
+import { getOperations } from "../account/getOperations";
+import type {
+  GetOperationsOptions,
+  OperationsPage,
+} from "../account/types";
 import { getOffers, getTrades } from "../account/dexActivity";
 import type {
   DexActivityOptions,
@@ -715,6 +720,16 @@ export interface SorokitClient {
       publicKey: string,
       timeoutMs?: number,
     ): Promise<SorokitResult<AssetBalance[]>>;
+    /**
+     * Fetch an account's operations from Horizon with filtering and
+     * cursor-based pagination (#912). Each result includes the operation's
+     * source account.
+     */
+    getAccountOperations(
+      publicKey: string,
+      filters?: GetOperationsOptions,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<OperationsPage>>;
     /**
      * Fetch balances with optional filtering by asset code, issuer, type,
      * or zero-balance exclusion.
@@ -2124,6 +2139,28 @@ export function createSorokitClient(
             signal,
           ),
         ),
+      getAccountOperations: (publicKey, filters, timeoutMs) =>
+        guard("account_get_operations", timeoutMs, (signal) =>
+          deduplicator.deduplicate(
+            ["account.getAccountOperations", horizonUrl, publicKey, filters],
+            () =>
+              withErrorHandling(
+                errorHandler,
+                {
+                  functionName: "account.getAccountOperations",
+                  params: { publicKey, filters },
+                },
+                () =>
+                  withLogging(
+                    logger,
+                    "account.getAccountOperations",
+                    { publicKey, filters },
+                    () => getOperations(horizonUrl, publicKey, filters),
+                  ),
+              ),
+            signal,
+          ),
+        ).then(applyTx),
       getAssetBalances: (publicKey, filter, timeoutMs) =>
         guard("account_get_balances", timeoutMs, (signal) =>
           deduplicator.deduplicate(

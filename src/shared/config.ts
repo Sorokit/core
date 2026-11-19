@@ -19,6 +19,7 @@ export type OperationType =
   | "account_get_trades"
   | "account_get_batch"
   | "account_get_balances"
+  | "account_get_operations"
   | "account_stream"
   | "tx_build"
   | "tx_submit"
@@ -52,6 +53,7 @@ export const DEFAULT_TIMEOUTS: Record<OperationType, number> = {
   account_get: 10000,         // 10s - single Horizon query
   account_get_batch: 30000,   // 30s - multiple parallel queries
   account_get_balances: 10000, // 10s - single Horizon query
+  account_get_operations: 10000, // 10s - single Horizon query (#912)
   account_stream: 0,          // 0 = no timeout (streaming)
 
   // Transaction operations - vary by complexity
