@@ -2122,7 +2122,7 @@ export async function buildManageOfferTransaction(
  * Validate the asset code for a clawback operation.
  * Must be 1–12 alphanumeric characters (non-native assets only).
  */
-function validateClawbackAssetCode(code: string): SorokitResult<void> {
+export function validateClawbackAssetCode(code: string): SorokitResult<void> {
   if (typeof code !== "string" || code.trim() === "") {
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
@@ -2148,7 +2148,7 @@ function validateClawbackAssetCode(code: string): SorokitResult<void> {
  * Validate an amount for clawback.
  * Must be a positive decimal string with at most 7 decimal places.
  */
-function validateClawbackAmount(amount: string): SorokitResult<void> {
+export function validateClawbackAmount(amount: string): SorokitResult<void> {
   if (typeof amount !== "string" || amount.trim() === "") {
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
