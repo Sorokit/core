@@ -129,7 +129,10 @@ export type {
 export { reverseTransaction, issueRefund } from "./refunds";
 export type { RefundParams, RefundDetails } from "./refunds";
 export { streamTransactions } from "./streamTransactions";
-export { streamTransactionsSSE, buildTransactionSSEUrl } from "./streamTransactionsSSE";
+export {
+  streamTransactionsSSE,
+  buildTransactionSSEUrl,
+} from "./streamTransactionsSSE";
 // ─── Real-time transaction status dashboard (#708) ───────────────────────────
 export {
   TransactionStatusAggregator,
@@ -185,10 +188,7 @@ export {
 } from "./bumpSequence";
 
 // ─── Shared build helpers (#543/#554/#542) ────────────────────────────────────
-export {
-  clearBuildSequenceCache,
-  updateSequenceCache,
-} from "./buildHelpers";
+export { clearBuildSequenceCache, updateSequenceCache } from "./buildHelpers";
 
 // ─── Fluent multi-operation builder (#542) ────────────────────────────────────
 export { compose } from "./compose";
@@ -231,7 +231,10 @@ export {
   formatTransactionsToCsv,
   formatTransactionsToJson,
 } from "./exportTransactionHistory";
-export { validateTransaction, validateTransactionBatch } from "./validateTransaction";
+export {
+  validateTransaction,
+  validateTransactionBatch,
+} from "./validateTransaction";
 // ─── Transaction size tracking and early-warning (#858) ───────────────────────
 export {
   TransactionSizeTracker,
@@ -246,7 +249,11 @@ export type {
   TransactionSizeTrackerOptions,
 } from "./transactionSizeTracker";
 export { validateTransactionOffline } from "./validateTransactionOffline";
-export type { OfflineValidationIssue, OfflineValidationReport, OfflineValidationOptions } from "./validateTransactionOffline";
+export type {
+  OfflineValidationIssue,
+  OfflineValidationReport,
+  OfflineValidationOptions,
+} from "./validateTransactionOffline";
 export {
   createTransactionContext,
   TRANSACTION_CONTEXT_TTL_MS,
@@ -255,9 +262,7 @@ export type {
   TransactionBuilderContext,
   SequenceValidationResult,
 } from "./transactionContext";
-export {
-  createTransactionBuilder,
-} from "./transactionBuilder";
+export { createTransactionBuilder } from "./transactionBuilder";
 export type {
   TransactionBuilder,
   TransactionOperation,
@@ -356,14 +361,8 @@ export type {
   TransactionStreamConfig,
   TransactionPage,
 } from "./streamTransactions";
-export type {
-  AssetPrice,
-  PriceFeed,
-  PriceFeedStatus,
-} from "../shared/types";
-export type {
-  GetAssetPriceOptions,
-} from "./priceFeeds";
+export type { AssetPrice, PriceFeed, PriceFeedStatus } from "../shared/types";
+export type { GetAssetPriceOptions } from "./priceFeeds";
 export type {
   EventSubscription as TransactionEventSubscription,
   TransactionEvent,
@@ -371,9 +370,7 @@ export type {
   TransactionEventType,
   TransactionSubscriptionOptions,
 } from "./subscriptions";
-export {
-  queryTransactionHistory,
-} from "./queryTransactionHistory";
+export { queryTransactionHistory } from "./queryTransactionHistory";
 export type {
   TransactionHistorySortField,
   TransactionHistorySort,
@@ -508,10 +505,7 @@ export {
   hasExistingPair,
   resetPairRegistry,
 } from "./assetPairs";
-export type {
-  AssetPair,
-  PairPrice,
-} from "./assetPairs";
+export type { AssetPair, PairPrice } from "./assetPairs";
 export {
   buildMultiSigEnvelope,
   collectSignature,
@@ -523,9 +517,7 @@ export type {
   MultiSigEnvelope,
 } from "./types";
 
-export {
-  verifyTransactionSignatures,
-} from "./witnessValidation";
+export { verifyTransactionSignatures } from "./witnessValidation";
 export type {
   SignatureValidationResult,
   WitnessValidationResult,
@@ -642,8 +634,16 @@ export async function compareFeeAcrossNetworks(
 // and therefore lives in src/soroban/simulateTransaction.ts.
 // It can be accessed via client.soroban.simulate().
 
+// ─── Liquidity pool withdrawal builder (#12) ──────────────────────────────────
+export {
+  LiquidityPoolWithdrawBuilder,
+  createLiquidityPoolWithdrawBuilder,
+} from "./liquidityPoolWithdrawBuilder";
 
-export { SpendingPolicyEngine, createSpendingPolicyEngine } from "./spendingPolicy";
+export {
+  SpendingPolicyEngine,
+  createSpendingPolicyEngine,
+} from "./spendingPolicy";
 export type {
   SpendingLimitPeriod,
   SpendingLimit,
@@ -767,10 +767,7 @@ export {
   serializeSigningRequest,
   deserializeSigningRequest,
 } from "./signingCoordinator";
-export type {
-  SigningRequest,
-  SigningStatus,
-} from "./signingCoordinator";
+export type { SigningRequest, SigningStatus } from "./signingCoordinator";
 // ─── Transaction simulation and safe execution preview (#612) ─────────────────
 export { previewTransaction } from "./simulationPreview";
 export type {
