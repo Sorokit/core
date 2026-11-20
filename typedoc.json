@@ -1,7 +1,9 @@
 {
   "$schema": "https://typedoc.org/schema.json",
   "entryPoints": [
-    "src/index.ts"
+    "src/index.ts",
+    "src/network/index.ts",
+    "src/shared/public.ts"
   ],
   "out": "docs/api",
   "exclude": [
@@ -13,6 +15,6 @@
   "readme": "docs/api-overview.md",
   "includeVersion": true,
   "hideGenerator": true,
-  "tsconfig": "tsconfig.json",
+  "tsconfig": "tsconfig.typedoc.json",
   "githubPages": true
 }

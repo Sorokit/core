@@ -12,7 +12,9 @@ export default defineConfig({
     // are not part of this package's vitest suite or coverage gate.
     exclude: ["**/node_modules/**", "**/dist/**", "**/.git/**", "packages/**"],
     coverage: {
-      // #570: Coverage enforcement — thresholds prevent silent regression.
+      // #570/#918: Coverage enforcement — thresholds prevent silent regression.
+      // `enabled: true` ensures `npm run test` enforces coverage locally,
+      // matching the CI gate (80% lines, 75% branches).
       enabled: true,
       provider: "v8",
       // Measure coverage only over production source files.

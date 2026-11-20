@@ -195,6 +195,23 @@ export type {
   EndpointHealthCheckResult,
 } from "./endpointFailover";
 
+// ─── Endpoint failover & connection pooling (#928) ────────────────────────────
+export {
+  FailoverManager,
+  createFailoverManager,
+  createFailoverFetch as createPooledFailoverFetch,
+} from "./failover";
+export type {
+  FailoverEndpoint,
+  FailoverManagerConfig,
+  FailoverHealthCheckOptions,
+  FailoverHealthStatus,
+  FailoverPoolStats,
+  FailoverState,
+  FailoverEvent,
+  FailoverEventListener,
+} from "./failover";
+
 export * from './customEndpoints.js';
 
 // ─── Custom Endpoint Registry and Load Balancing (#672) ───────────────────────

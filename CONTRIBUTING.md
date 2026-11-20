@@ -72,10 +72,12 @@ Be respectful and constructive. We're building a framework for the Stellar ecosy
    ```bash
    npm run typecheck    # Check TypeScript types
    npm run lint         # Run ESLint
-   npm run test         # Run tests with vitest
+   npm run test         # Run tests with vitest (enforces coverage thresholds)
    ```
 
-   All checks must pass before opening a PR.
+   All checks must pass before opening a PR. Note that `npm run test` enforces
+   coverage thresholds (see [Test Coverage](#test-coverage)) and will fail if
+   coverage drops below the minimums.
 
 4. **Commit your changes**
 
@@ -188,10 +190,73 @@ npm run test:watch
 npm run test -- account.test.ts
 ```
 
+### Test Coverage
+
+CI enforces minimum test coverage. The thresholds are:
+
+| Metric     | Minimum |
+| ---------- | ------- |
+| Lines      | 80%     |
+| Branches   | 75%     |
+
+These thresholds are configured in `vitest.config.ts` and are enforced by
+`npm run test` locally as well as in CI. If your change drops coverage below
+these minimums, the test run fails and a coverage report is generated so you
+can see which lines or branches are untested.
+
+Guidelines:
+
+- Add tests for every new code path you introduce
+- Do not exempt files from coverage — untested code should not merge
+- Run `npm run test` before pushing to catch coverage regressions early
+- Inspect the generated coverage report to find uncovered lines/branches
+
+### Property-Based Testing
+
+We use [`fast-check`](https://github.com/dubzzz/fast-check) for property-based
+testing. Instead of hand-picking inputs, property tests generate many random
+inputs to find edge cases that example-based unit tests miss.
+
+- Property tests live in `tests/properties/`
+- They run as part of `npm run test` (and therefore in CI)
+- Do **not** replace existing unit tests — property tests complement them
+
+**Pattern:**
+
+```ts
+import { describe, it, expect } from "vitest";
+import fc from "fast-check";
+import { formatAmount } from "../../src/...";
+
+describe("formatAmount (property)", () => {
+  it("never throws for any decimal amount", () => {
+    fc.assert(
+      fc.property(fc.double({ noNaN: true, noDefaultInfinity: true }), (amount) => {
+        expect(() => formatAmount(amount)).not.toThrow();
+      }),
+    );
+  });
+});
+```
+
+**Running property tests locally:**
+
+```bash
+# Run the full suite (includes property tests)
+npm run test
+
+# Run only property tests
+npm run test -- tests/properties
+```
+
+When a property test fails, `fast-check` prints the minimal failing input
+(the "counterexample") — use it to write a focused regression test.
+
 ### Writing Tests
 
 - Use `vitest` (already configured)
 - Place tests alongside source in `src/tests/`
+- Place property-based tests in `tests/properties/`
 - Test both happy paths and error cases
 - Use the `SorokitResult` type for assertion clarity
 
@@ -254,6 +319,17 @@ No `any` without justification. If you must use `any`, add a comment explaining 
 - Add inline comments for complex logic
 - Include JSDoc comments for exported functions and types
 - Update the **CHANGELOG** for user-facing changes (if applicable)
+
+### API Documentation (TypeDoc)
+
+API documentation is generated from JSDoc comments using
+[TypeDoc](https://typedoc.org/). All public exports must have JSDoc comments so
+they appear in the generated docs.
+
+- Generate docs locally with `npm run docs` (outputs to `docs/api/`)
+- CI builds the docs to verify they generate successfully
+- Document every exported symbol — functions, types, interfaces, and constants
+- Use standard JSDoc tags (`@param`, `@returns`, `@example`, `@throws`, etc.)
 
 ## Dependency Management
 
