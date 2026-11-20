@@ -98,13 +98,16 @@ export { buildSetOptionsTransaction } from "./setOptions";
 export {
   buildManageOffer,
   buildSetOptions,
+  buildCreateAccount,
   ManageOfferBuilder,
   SetOptionsBuilder,
+  CreateAccountBuilder,
 } from "./builders";
 export type {
   FluentBuilderContext,
   ManageOfferPrice,
   SetOptionsFlags,
+  CreateAccountBuilderOptions,
 } from "./builders";
 export type { SetOptionsParams } from "./types";
 export type { AccountMergeOptions, TrustlineState } from "./buildTransaction";

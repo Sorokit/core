@@ -150,6 +150,8 @@ export type {
   SorobanSimulatorOptions,
 } from "./simulator";
 export { buildContractDeploy } from "./deployContract";
+export { deployWrappedAsset } from "./wrappedAssetDeployment";
+export type { DeployWrappedAssetOptions } from "./wrappedAssetDeployment";
 export {
   validateDeployConfig,
   collectDeployConfigIssues,

@@ -13,6 +13,8 @@ import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { toMessage } from "../shared";
 import { validatePublicKey } from "../shared/validation";
+import { validateAmount } from "../shared/validation";
+import { MIN_ACCOUNT_BALANCE_XLM } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import {
   resolveAssetInput,
@@ -50,6 +52,11 @@ export function buildSetOptions(context: FluentBuilderContext): SetOptionsBuilde
 /** Create a chainable manage offer builder (issue #905). */
 export function buildManageOffer(context: FluentBuilderContext): ManageOfferBuilder {
   return new ManageOfferBuilder(context);
+}
+
+/** Create a chainable create account builder (issue #935). */
+export function buildCreateAccount(context: FluentBuilderContext): CreateAccountBuilder {
+  return new CreateAccountBuilder(context);
 }
 
 type SetOptionsOperation = NonNullable<
@@ -372,6 +379,79 @@ export class ManageOfferBuilder {
       return err(
         SorokitErrorCode.TX_BUILD_FAILED,
         `Failed to build manage offer operation: ${toMessage(cause)}`,
+        cause,
+      );
+    }
+
+    const accountResult = await resolveBuilderAccount(this.context);
+    if (accountResult.status === "error") return accountResult;
+    return buildTransaction(accountResult.data, this.context, [operation]);
+  }
+}
+
+/**
+ * Chainable builder for `Operation.createAccount`.
+ *
+ * Creates and funds a new account. The destination must be a valid Stellar
+ * public key and the starting balance must meet the minimum account balance
+ * (`MIN_ACCOUNT_BALANCE_XLM`, currently 1 XLM) required to keep the new
+ * account funded on the network. The minimum balance is not looked up from
+ * the network; it is enforced locally against the shared constant.
+ */
+export class CreateAccountBuilder {
+  private destinationValue: string | undefined;
+  private startingBalanceValue: string | undefined;
+
+  constructor(private readonly context: FluentBuilderContext) {}
+
+  /** Set the public key of the account to create. */
+  destination(publicKey: string): this {
+    this.destinationValue = publicKey;
+    return this;
+  }
+
+  /** Set the initial funding amount in XLM (must meet the minimum balance). */
+  startingBalance(amount: string | number): this {
+    this.startingBalanceValue = String(amount);
+    return this;
+  }
+
+  /** Validate inputs and return the unsigned transaction. */
+  async build(): Promise<SorokitResult<Transaction>> {
+    if (this.destinationValue === undefined) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        "CreateAccountBuilder requires a destination before build()",
+      );
+    }
+    const destinationResult = validatePublicKey(this.destinationValue);
+    if (destinationResult.status === "error") return destinationResult;
+
+    if (this.startingBalanceValue === undefined) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        "CreateAccountBuilder requires a starting balance before build()",
+      );
+    }
+    const amountResult = validateAmount(this.startingBalanceValue);
+    if (amountResult.status === "error") return amountResult;
+    if (Number(this.startingBalanceValue) < MIN_ACCOUNT_BALANCE_XLM) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        `Starting balance must be at least ${MIN_ACCOUNT_BALANCE_XLM} XLM`,
+      );
+    }
+
+    let operation: ReturnType<typeof Operation.createAccount>;
+    try {
+      operation = Operation.createAccount({
+        destination: this.destinationValue,
+        startingBalance: this.startingBalanceValue,
+      });
+    } catch (cause) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        `Failed to build create account operation: ${toMessage(cause)}`,
         cause,
       );
     }

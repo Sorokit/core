@@ -696,6 +696,13 @@ Examples are type-checked against the SDK source with `npm run typecheck:example
 
 For a side-by-side comparison of `stellar-sdk` patterns vs `sorokit-core`, see [docs/migration-guide.md](docs/migration-guide.md).
 
+### Upgrading from v0.0 to v0.1
+
+If you are upgrading an existing project from SDK v0.0 to v0.1, see the
+[migration guide](docs/migration-v0.1.md) for the full list of breaking changes,
+deprecated APIs and their replacements, step-by-step migration examples, and a
+troubleshooting section.
+
 ---
 
 ## Design Principles

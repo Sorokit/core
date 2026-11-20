@@ -850,13 +850,17 @@ export { buildSetOptionsTransaction } from "./transaction/setOptions";
 export {
   buildManageOffer,
   buildSetOptions,
+  buildCreateAccount,
   ManageOfferBuilder,
   SetOptionsBuilder,
+  CreateAccountBuilder,
+  MIN_ACCOUNT_STARTING_BALANCE_XLM,
 } from "./transaction/builders";
 export type {
   FluentBuilderContext,
   ManageOfferPrice,
   SetOptionsFlags,
+  CreateAccountBuilderOptions,
 } from "./transaction/builders";
 export { buildAtomicSwap } from "./transaction/atomicSwap";
 export type { SetOptionsParams } from "./transaction/types";
@@ -1483,6 +1487,13 @@ export {
   buildSacTransfer,
   buildSacApprove,
 } from "./soroban/sacHelpers";
+
+// ─── Wrapped asset deployment (#941) ──────────────────────────────────────────
+export { deployWrappedAsset } from "./soroban/wrappedAssetDeployment";
+export type {
+  DeployWrappedAssetOptions,
+  WrappedAssetDeploymentResult,
+} from "./soroban/wrappedAssetDeployment";
 
 // ─── Multi-Contract Sequence Executor (#581) ───────────────────────────────────
 export {
