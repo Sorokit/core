@@ -1,6 +1,7 @@
 import { Federation } from "@stellar/stellar-sdk";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import { fetchStellarToml } from "./stellarToml";
 
 export interface ResolvedAddress {
   publicKey: string;
@@ -10,7 +11,7 @@ export interface ResolvedAddress {
 }
 
 export interface FederationResolverOptions {
-  /** Cache lifetime in milliseconds. Set to 0 to disable caching. Defaults to 60 seconds. */
+  /** Cache lifetime in milliseconds. Set to 0 to disable caching. Defaults to 5 minutes. */
   cacheTtlMs?: number;
   /** Abort network requests after this interval. Defaults to 10 seconds. */
   timeoutMs?: number;
@@ -19,6 +20,9 @@ export interface FederationResolverOptions {
   /** Override the fetch implementation — useful for tests or non-browser runtimes. */
   fetchFn?: typeof fetch;
 }
+
+const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
+const DEFAULT_TIMEOUT_MS = 10_000;
 
 interface CacheEntry {
   expiresAt: number;
@@ -41,12 +45,95 @@ export function parseFederatedAddress(
   return null;
 }
 
-/** Resolve a Stellar federation address (`name*domain` or `name@domain`). */
-export async function resolveFederatedAddress(
-  address: string,
+function isValidAccountId(value: unknown): value is string {
+  return (
+    typeof value === "string" && value.startsWith("G") && value.length === 56
+  );
+}
+
+function normalizeMemoType(
+  value: unknown,
+): ResolvedAddress["memoType"] | undefined {
+  return ["id", "text", "hash", "return"].includes(value as string)
+    ? (value as ResolvedAddress["memoType"])
+    : undefined;
+}
+
+function buildResolved(
+  publicKey: string,
+  stellarAddress: string,
+  memo: unknown,
+  memoType: unknown,
+): ResolvedAddress {
+  const normalizedMemoType = normalizeMemoType(memoType);
+  return {
+    publicKey,
+    stellarAddress,
+    ...(memo !== undefined ? { memo: String(memo) } : {}),
+    ...(normalizedMemoType !== undefined
+      ? { memoType: normalizedMemoType }
+      : {}),
+  };
+}
+
+function storeInCache(
+  cacheKey: string,
+  value: ResolvedAddress,
+  options: FederationResolverOptions,
+): void {
+  const ttl = Math.max(0, options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS);
+  if (ttl > 0) {
+    addressCache.set(cacheKey, { value, expiresAt: Date.now() + ttl });
+  }
+}
+
+/**
+ * Query a federation server directly for a `name*domain` address.
+ * Returns the raw JSON record or null when the server responds with an error.
+ */
+async function queryFederationServer(
+  federationServer: string,
+  stellarAddress: string,
+  options: FederationResolverOptions,
+): Promise<Record<string, unknown> | null> {
+  const fetchFn = options.fetchFn ?? globalThis.fetch;
+  if (!fetchFn) {
+    throw new Error("No fetch implementation available.");
+  }
+
+  const url = new URL(federationServer);
+  url.searchParams.set("type", "name");
+  url.searchParams.set("q", stellarAddress);
+
+  const controller =
+    typeof AbortController !== "undefined" ? new AbortController() : undefined;
+  const timeout = setTimeout(
+    () => controller?.abort(),
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
+
+  try {
+    const response = await fetchFn(url.toString(), {
+      signal: controller?.signal,
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as Record<string, unknown>;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Resolve a Stellar federation address (`name*domain` or `name@domain`) to an
+ * account. The domain's `stellar.toml` is consulted to discover the
+ * `FEDERATION_SERVER`; when absent, the well-known federation endpoint on the
+ * domain itself is used as a fallback.
+ */
+export async function resolveFederationAddress(
+  fedAddress: string,
   options: FederationResolverOptions = {},
 ): Promise<SorokitResult<ResolvedAddress>> {
-  const parsed = parseFederatedAddress(address);
+  const parsed = parseFederatedAddress(fedAddress);
   if (!parsed) {
     return err(
       SorokitErrorCode.INVALID_ADDRESS,
@@ -63,10 +150,7 @@ export async function resolveFederatedAddress(
     // If a custom fetch is provided, use it directly to fetch federation endpoint
     if (options.fetchFn) {
       const protocol = options.allowHttp ? "http" : "https";
-      const encodedAddress = `${parsed.username}*${parsed.domain}`.replace(
-        /\*/g,
-        "%2A",
-      );
+      const encodedAddress = cacheKey.replace(/\*/g, "%2A");
       const url = `${protocol}://${parsed.domain}/.well-known/stellar-federation?stellar_address=${encodedAddress}`;
       const response = await options.fetchFn(url, {});
       const data = (await response.json()) as any;
@@ -74,29 +158,14 @@ export async function resolveFederatedAddress(
       if (data.stellar_address || data.account_id) {
         const publicKey =
           data.account_id || data.stellar_address?.split("*")[0];
-        // Accept any string that starts with G and is 56 characters (standard Stellar account)
-        if (
-          typeof publicKey === "string" &&
-          publicKey.startsWith("G") &&
-          publicKey.length === 56
-        ) {
-          const memoType = ["id", "text", "hash", "return"].includes(
-            data.memo_type ?? "",
-          )
-            ? (data.memo_type as ResolvedAddress["memoType"])
-            : undefined;
-          const resolved: ResolvedAddress = {
+        if (isValidAccountId(publicKey)) {
+          const resolved = buildResolved(
             publicKey,
-            stellarAddress: cacheKey,
-            ...(data.memo !== undefined ? { memo: data.memo } : {}),
-            ...(memoType !== undefined ? { memoType } : {}),
-          };
-          const ttl = Math.max(0, options.cacheTtlMs ?? 60_000);
-          if (ttl > 0)
-            addressCache.set(cacheKey, {
-              value: resolved,
-              expiresAt: Date.now() + ttl,
-            });
+            cacheKey,
+            data.memo,
+            data.memo_type,
+          );
+          storeInCache(cacheKey, resolved, options);
           return ok(resolved);
         }
       }
@@ -106,57 +175,54 @@ export async function resolveFederatedAddress(
       );
     }
 
-    // Use Federation.Server for non-test scenarios
-    const originalFetch =
-      typeof globalThis !== "undefined" ? globalThis.fetch : undefined;
-
+    // Discover the federation server via the domain's stellar.toml.
+    const protocol = options.allowHttp ? "http" : "https";
+    let federationServer: string | undefined;
     try {
-      const federation = await Federation.Server.createForDomain(
-        parsed.domain,
-        {
-          allowHttp: options.allowHttp ?? false,
-          timeout: options.timeoutMs ?? 10_000,
-        },
-      );
-      const record = await federation.resolveAddress(parsed.username);
-      const publicKey = record.account_id;
-      if (
-        !(
-          typeof publicKey === "string" &&
-          publicKey.startsWith("G") &&
-          publicKey.length === 56
-        )
-      ) {
-        return err(
-          SorokitErrorCode.INVALID_ADDRESS,
-          "Federation server returned an invalid Stellar account ID.",
-        );
+      const toml = await fetchStellarToml(parsed.domain, {
+        allowHttp: options.allowHttp,
+        ...(options.fetchFn ? { fetchFn: options.fetchFn } : {}),
+      });
+      if (toml.ok) {
+        federationServer = toml.data.FEDERATION_SERVER;
       }
-
-      const memoType = ["id", "text", "hash", "return"].includes(
-        record.memo_type ?? "",
-      )
-        ? (record.memo_type as ResolvedAddress["memoType"])
-        : undefined;
-      const resolved: ResolvedAddress = {
-        publicKey,
-        stellarAddress: cacheKey,
-        ...(record.memo !== undefined ? { memo: record.memo } : {}),
-        ...(memoType !== undefined ? { memoType } : {}),
-      };
-      const ttl = Math.max(0, options.cacheTtlMs ?? 60_000);
-      if (ttl > 0)
-        addressCache.set(cacheKey, {
-          value: resolved,
-          expiresAt: Date.now() + ttl,
-        });
-      return ok(resolved);
-    } finally {
-      // Restore original fetch if it was set
-      if (originalFetch) {
-        (globalThis as any).fetch = originalFetch;
-      }
+    } catch {
+      // Fall through to the well-known endpoint fallback below.
     }
+
+    if (!federationServer) {
+      federationServer = `${protocol}://${parsed.domain}/.well-known/stellar-federation`;
+    }
+
+    const record = await queryFederationServer(
+      federationServer,
+      cacheKey,
+      options,
+    );
+
+    if (!record) {
+      return err(
+        SorokitErrorCode.NETWORK_ERROR,
+        "Federation server did not return a valid response.",
+      );
+    }
+
+    const publicKey = record.account_id;
+    if (!isValidAccountId(publicKey)) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        "Federation server returned an invalid Stellar account ID.",
+      );
+    }
+
+    const resolved = buildResolved(
+      publicKey,
+      cacheKey,
+      record.memo,
+      record.memo_type,
+    );
+    storeInCache(cacheKey, resolved, options);
+    return ok(resolved);
   } catch (cause) {
     return err(
       SorokitErrorCode.NETWORK_ERROR,
@@ -166,7 +232,13 @@ export async function resolveFederatedAddress(
   }
 }
 
+/** @deprecated Use {@link resolveFederationAddress} instead. */
+export const resolveFederatedAddress = resolveFederationAddress;
+
 /** Clear cached federation answers, primarily for tests and long-running apps. */
 export function clearFederationAddressCache(): void {
   addressCache.clear();
 }
+
+// Keep the SDK import referenced for consumers that rely on the re-exported type.
+export type { Federation };

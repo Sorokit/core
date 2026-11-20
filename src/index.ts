@@ -28,6 +28,7 @@ export {
   monitorTransaction,
   quoteDirectPayment,
   resolveFederatedAddress,
+  resolveFederationAddress,
   rotateSecretKey,
   sendDirectPayment,
   submitKycInfo,
@@ -64,6 +65,8 @@ export type {
   DirectPaymentReceiver,
   FetchStellarTomlOptions,
   FederationResolverOptions,
+  FederationResolutionResult,
+  ResolveFederationAddressOptions,
   InitiateSep10AuthOptions,
   KycFieldDefinition,
   KycRequestOptions,
@@ -1012,6 +1015,16 @@ export type {
   DecodedContractError,
 } from "./soroban/contractErrors";
 export { ContractInteractionBuilder, createContractInteractionBuilder } from "./soroban";
+export {
+  ContractInvocationBuilder,
+  createContractInvocationBuilder,
+  ContractDeploymentBuilder,
+  createContractDeploymentBuilder,
+} from "./soroban";
+export type {
+  ContractInvocationBuilderConfig,
+  ContractDeploymentBuilderConfig,
+} from "./soroban";
 export type {
   ContractInteractionBuilderConfig,
   ArgumentField,

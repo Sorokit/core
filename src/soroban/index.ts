@@ -151,6 +151,22 @@ export type {
 } from "./simulator";
 export { buildContractDeploy } from "./deployContract";
 export {
+  ContractInvocationBuilder,
+  createContractInvocationBuilder,
+} from "./contractInvocationBuilder";
+export type {
+  ContractInvocationBuilderOptions,
+  ContractInvocationBuildResult,
+} from "./contractInvocationBuilder";
+export {
+  ContractDeploymentBuilder,
+  createContractDeploymentBuilder,
+} from "./contractDeploymentBuilder";
+export type {
+  ContractDeploymentBuilderOptions,
+  ContractDeploymentBuildResult,
+} from "./contractDeploymentBuilder";
+export {
   validateDeployConfig,
   collectDeployConfigIssues,
   formatDeployConfigIssues,

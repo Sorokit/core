@@ -25,6 +25,7 @@ export type {
 export {
   clearFederationAddressCache,
   resolveFederatedAddress,
+  resolveFederationAddress,
 } from "./federationResolver";
 export {
   createDID,
@@ -74,8 +75,10 @@ export type {
   VotingPower,
 } from "./governance";
 export type {
+  FederationResolutionOptions,
   FederationResolverOptions,
   ResolvedAddress,
+  ResolvedFederationAccount,
 } from "./federationResolver";
 export {
   clearStellarTomlCache,
