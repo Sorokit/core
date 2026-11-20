@@ -95,6 +95,17 @@ export {
 } from "./buildTransaction";
 export { buildAtomicSwap } from "./atomicSwap";
 export { buildSetOptionsTransaction } from "./setOptions";
+export {
+  buildManageOffer,
+  buildSetOptions,
+  ManageOfferBuilder,
+  SetOptionsBuilder,
+} from "./builders";
+export type {
+  FluentBuilderContext,
+  ManageOfferPrice,
+  SetOptionsFlags,
+} from "./builders";
 export type { SetOptionsParams } from "./types";
 export type { AccountMergeOptions, TrustlineState } from "./buildTransaction";
 export {

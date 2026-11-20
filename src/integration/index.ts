@@ -85,8 +85,11 @@ export {
 export type { FetchStellarTomlOptions, StellarToml } from "./sep1Toml";
 export {
   completeSep10Auth,
+  getAuthChallenge,
   initiateSep10Auth,
+  submitSignedChallenge,
   validateSep10Token,
+  verifyAuthToken,
   pruneExpiredChallenges,
   getPendingChallengesCount,
   clearPendingChallenges,

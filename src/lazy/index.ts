@@ -259,6 +259,18 @@ export async function completeSep10Auth(challengeXdr: string, signedChallengeXdr
   return (await import("../integration/sep10Auth")).completeSep10Auth(challengeXdr, signedChallengeXdr, options);
 }
 
+export async function getAuthChallenge(domain: string, publicKey: string, options?: InitiateSep10AuthOptions): Promise<SorokitResult<string>> {
+  return (await import("../integration/sep10Auth")).getAuthChallenge(domain, publicKey, options);
+}
+
+export async function submitSignedChallenge(domain: string, signedXdr: string, options?: { now?: number; timeoutMs?: number }): Promise<SorokitResult<AuthToken>> {
+  return (await import("../integration/sep10Auth")).submitSignedChallenge(domain, signedXdr, options);
+}
+
+export async function verifyAuthToken(token: string, options?: { now?: number }): Promise<SorokitResult<AuthToken>> {
+  return (await import("../integration/sep10Auth")).verifyAuthToken(token, options);
+}
+
 export async function validateSep10Token(token: string, now?: number): Promise<SorokitResult<AuthToken>> {
   return (await import("../integration/sep10Auth")).validateSep10Token(token, now);
 }
