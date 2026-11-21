@@ -15,6 +15,7 @@ import {
   retryWithBackoff,
   toMessage,
 } from "../shared";
+import { mapRpcError } from "../shared/errorMapping";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { PreparedContractCall } from "./types";
@@ -165,9 +166,11 @@ export async function buildContractDeploy(
         cause
       );
     }
+    // Decode any numeric JSON-RPC 2.0 error code carried by the exception
+    const rpcMapped = mapRpcError(cause);
     return err(
-      SorokitErrorCode.TX_BUILD_FAILED,
-      `Failed to build contract deployment: ${toMessage(cause)}`,
+      rpcMapped.code,
+      `Failed to build contract deployment: ${rpcMapped.message}`,
       cause
     );
   }

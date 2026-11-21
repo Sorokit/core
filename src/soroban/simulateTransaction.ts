@@ -15,6 +15,7 @@ import type {
 import type { SorokitCache } from "../shared/cache";
 import { createSimulationCacheKey } from "./contractCallIdentity";
 import { createSorobanServer } from "../shared/serverFactory";
+import { mapRpcError } from "../shared/errorMapping";
 
 export interface SimulateTransactionOptions {
   cache?: SorokitCache;
@@ -176,8 +177,11 @@ export async function simulateTransaction(
       simResult,
     );
   } catch (cause) {
+    // Decode any numeric JSON-RPC 2.0 error code from the exception; fall back
+    // to TX_SIMULATE_FAILED when no numeric code is present.
+    const rpcMapped = mapRpcError(cause);
     return err(
-      SorokitErrorCode.TX_SIMULATE_FAILED,
+      rpcMapped.code === SorokitErrorCode.NETWORK_ERROR ? SorokitErrorCode.TX_SIMULATE_FAILED : rpcMapped.code,
       describeSimulationFailure(cause),
       cause,
     );

@@ -24,6 +24,7 @@ import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
 import { optimizeContractArgs } from "./optimizeArgs";
+import { mapRpcError } from "../shared/errorMapping";
 
 // Shared circuit breaker registry for RPC operations
 const rpcCircuitBreaker = new CircuitBreakerRegistry({
@@ -185,8 +186,10 @@ export async function prepareContractCall(
       fee: assembled.fee,
     });
   } catch (cause) {
+    // Decode any numeric JSON-RPC 2.0 error code from the exception
+    const rpcMapped = mapRpcError(cause);
     return err(
-      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      rpcMapped.code,
       describePrepareFailure(cause),
       cause,
     );

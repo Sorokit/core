@@ -880,7 +880,7 @@ export {
   extractRpcErrorMessage,
   mapSorobanRpcError,
   mapSorobanRpcResult,
-  mapRpcError,
+  mapSorobanRpcErrorAlias,
 } from "./soroban/rpcErrorMapper";
 export type { SorobanRpcErrorPayload } from "./soroban/rpcErrorMapper";
 export type {

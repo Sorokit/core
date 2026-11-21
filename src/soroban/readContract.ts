@@ -134,6 +134,13 @@ export async function readContract(
       const simResult = await rpc.simulateTransaction(tx);
 
       if (SorobanRpc.Api.isSimulationError(simResult)) {
+        // Simulation-error responses are structured objects returned by the RPC
+        // server (not thrown exceptions). mapSorobanRpcResult applies text-regex
+        // classification over aggregated fields (message, detail, error, code text)
+        // and can produce fine-grained codes such as RATE_LIMITED, INVALID_AUTH,
+        // INSUFFICIENT_FEE, XDR_INVALID, or SOROBAN_SIMULATION_FAILED. These are
+        // semantically richer than the numeric-code dispatch in mapRpcError, which
+        // is designed for thrown JSON-RPC 2.0 error objects reaching the catch block.
         return mapSorobanRpcResult<ContractCallResult>(simResult);
       }
 

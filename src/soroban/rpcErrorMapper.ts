@@ -72,7 +72,14 @@ export function mapSorobanRpcResult<T = never>(cause: unknown): SorokitResult<T>
   return { status: "error", data: null, error: mapped } as SorokitResult<T>;
 }
 
-/** Backward-friendly alias for consumers that prefer a shorter name. */
-export const mapRpcError = mapSorobanRpcError;
+/**
+ * Backward-compatible alias for `mapSorobanRpcError`.
+ * Renamed from `mapRpcError` to avoid a name collision with the JSON-RPC
+ * numeric-code dispatcher `mapRpcError` exported from `src/shared/errorMapping`.
+ * That function and this one use different classification strategies:
+ * this one applies text-regex matching on aggregated error fields; the shared
+ * one dispatches on the numeric `code` field of a JSON-RPC 2.0 error object.
+ */
+export const mapSorobanRpcErrorAlias = mapSorobanRpcError;
 
 export { SorokitErrorCategory };

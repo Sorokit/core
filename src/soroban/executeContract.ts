@@ -18,6 +18,7 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractStateTracker, SorobanPollConfig } from "./types";
 import { extractContractCallIdentity } from "./contractCallIdentity";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
+import { mapRpcError } from "../shared/errorMapping";
 
 function describeContractSubmissionFailure(cause: unknown): string {
   if (isXdrInvalidError(cause)) {
@@ -161,7 +162,9 @@ export async function executeContract(
       status: "error",
       errorMessage: message,
     });
-    return err(SorokitErrorCode.CONTRACT_INVOKE_FAILED, message, cause);
+    // Decode any numeric JSON-RPC 2.0 error code carried by the exception
+    const rpcMapped = mapRpcError(cause);
+    return err(rpcMapped.code, message, cause);
   }
 
   // ── Poll ───────────────────────────────────────────────────────────────────
@@ -248,6 +251,8 @@ export async function executeContract(
       hash,
       errorMessage: message,
     });
-    return err(SorokitErrorCode.CONTRACT_INVOKE_FAILED, message, cause);
+    // Decode any numeric JSON-RPC 2.0 error code carried by the exception
+    const rpcMapped = mapRpcError(cause);
+    return err(rpcMapped.code, message, cause);
   }
 }
