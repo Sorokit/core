@@ -16,6 +16,21 @@ import { StrKey } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "./response";
 import type { SorokitResult } from "./response";
 
+// ─── Network passphrases ──────────────────────────────────────────────────────
+
+/**
+ * The official Stellar mainnet network passphrase.
+ * Source: https://developers.stellar.org/docs/learn/glossary#network-passphrase
+ */
+export const STELLAR_MAINNET_PASSPHRASE =
+  "Public Global Stellar Network ; September 2015";
+
+/**
+ * The official Stellar testnet network passphrase.
+ * Source: https://developers.stellar.org/docs/learn/glossary#network-passphrase
+ */
+export const STELLAR_TESTNET_PASSPHRASE = "Test SDF Network ; September 2015";
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 /**
@@ -263,4 +278,28 @@ export function validateAmount(amt: string | number): SorokitResult<string> {
   }
 
   return ok(trimmed);
+}
+
+/**
+ * Validate a Stellar network passphrase.
+ *
+ * Accepted passphrases:
+ * - Mainnet: "Public Global Stellar Network ; September 2015"
+ * - Testnet: "Test SDF Network ; September 2015"
+ *
+ * Any other value is rejected with INVALID_NETWORK to catch mainnet/testnet
+ * mismatches before a transaction is built or signed.
+ *
+ * @param passphrase - The network passphrase string to validate.
+ * @returns ok(undefined) for a known passphrase, err(INVALID_NETWORK) otherwise.
+ */
+export function validateNetworkPassphrase(passphrase: string): SorokitResult<void> {
+  if (passphrase === STELLAR_MAINNET_PASSPHRASE || passphrase === STELLAR_TESTNET_PASSPHRASE) {
+    return ok(undefined);
+  }
+  const known = `"${STELLAR_MAINNET_PASSPHRASE}" (mainnet) or "${STELLAR_TESTNET_PASSPHRASE}" (testnet)`;
+  return err(
+    SorokitErrorCode.INVALID_NETWORK,
+    `networkPassphrase — "${passphrase}" is not a recognised Stellar network passphrase. Fix: Use one of the known passphrases: ${known}.`,
+  );
 }

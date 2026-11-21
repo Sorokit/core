@@ -16,7 +16,7 @@ import { createContractReadCacheKey } from "./contractCallIdentity";
 import type { ContractCallResult, ContractReadParams } from "./types";
 import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
-import { validatePublicKey } from "../shared/validation";
+import { validatePublicKey, validateNetworkPassphrase } from "../shared/validation";
 import { mapSorobanRpcResult } from "./rpcErrorMapper";
 import { mapRpcError } from "../shared/errorMapping";
 
@@ -58,6 +58,14 @@ export async function readContract(
   params: ContractReadParams,
 ): Promise<SorokitResult<ContractCallResult>> {
   // ── Input validation (before any network call or side effect) ──────────────
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") {
+    return err(
+      SorokitErrorCode.CONTRACT_READ_FAILED,
+      networkResult.error.message,
+    );
+  }
+
   const pkResult = validatePublicKey(params.publicKey);
   if (pkResult.status === "error") {
     return err(

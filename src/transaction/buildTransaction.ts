@@ -19,6 +19,7 @@ import {
   validateAmount,
   validateAssetCode,
   validateAssetIssuer,
+  validateNetworkPassphrase,
 } from "../shared/validation";
 
 import {
@@ -376,6 +377,9 @@ async function buildPaymentTransactionInner(
   trustedIssuers?: string[] | null,
 ): Promise<SorokitResult<string>> {
   // ── Input validation (before any network call or side effect) ──────────────
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   const sourcePkResult = validatePublicKey(sourcePublicKey);
   if (sourcePkResult.status === "error") return sourcePkResult;
 
@@ -493,6 +497,9 @@ export async function buildCreateAccountTransaction(
   params: AccountCreateParams,
 ): Promise<SorokitResult<string>> {
   // ── Input validation (before any network call or side effect) ──────────────
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   const sourcePkResult = validatePublicKey(sourcePublicKey);
   if (sourcePkResult.status === "error") return sourcePkResult;
 
@@ -576,6 +583,9 @@ export async function buildTrustlineTransaction(
   trustedIssuers?: string[] | null,
 ): Promise<SorokitResult<string>> {
   // ── Input validation (before any network call or side effect) ──────────────
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   const sourcePkResult = validatePublicKey(sourcePublicKey);
   if (sourcePkResult.status === "error") return sourcePkResult;
 
@@ -661,6 +671,9 @@ export async function buildPaymentWithTrustline(
   sourcePublicKey: string,
   params: PaymentWithTrustlineParams,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   const memoResult = validateMemoParams(params.payment);
   if (memoResult.status === "error") return memoResult;
 
@@ -735,6 +748,9 @@ export async function buildSwapTransaction(
   sourcePublicKey: string,
   params: SwapTransactionParams,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   const memoResult = validateMemoParams(params.paymentA);
   if (memoResult.status === "error") return memoResult;
 
@@ -810,6 +826,9 @@ export async function buildReverseTransaction(
   originalXdr: string,
   params?: ReverseTransactionParams,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   if (isXdrInvalidError(originalXdr)) {
     return err(
       SorokitErrorCode.TX_BUILD_FAILED,
@@ -924,6 +943,9 @@ export async function buildPathPayment(
   params: PathPaymentParams,
   trustedIssuers?: string[] | null,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   const sendAssetResult = resolveAsset(
     params.sendAssetCode,
     params.sendAssetIssuer,
@@ -1113,6 +1135,9 @@ export async function buildAtomicSwap(
   sourcePublicKey: string,
   params: AtomicSwapParams,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   const sendAssetAResult = resolveAsset(
     params.legA.sendAssetCode,
     params.legA.sendAssetIssuer,
@@ -1276,6 +1301,9 @@ export async function buildBulkTrustlines(
   sequenceNumber?: string,
   estimatedFee?: string,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   // Resolve source account (offline if sequenceNumber is provided)
   const sourceResult = await resolveSourceAccount(
     horizonUrl,
@@ -1542,6 +1570,9 @@ export async function buildBulkTrustlineTransaction(
     estimatedFee?: string;
   },
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   if (!StrKey.isValidEd25519PublicKey(sourcePublicKey)) {
     return err(SorokitErrorCode.INVALID_ADDRESS, `Invalid account address: ${sourcePublicKey}`);
   }
@@ -1656,6 +1687,9 @@ export async function buildAccountMerge(
   destinationPublicKey: string,
   options?: AccountMergeOptions,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   if (options?.checkExists) {
     try {
       const server = createHorizonServer(horizonUrl);
@@ -1877,6 +1911,9 @@ export async function buildManageOfferTransaction(
   params: ManageOfferParams,
   trustedIssuers?: string[] | null,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   // ── Resolve assets ────────────────────────────────────────────────────────
   const sellingResult = resolveAsset(
     params.sellingAssetCode,
@@ -2107,6 +2144,9 @@ export async function buildClawbackTransaction(
   sourcePublicKey: string,
   params: ClawbackParams,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   // ── Validate asset code ───────────────────────────────────────────────────
   const assetCodeResult = validateClawbackAssetCode(params.assetCode);
   if (assetCodeResult.status === "error") return assetCodeResult;
@@ -2345,6 +2385,9 @@ export async function buildLiquidityPoolDepositTransaction(
   sourcePublicKey: string,
   params: LiquidityPoolDepositParams,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   // ── Pool ID ───────────────────────────────────────────────────────────────
   const poolIdResult = validatePoolId(params.liquidityPoolId);
   if (poolIdResult.status === "error") return poolIdResult;
@@ -2457,6 +2500,9 @@ export async function buildLiquidityPoolWithdrawTransaction(
   sourcePublicKey: string,
   params: LiquidityPoolWithdrawParams,
 ): Promise<SorokitResult<string>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
+
   // ── Pool ID ───────────────────────────────────────────────────────────────
   const poolIdResult = validatePoolId(params.liquidityPoolId);
   if (poolIdResult.status === "error") return poolIdResult;

@@ -18,7 +18,7 @@ import { isValidContractId } from "../shared/utils";
 import { DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
-import { validatePublicKey } from "../shared/validation";
+import { validatePublicKey, validateNetworkPassphrase } from "../shared/validation";
 import { validateContractMethodMetadata, validateContractArgs } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
@@ -58,6 +58,14 @@ export async function prepareContractCall(
   horizonUrl: string,
   params: ContractInvokeParams,
 ): Promise<SorokitResult<PreparedContractCall>> {
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") {
+    return err(
+      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+      networkResult.error.message,
+    );
+  }
+
   if (!isValidContractId(params.contractId)) {
     return err(
       SorokitErrorCode.CONTRACT_PREPARE_FAILED,

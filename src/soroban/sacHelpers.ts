@@ -20,7 +20,7 @@ import type { SorokitResult } from "../shared/response";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import { prepareContractCall } from "./prepareCall";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
-import { validatePublicKey } from "../shared/validation";
+import { validatePublicKey, validateNetworkPassphrase } from "../shared/validation";
 import { isValidContractId } from "../shared/utils";
 
 /**
@@ -40,6 +40,15 @@ export async function getSacBalance(
   contractId: string,
   account: string,
 ): Promise<SorokitResult<string>> {
+  // Validate network passphrase
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      networkResult.error.message,
+    );
+  }
+
   // Validate contract ID
   if (!isValidContractId(contractId)) {
     return err(

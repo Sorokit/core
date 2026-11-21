@@ -21,6 +21,7 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import type { PreparedContractCall } from "./types";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { validateDeployConfig } from "./validateDeployConfig";
+import { validateNetworkPassphrase } from "../shared/validation";
 
 const MAX_WASM_SIZE = 256 * 1024; // 256 KB
 
@@ -62,6 +63,10 @@ export async function buildContractDeploy(
     salt: options?.salt,
   });
   if (configResult.status === "error") return configResult;
+
+  // Validate network passphrase before any network call.
+  const networkResult = validateNetworkPassphrase(options.networkConfig.networkPassphrase);
+  if (networkResult.status === "error") return networkResult;
 
   // Validate WASM presence — callers without type checking can reach here with
   // an unread or empty file buffer.
