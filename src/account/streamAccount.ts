@@ -333,6 +333,21 @@ export async function* streamAccount(
         });
         
         errorResult = result;
+
+        // Account no longer exists on the network (deleted / merged away).
+        // Continuing to poll would create a busy-loop of repeated 404s, so
+        // yield the error once and stop the stream.
+        if (result.error.code === SorokitErrorCode.ACCOUNT_NOT_FOUND) {
+          yield result;
+          logger?.debug("account.stream", {
+            operation: "account.stream",
+            status: "stopped",
+            reason: "account_not_found",
+            publicKey,
+            polls,
+          });
+          return;
+        }
       }
 
       if (result.status === "ok") {

@@ -20,6 +20,12 @@ export interface BatchTransactionStatus {
   ledger?: number;
   envelopeXdr?: string;
   resultXdr?: string;
+  /** Unix ms timestamp when this transaction's submission attempt(s) began (#839) */
+  submittedAtMs?: number;
+  /** Unix ms timestamp when the transaction reached a final status (#839) */
+  confirmedAtMs?: number;
+  /** Number of submission attempts made for this transaction (#839) */
+  attemptCount?: number;
 }
 
 export interface BatchSubmissionResult {
@@ -83,6 +89,19 @@ function applyResult(
     entry.status = "failed";
     entry.error = result.error.message;
   }
+  entry.confirmedAtMs = Date.now();
+}
+
+/** Submit one entry, recording timing metadata (#839). */
+async function submitEntry(
+  entry: BatchTransactionStatus,
+  horizonUrl: string,
+  networkPassphrase: string,
+  cache: SorokitCache | undefined,
+): Promise<SorokitResult<TransactionResult>> {
+  entry.submittedAtMs = Date.now();
+  entry.attemptCount = (entry.attemptCount ?? 0) + 1;
+  return submitTransaction(horizonUrl, networkPassphrase, entry.xdr, cache);
 }
 
 function buildSummary(entries: BatchTransactionStatus[]): BatchSubmissionResult {
@@ -167,12 +186,7 @@ export async function submitBatch(
     // Submit all concurrently and collect results
     const results = await Promise.allSettled(
       entries.map((entry) =>
-        submitTransaction(
-          horizonUrl,
-          networkPassphrase,
-          entry.xdr,
-          config.cache,
-        ),
+        submitEntry(entry, horizonUrl, networkPassphrase, config.cache),
       ),
     );
     for (let i = 0; i < entries.length; i++) {
@@ -186,17 +200,13 @@ export async function submitBatch(
           settled.reason instanceof Error
             ? (settled.reason as Error).message
             : String(settled.reason);
+        entry.confirmedAtMs = Date.now();
       }
     }
   } else if (hasHorizonUrl) {
     // Sequential (default): submit one at a time in order
     for (const entry of entries) {
-      const result = await submitTransaction(
-        horizonUrl,
-        networkPassphrase,
-        entry.xdr,
-        config.cache,
-      );
+      const result = await submitEntry(entry, horizonUrl, networkPassphrase, config.cache);
       applyResult(entry, result);
     }
   }

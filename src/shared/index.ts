@@ -1,3 +1,10 @@
+/**
+ * Internal implementation barrel.
+ *
+ * This file is intentionally not exposed through package.json exports. SDK
+ * consumers must use the curated `sorokit-core/shared` entrypoint instead;
+ * the exports below may change without a semver guarantee.
+ */
 export * from "./cache";
 export * from "./cacheInvalidation";
 export * from "./config";
@@ -64,4 +71,3 @@ export type {
 // ─── OpenTelemetry (#600) & SmartCache (#604) ────────────────────────────────
 export * from "./openTelemetry";
 export * from "./smartCache";
-

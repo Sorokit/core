@@ -385,6 +385,17 @@ function validateCachedMetadata(
   }
 
   if (methodMetadata.inputs.length !== argCount) {
+    // #843: name the specific missing parameters (by declared name) when
+    // fewer args were supplied than the method requires, instead of only
+    // reporting a count mismatch, so the caller knows exactly what to add.
+    if (argCount < methodMetadata.inputs.length) {
+      const missing = methodMetadata.inputs.slice(argCount).map((input) => input.name);
+      return err(
+        SorokitErrorCode.CONTRACT_PREPARE_FAILED,
+        `Contract method ${method} is missing required parameter(s): ${missing.join(", ")}. ` +
+          `Expected ${methodMetadata.inputs.length} argument(s), received ${argCount}.`,
+      );
+    }
     return err(
       SorokitErrorCode.CONTRACT_PREPARE_FAILED,
       `Contract method ${method} expects ${methodMetadata.inputs.length} argument(s), received ${argCount}.`,

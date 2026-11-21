@@ -102,6 +102,21 @@ export { getPaymentHistory } from "./paymentHistory";
 export type { PaymentInfo, PaymentPage, PaymentHistoryOptions } from "./paymentHistory";
 export { getEffects } from "./getEffects";
 export type { EffectInfo, EffectsPage, GetEffectsOptions } from "./getEffects";
+export {
+  getAccountEffects,
+  getAccountSigners,
+  getSignerThresholds,
+} from "./queries";
+export type {
+  Effect,
+  EffectFilters,
+  Payment,
+  PaymentDirection,
+  PaymentFilters,
+  SignerData,
+  SignerEntry,
+  SignerThresholds,
+} from "./queries";
 export { getDataEntries } from "./dataEntries";
 export type { AccountDataEntries } from "./dataEntries";
 

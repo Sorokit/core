@@ -6,9 +6,11 @@ import {
   cacheStellarToml,
   clearStellarTomlCache,
   getCachedStellarToml,
+  detectStellarTomlConflict,
   DEFAULT_STELLAR_TOML_CACHE_TTL_MS,
 } from "./sep1Toml";
 import type { StellarToml as StellarTomlData } from "./sep1Toml";
+import type { SorokitLogger } from "../shared/logger";
 
 export interface AnchorAsset {
   code: string;
@@ -63,7 +65,22 @@ function asUrl(value: string): URL | null {
 export interface GetAnchorInfoOptions {
   ttlMs?: number;
   timeoutMs?: number;
+  /** See FetchStellarTomlOptions.verifyOnCacheHit in ./sep1Toml (#837). Defaults to true. */
+  verifyOnCacheHit?: boolean;
+  /** Logger for conflict warnings when verifyOnCacheHit detects a divergence. */
+  logger?: SorokitLogger;
 }
+
+async function resolveAnchorToml(homeDomain: string, timeoutMs: number): Promise<StellarTomlData> {
+  return StellarToml.Resolver.resolve(homeDomain, { timeout: timeoutMs }) as Promise<StellarTomlData>;
+}
+
+const NOOP_LOGGER: SorokitLogger = {
+  debug: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
 
 export async function getAnchorInfo(
   homeDomain: string,
@@ -79,10 +96,35 @@ export async function getAnchorInfo(
   }
 
   const cached = getCachedStellarToml(homeDomain);
-  if (cached) return ok(cached);
+  if (cached) {
+    const verifyOnCacheHit = options.verifyOnCacheHit ?? true;
+    if (!verifyOnCacheHit) return ok(cached);
+
+    // #837: re-verify against a fresh resolve before trusting the cache,
+    // the same protection fetchStellarToml applies to its own cache.
+    let fresh: StellarTomlData;
+    try {
+      fresh = await resolveAnchorToml(homeDomain, timeoutMs);
+    } catch {
+      // Re-verification itself failed — serve the (unproven-stale) cache
+      // rather than failing the call outright.
+      return ok(cached);
+    }
+
+    const conflict = detectStellarTomlConflict(cached, fresh);
+    if (conflict) {
+      (options.logger ?? NOOP_LOGGER).warn(
+        `Anchor stellar.toml for "${homeDomain}" diverged from cached data: ${conflict}. Invalidating cache.`,
+        { domain: homeDomain, conflict },
+      );
+      clearStellarTomlCache(homeDomain);
+    }
+    cacheStellarToml(homeDomain, fresh, ttlMs);
+    return ok(fresh);
+  }
 
   try {
-    const data = await StellarToml.Resolver.resolve(homeDomain, { timeout: timeoutMs }) as StellarTomlData;
+    const data = await resolveAnchorToml(homeDomain, timeoutMs);
     cacheStellarToml(homeDomain, data, ttlMs);
     return ok(data);
   } catch (cause) {

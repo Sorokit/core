@@ -470,11 +470,33 @@ export class TransactionQueue {
           tx.processingStartedAt = Date.now();
         }
 
-        submissionFn(batch).catch((error) => {
-          for (const tx of batch) {
-            this.markFailed(tx.id, error.message);
-          }
-        });
+        submissionFn(batch)
+          .then((batchResult) => {
+            // Correlate results back to queued transactions by ID, not by
+            // array index.  Results may arrive out of order when the
+            // submissionFn executes operations concurrently, so we always
+            // look up each transaction by its stable queue ID rather than
+            // relying on positional correspondence.
+            for (const tx of batch) {
+              const result = batchResult.results.get(tx.id);
+              if (result === undefined) {
+                // submissionFn did not report a result for this ID — treat
+                // as a failure so the transaction can be retried.
+                this.markFailed(tx.id, "No result returned for transaction");
+              } else if (result.success) {
+                this.markCompleted(tx.id, result.hash);
+              } else {
+                this.markFailed(tx.id, result.error ?? "Submission failed");
+              }
+            }
+          })
+          .catch((error: unknown) => {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            for (const tx of batch) {
+              this.markFailed(tx.id, message);
+            }
+          });
       }
     }, this.config.schedulingIntervalMs);
   }

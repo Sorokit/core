@@ -251,6 +251,27 @@ export function err<T>(
   }) as SorokitResult<T>;
 }
 
+/**
+ * Normalize a synchronous or asynchronous operation to the SDK result
+ * contract. Use this at integration boundaries where a third-party callback
+ * or legacy helper may throw; public SDK operations should return the
+ * resulting `SorokitResult` instead of leaking the exception to callers.
+ */
+export async function toSorokitResult<T>(
+  operation: () => T | Promise<T>,
+  code: SorokitErrorCode = SorokitErrorCode.INTERNAL,
+): Promise<SorokitResult<T>> {
+  try {
+    return ok(await operation());
+  } catch (cause) {
+    return err(
+      code,
+      cause instanceof Error ? cause.message : String(cause),
+      cause,
+    );
+  }
+}
+
 export function attachTraceId<T>(
   result: SorokitResult<T>,
   traceId: string,

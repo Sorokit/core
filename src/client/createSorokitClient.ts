@@ -210,6 +210,7 @@ import {
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
+import { checkStellarSdkVersionCompatibility } from "./sdkVersionCompatibility";
 import { wrapCache } from "../shared/cache";
 import type { MainnetSafetyOptions } from "../shared/mainnetSafety";
 import type { SorokitCache } from "../shared/cache";
@@ -403,6 +404,17 @@ export interface SorokitClientConfig {
   accountStorageAdapter?: AccountStorageAdapter;
   /** Custom WalletAccountManager instance */
   accountManager?: WalletAccountManager;
+  /**
+   * The installed `@stellar/stellar-sdk` version, for a compatibility
+   * warning against the version this SDK was built against (#865). Omit to
+   * skip the check (the default — this SDK cannot reliably read the
+   * installed version itself; see `sdkVersionCompatibility.ts`'s doc
+   * comment for why). Obtain it from your own application's module
+   * resolution, e.g.
+   * `require("@stellar/stellar-sdk/package.json").version` in a plain
+   * Node/CJS entry point.
+   */
+  stellarSdkVersion?: string;
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────
@@ -1431,6 +1443,12 @@ export function createSorokitClient(
       ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
     });
   const logger = createTracedLogger(baseLogger, { traceId });
+
+  // #865: warn (never fail client creation) when the caller-supplied
+  // installed @stellar/stellar-sdk version diverges from what this SDK was
+  // built against. No-op when config.stellarSdkVersion is omitted.
+  checkStellarSdkVersionCompatibility(config.stellarSdkVersion, { logger });
+
   const safetyLogger = createTracedLogger(
     config.logger ??
       createLogger({

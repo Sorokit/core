@@ -16,6 +16,7 @@ import {
   dispatchPaymentNotification,
   generatePaymentEventId,
   isPaymentNotificationEvent,
+  getRegisteredChannelCount,
   PAYMENT_NOTIFICATION_EVENTS,
   type PaymentNotificationChannel,
   type PaymentNotificationEvent,
@@ -376,6 +377,57 @@ describe("paymentNotifications", () => {
       expect(results[0].status).toBe("ok"); // webhook ok
       expect(results[1].status).toBe("error"); // channel rejected
       expect(results[1].error?.code).toBe("NETWORK_ERROR");
+    });
+
+    it("does not register the same channel instance twice (#842)", async () => {
+      global.fetch = vi.fn(() => Promise.resolve(okResponse()));
+      const channel: PaymentNotificationChannel = {
+        name: "dedup-channel",
+        deliver: vi.fn(() => Promise.resolve(true)),
+      };
+      registerPaymentWebhook(SECRET_URL, ["payment_received"], {
+        channels: [channel],
+      });
+      registerPaymentWebhook(SECRET_URL, ["payment_sent"], {
+        channels: [channel],
+      });
+
+      expect(getRegisteredChannelCount()).toBe(1);
+
+      const results = await triggerPaymentNotifications("payment_received", {
+        transactionId: "tx-dedup",
+        account: "GA001",
+      });
+      expect(results).toHaveLength(2);
+      expect(channel.deliver).toHaveBeenCalledTimes(1);
+    });
+
+    it("stops delivering to a channel once it is garbage collected (#842)", async () => {
+      // Node exposes global.gc only when run with --expose-gc; vitest's
+      // default config enables it, but skip gracefully if unavailable so
+      // this test never flakes the suite on a different runtime config.
+      if (typeof global.gc !== "function") {
+        return;
+      }
+      global.fetch = vi.fn(() => Promise.resolve(okResponse()));
+
+      let channel: PaymentNotificationChannel | null = {
+        name: "collectable-channel",
+        deliver: vi.fn(() => Promise.resolve(true)),
+      };
+      registerPaymentWebhook(SECRET_URL, ["payment_received"], {
+        channels: [channel],
+      });
+      expect(getRegisteredChannelCount()).toBe(1);
+
+      // Drop the only strong reference and force a collection cycle.
+      channel = null;
+      global.gc();
+      // Give the GC a tick; some engines schedule finalization asynchronously.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      global.gc();
+
+      expect(getRegisteredChannelCount()).toBe(0);
     });
   });
 

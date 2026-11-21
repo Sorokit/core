@@ -19,7 +19,7 @@ import { DEFAULT_SOROBAN_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { ContractInvokeParams, PreparedContractCall } from "./types";
 import { validatePublicKey } from "../shared/validation";
-import { validateContractMethodMetadata, validateContractArgs } from "./contractMetadata";
+import { validateContractMethodMetadata, validateContractArgs, getContractMethods } from "./contractMetadata";
 import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
@@ -88,8 +88,25 @@ export async function prepareContractCall(
   });
   if (abiValidation.status === "error") return abiValidation;
 
+  // #843: when the caller supplies neither a cachedMetadata list nor a
+  // contractAbi, fall back to discovering the contract's methods from its
+  // deployed Wasm (already cached/deduplicated by getContractMethods) so
+  // missing required parameters are still caught here, at build time,
+  // instead of being silently passed through to simulation and failing
+  // on-chain with an unhelpful error.
+  let effectiveMetadata = params.cachedMetadata;
+  if (!effectiveMetadata && !params.contractAbi) {
+    const discovered = await getContractMethods(rpcUrl, params.contractId);
+    if (discovered.status === "ok") {
+      effectiveMetadata = discovered.data;
+    }
+    // If discovery itself fails (e.g. RPC unreachable), proceed without
+    // metadata rather than failing prepareContractCall over a validation
+    // nicety — the simulation step below will still catch real problems.
+  }
+
   const metadataResult = validateContractMethodMetadata(
-    params.cachedMetadata,
+    effectiveMetadata,
     params.method,
     params.args?.length ?? 0,
     SorokitErrorCode.CONTRACT_PREPARE_FAILED,
@@ -97,8 +114,8 @@ export async function prepareContractCall(
   if (metadataResult.status === "error") return metadataResult;
 
   // ─── Visibility, authorization, and argument validation ───────────────
-  if (params.cachedMetadata) {
-    const methodMeta = params.cachedMetadata.find((m) => m.name === params.method);
+  if (effectiveMetadata) {
+    const methodMeta = effectiveMetadata.find((m) => m.name === params.method);
 
     if (methodMeta) {
       // Visibility: reject explicitly non-public methods

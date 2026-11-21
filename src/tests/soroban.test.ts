@@ -557,7 +557,10 @@ describe("soroban contract metadata", () => {
     expect(result.status).toBe("error");
     if (result.status === "error") {
       expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_READ_FAILED);
-      expect(result.error.message).toContain("expects 1 argument");
+      // #843: message now names the specific missing parameter.
+      expect(result.error.message).toContain("missing required parameter");
+      expect(result.error.message).toContain("to");
+      expect(result.error.message).toContain("Expected 1 argument");
     }
   });
 });
@@ -976,6 +979,128 @@ describe("queryContractEvents", () => {
     );
 
     expect(result).toEqual([]);
+  });
+});
+
+describe("prepareContractCall — missing required parameter validation (#843)", () => {
+  beforeEach(() => {
+    mockGetLedgerEntries.mockReset();
+    resetRpcSimulationMocks();
+  });
+
+  it("rejects a call with zero args when neither cachedMetadata nor contractAbi is provided, by auto-discovering the contract's methods", async () => {
+    // methodSpec() declares "hello" with exactly one required input ("to").
+    mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "hello",
+        // No args, no cachedMetadata, no contractAbi — the gap #843 describes.
+        publicKey: Keypair.random().publicKey(),
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
+      expect(result.error.message).toContain("missing required parameter");
+      expect(result.error.message).toContain("to");
+    }
+  });
+
+  it("names every missing parameter when more than one is omitted", async () => {
+    mockContractLedgerEntries(
+      contractSpecWasm([
+        xdr.ScSpecEntry.scSpecEntryFunctionV0(
+          new xdr.ScSpecFunctionV0({
+            doc: "",
+            name: "transfer",
+            inputs: [
+              new xdr.ScSpecFunctionInputV0({
+                doc: "",
+                name: "from",
+                type: xdr.ScSpecTypeDef.scSpecTypeAddress(),
+              }),
+              new xdr.ScSpecFunctionInputV0({
+                doc: "",
+                name: "to",
+                type: xdr.ScSpecTypeDef.scSpecTypeAddress(),
+              }),
+              new xdr.ScSpecFunctionInputV0({
+                doc: "",
+                name: "amount",
+                type: xdr.ScSpecTypeDef.scSpecTypeI128(),
+              }),
+            ],
+            outputs: [],
+          }),
+        ),
+      ]),
+    );
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "transfer",
+        args: [arg], // only one of three required args supplied
+        publicKey: Keypair.random().publicKey(),
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.message).toContain("to, amount");
+    }
+  });
+
+  it("succeeds when all required parameters are supplied, using auto-discovered metadata", async () => {
+    mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "hello",
+        // methodSpec()'s "to" input is typed symbol, matching this arg's type.
+        args: [xdr.ScVal.scvSymbol("alice")],
+        publicKey: Keypair.random().publicKey(),
+      },
+    );
+
+    expect(result.status).toBe("ok");
+  });
+
+  it("still validates argument count when cachedMetadata is explicitly provided (pre-existing behavior, unchanged)", async () => {
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "hello",
+        publicKey: Keypair.random().publicKey(),
+        cachedMetadata: [
+          { name: "hello", inputs: [{ name: "to", type: "symbol" }], returnType: "string" },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.message).toContain("missing required parameter");
+      expect(result.error.message).toContain("to");
+    }
+    // cachedMetadata was supplied, so auto-discovery must not have run.
+    expect(mockGetLedgerEntries).not.toHaveBeenCalled();
   });
 });
 
@@ -3508,7 +3633,10 @@ describe("contract method visibility and authorization (#383)", () => {
     expect(result.status).toBe("error");
     if (result.status === "error") {
       expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
-      expect(result.error.message).toContain("expects 1 argument");
+      // #843: message now names the specific missing parameter.
+      expect(result.error.message).toContain("missing required parameter");
+      expect(result.error.message).toContain("amount");
+      expect(result.error.message).toContain("Expected 1 argument");
     }
     expect(mockSimulateTransaction).not.toHaveBeenCalled();
   });

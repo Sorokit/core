@@ -34,6 +34,7 @@ import {
   buildPaymentWithTrustline,
   buildSwapTransaction,
   clearSequenceCache,
+  invalidateSequenceCacheEntry,
   checkTrustlines,
   buildBulkTrustlines,
   validateMemoPolicy,
@@ -1401,7 +1402,30 @@ describe("estimateFee — caching", () => {
       expect((transactionBuilderInstances[0].memo as any)?.value).toBe("hello");
     });
 
-    it("skips memo attachment when memo is an empty string (#292)", async () => {
+    it("attaches empty memo when memo is an empty string with allowEmptyMemo (#292, #846)", async () => {
+      const result = await buildPaymentTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        sourcePublicKey,
+        {
+          destination,
+          amount: "10",
+          memo: "",
+          allowEmptyMemo: true,
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data).toBe(MOCK_XDR);
+      }
+      expect(transactionBuilderInstances).toHaveLength(1);
+      expect(mockAddMemo).toHaveBeenCalledWith(
+        expect.objectContaining({ _type: "text", _value: "" }),
+      );
+    });
+
+    it("rejects empty string memo by default without opt-in (#846)", async () => {
       const result = await buildPaymentTransaction(
         networkConfig.horizonUrl,
         networkConfig,
@@ -1413,13 +1437,12 @@ describe("estimateFee — caching", () => {
         },
       );
 
-      expect(result.status).toBe("ok");
-      if (result.status === "ok") {
-        expect(result.data).toBe(MOCK_XDR);
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+        expect(result.error.message).toBe("Memo cannot be empty or whitespace-only");
       }
-      expect(transactionBuilderInstances).toHaveLength(1);
-      expect(transactionBuilderInstances[0].memo).toBeUndefined();
-      expect(mockAddMemo).not.toHaveBeenCalled();
+      expect(transactionBuilderInstances).toHaveLength(0);
     });
 
     it("fails payment build with TX_BUILD_FAILED when text memo exceeds the 28-byte Stellar limit (#292)", async () => {
@@ -2132,6 +2155,42 @@ describe("sequence number auto-fetch cache", () => {
       params,
     );
     expect(mockLoadAccount).toHaveBeenCalledOnce();
+  });
+
+  it("invalidateSequenceCacheEntry() forces a re-fetch only for the given account (#836)", async () => {
+    const otherKey = "GAAL6LIAG2FGFQTKMUNGLCSCAM722PPYRVK2PXEMC6KNRRWLCFTYQD7R";
+    const mockAccount = {
+      sequence: "100",
+      sequenceNumber: vi.fn().mockReturnValue("101"),
+      incrementSequenceNumber: vi.fn(),
+      subentry_count: 0,
+      balances: [],
+      accountId: () => sourceKey,
+    };
+    mockLoadAccount.mockResolvedValue(mockAccount);
+
+    const params = {
+      destination,
+      amount: "10",
+      autoFetchSequence: true as const,
+    };
+
+    // Populate the cache for both accounts.
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, otherKey, params);
+    mockLoadAccount.mockClear();
+
+    // Simulate a failed submission for `sourceKey` invalidating just its entry.
+    invalidateSequenceCacheEntry(sourceKey);
+
+    // sourceKey must re-fetch from Horizon (cache was invalidated).
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, sourceKey, params);
+    expect(mockLoadAccount).toHaveBeenCalledOnce();
+    mockLoadAccount.mockClear();
+
+    // otherKey's cache entry is untouched — no fetch needed.
+    await buildPaymentTransaction(networkConfig.horizonUrl, networkConfig, otherKey, params);
+    expect(mockLoadAccount).not.toHaveBeenCalled();
   });
 });
 

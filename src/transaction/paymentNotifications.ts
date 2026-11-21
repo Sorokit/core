@@ -144,7 +144,14 @@ export interface PaymentNotificationChannel {
 }
 
 const webhookRegistry = new Map<string, PaymentWebhookRegistration>();
-const channelRegistry = new Set<PaymentNotificationChannel>();
+// WeakSet so a channel is eligible for garbage collection as soon as no
+// other reference to it remains, instead of being pinned alive forever by
+// this module-level registry (#842).
+const channelRegistry = new WeakSet<PaymentNotificationChannel>();
+// WeakSet has no iteration protocol, so channel delivery needs its own
+// enumerable list. Each entry is a WeakRef, letting GC reclaim subscribers
+// that are no longer referenced elsewhere; dead refs are pruned lazily.
+const channelRefs: WeakRef<PaymentNotificationChannel>[] = [];
 
 /** Registry key — one entry per (url, event) pair. */
 function registrationKey(
@@ -252,7 +259,10 @@ export function registerPaymentWebhook(
         "Notification channels must implement deliver(payload)",
       );
     }
-    channelRegistry.add(channel);
+    if (!channelRegistry.has(channel)) {
+      channelRegistry.add(channel);
+      channelRefs.push(new WeakRef(channel));
+    }
   }
 
   const registration: PaymentWebhookRegistration = {
@@ -311,7 +321,32 @@ export function listPaymentWebhooks(
 /** Clear all registered webhook subscriptions. */
 export function clearPaymentWebhooks(): void {
   webhookRegistry.clear();
-  channelRegistry.clear();
+  channelRefs.length = 0;
+}
+
+/**
+ * Returns the currently live (not yet garbage-collected) notification
+ * channels, pruning dead WeakRefs from the tracking list as it goes.
+ */
+function liveChannels(): PaymentNotificationChannel[] {
+  const live: PaymentNotificationChannel[] = [];
+  for (let i = channelRefs.length - 1; i >= 0; i--) {
+    const channel = channelRefs[i]!.deref();
+    if (channel === undefined) {
+      channelRefs.splice(i, 1);
+    } else {
+      live.push(channel);
+    }
+  }
+  return live;
+}
+
+/**
+ * Observability/test helper: number of notification channels still
+ * reachable (not yet garbage-collected).
+ */
+export function getRegisteredChannelCount(): number {
+  return liveChannels().length;
 }
 
 /**
@@ -439,7 +474,7 @@ async function deliverToChannels(
   onChannelFailure?: (channelName: string, error: unknown) => void,
 ): Promise<SorokitResult<void>[]> {
   return Promise.all(
-    Array.from(channelRegistry).map(async (channel) => {
+    liveChannels().map(async (channel) => {
       try {
         const delivered = await channel.deliver(payload);
         if (delivered) return ok(undefined);

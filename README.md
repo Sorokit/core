@@ -574,6 +574,117 @@ For scenarios that need to run against real, live testnet (account funding, paym
 
 ## Examples
 
+### Minimal working examples
+
+The two tasks new users reach for first — sending a payment and calling a Soroban contract — shown end-to-end with the full error-check idiom.
+
+#### Send a payment
+
+```ts
+import { createSorokitClient, FreighterAdapter } from "sorokit-core";
+// swkInstance is your initialised @creit.tech/stellar-wallets-kit instance
+
+// 1. Create client
+const clientResult = createSorokitClient({ network: "testnet" });
+if (clientResult.status === "error") throw new Error(clientResult.error.message);
+const client = clientResult.data;
+
+// 2. Connect wallet and get the public key
+const adapter = new FreighterAdapter(swkInstance);
+const conn = await client.wallet.connect(adapter);
+if (conn.status === "error") throw new Error(conn.error.message);
+const { publicKey } = conn.data;
+
+// 3. Build the payment transaction (returns a signed-envelope XDR stub)
+const tx = await client.transaction.buildPayment(publicKey, {
+  destination: "GDEST...WXYZ",
+  amount: "10",
+  // asset defaults to native XLM; pass { code: "USDC", issuer: "GA5Z..." } for custom assets
+});
+if (tx.status === "error") throw new Error(tx.error.message);
+
+// 4. Sign with the connected wallet
+const signed = await client.wallet.signTransaction(adapter, {
+  transactionXdr: tx.data,
+  networkPassphrase: client.networkConfig.networkPassphrase,
+});
+if (signed.status === "error") throw new Error(signed.error.message);
+
+// 5. Submit to Horizon
+const result = await client.transaction.submit(signed.data);
+if (result.status === "ok") {
+  console.log("Confirmed in ledger:", result.data.ledger);
+} else {
+  console.error("Submit failed:", result.error.code, result.error.message);
+}
+```
+
+#### Call a Soroban smart contract
+
+```ts
+import { createSorokitClient, FreighterAdapter } from "sorokit-core";
+import { nativeToScVal, Address } from "@stellar/stellar-sdk";
+
+// 1. Create a client with an RPC endpoint (required for Soroban)
+const clientResult = createSorokitClient({
+  network: "testnet",
+  rpcUrl: "https://soroban-testnet.stellar.org",
+});
+if (clientResult.status === "error") throw new Error(clientResult.error.message);
+const client = clientResult.data;
+
+// 2. Connect wallet
+const adapter = new FreighterAdapter(swkInstance);
+const conn = await client.wallet.connect(adapter);
+if (conn.status === "error") throw new Error(conn.error.message);
+const { publicKey } = conn.data;
+
+// 3. Use the all-in-one invoke helper: prepare → sign → execute
+const result = await client.soroban.invoke(
+  {
+    contractId: "CCONTRACT...ID",
+    method: "transfer",
+    args: [
+      new Address(publicKey).toScVal(),           // from
+      new Address("GDEST...WXYZ").toScVal(),       // to
+      nativeToScVal(1_000_000, { type: "i128" }), // amount (in contract units)
+    ],
+    publicKey,
+  },
+  // signing callback — receives the assembled XDR, returns the signed XDR
+  async (xdr) => {
+    const sig = await client.wallet.signTransaction(adapter, {
+      transactionXdr: xdr,
+      networkPassphrase: client.networkConfig.networkPassphrase,
+    });
+    if (sig.status === "error") throw new Error(sig.error.message);
+    return sig.data;
+  },
+);
+
+if (result.status === "ok") {
+  console.log("Transaction hash:", result.data);
+} else {
+  console.error("Contract call failed:", result.error.code, result.error.message);
+}
+```
+
+For read-only contract calls (no signing required):
+
+```ts
+const balance = await client.soroban.read({
+  contractId: "CCONTRACT...ID",
+  method: "balance",
+  args: [new Address(publicKey).toScVal()],
+  publicKey,
+});
+if (balance.status === "ok") console.log("Balance:", balance.data.result);
+```
+
+---
+
+### Example apps
+
 | Example | Shows |
 | --- | --- |
 | [`examples/router-swap`](examples/router-swap) | DEX swap: path discovery, quote, sign, submit, track |

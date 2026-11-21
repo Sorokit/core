@@ -27,8 +27,32 @@ export interface TransactionOperation {
   params: Record<string, unknown>;
 }
 
+export interface SetMemoOptions {
+  /**
+   * When true, allows empty or whitespace-only memo strings.
+   * Defaults to false.
+   */
+  allowEmpty?: boolean;
+}
+
 /** Public interface returned by `createTransactionBuilder`. */
 export interface TransactionBuilder {
+  /**
+   * Set or update the transaction memo.
+   * By default, rejects empty or whitespace-only memos.
+   * Pass `{ allowEmpty: true }` to opt in to allowing empty or whitespace memos.
+   *
+   * @param memo - The memo string.
+   * @param options - Optional configuration (e.g. `{ allowEmpty: true }`).
+   * @returns The builder itself for chaining.
+   */
+  setMemo(memo: string, options?: SetMemoOptions): TransactionBuilder;
+
+  /**
+   * Return the currently configured memo, if any.
+   */
+  getMemo(): string | undefined;
+
   /**
    * Append a new operation to the builder.
    * Calling `addOperation` after an `undo` clears the redo stack (standard
@@ -173,6 +197,21 @@ export function createTransactionBuilder(): TransactionBuilder {
   // ── Builder object ──────────────────────────────────────────────────────────
 
   const builder: TransactionBuilder = {
+    setMemo(memo: string, options?: SetMemoOptions): TransactionBuilder {
+      if (typeof memo !== "string") {
+        throw new Error("Memo must be a string");
+      }
+      if (!options?.allowEmpty && memo.trim().length === 0) {
+        throw new Error("Memo cannot be empty or whitespace-only");
+      }
+      _memo = memo;
+      return builder;
+    },
+
+    getMemo(): string | undefined {
+      return _memo;
+    },
+
     addOperation(operation: TransactionOperation): TransactionBuilder {
       _redoStack = [];
       _history.push(shallowCopyOp(operation));

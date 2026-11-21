@@ -11,6 +11,7 @@ export default defineConfig({
     "src/soroban/index.ts",
     "src/network/index.ts",
     "src/shared/index.ts",
+    "src/shared/public.ts",
     "src/integration/index.ts",
     "src/lazy/index.ts",
     "src/shared/keyManagement.ts",

@@ -16,9 +16,10 @@ import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_TX_CACHE_TTL_MS } from "../shared/constants";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
-import { mapHorizonError } from "../shared/horizonErrorMapper";
+import { mapHorizonError, isSequenceError } from "../shared/horizonErrorMapper";
 import { traceTransactionSubmit, type TelemetrySpan } from "../performance/telemetry";
 import { invalidateAccount } from "../account/getAccount";
+import { invalidateSequenceCacheEntry } from "./buildTransaction";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -334,6 +335,14 @@ async function submitTransactionImpl(
   } catch (cause) {
     if (parsedTx) {
       invalidateSubmittedTxAccounts(parsedTx, horizonUrl);
+      // #836: a sequence-related submission failure (e.g. tx_bad_seq) means
+      // the build-time autoFetchSequence cache is now stale for this
+      // account. Invalidate it so the next build is forced to fetch a fresh
+      // sequence from Horizon instead of reusing the bad one and cascading
+      // into further tx_bad_seq failures.
+      if (isSequenceError(cause)) {
+        invalidateSequenceCacheAccounts(parsedTx);
+      }
     }
     const mapped = mapHorizonError(cause, {
       resource: "transaction",
@@ -364,33 +373,61 @@ async function submitTransactionImpl(
   }
 }
 
+/** Extract the set of source-account public keys (muxed accounts resolved to G...) from a tx. */
+function extractSourceAccounts(tx: unknown): Set<string> {
+  const accounts = new Set<string>();
+  if (tx instanceof FeeBumpTransaction) {
+    if (tx.feeSource) accounts.add(tx.feeSource);
+    if (tx.innerTransaction?.source) accounts.add(tx.innerTransaction.source);
+  } else if (tx && typeof tx === "object" && "source" in tx && typeof (tx as any).source === "string") {
+    accounts.add((tx as any).source);
+  }
+  return accounts;
+}
+
+/** Resolve a (possibly muxed `M...`) account id to its underlying `G...` key. */
+function resolveSourceKey(acc: string): string {
+  if (!acc.startsWith("M")) return acc;
+  try {
+    return StrKey.encodeEd25519PublicKey(
+      StrKey.decodeMed25519PublicKey(acc).subarray(0, 32),
+    );
+  } catch {
+    return acc;
+  }
+}
+
 /**
  * Invalidate cached and in-flight sequence fetches for all source accounts
  * involved in the submitted transaction (#752).
  */
 function invalidateSubmittedTxAccounts(tx: unknown, horizonUrl: string): void {
   try {
-    const accountsToInvalidate = new Set<string>();
-    if (tx instanceof FeeBumpTransaction) {
-      if (tx.feeSource) accountsToInvalidate.add(tx.feeSource);
-      if (tx.innerTransaction?.source) accountsToInvalidate.add(tx.innerTransaction.source);
-    } else if (tx && typeof tx === "object" && "source" in tx && typeof (tx as any).source === "string") {
-      accountsToInvalidate.add((tx as any).source);
-    }
-    for (const acc of accountsToInvalidate) {
-      let sourceKey = acc;
-      if (sourceKey.startsWith("M")) {
-        try {
-          sourceKey = StrKey.encodeEd25519PublicKey(
-            StrKey.decodeMed25519PublicKey(sourceKey).subarray(0, 32),
-          );
-        } catch {
-          // Ignore muxed decode failure
-        }
-      }
+    for (const acc of extractSourceAccounts(tx)) {
+      const sourceKey = resolveSourceKey(acc);
       invalidateAccount(sourceKey, horizonUrl);
       if (acc !== sourceKey) {
         invalidateAccount(acc, horizonUrl);
+      }
+    }
+  } catch {
+    // Ignore invalidation errors during submit
+  }
+}
+
+/**
+ * Invalidate the build-time `autoFetchSequence` cache entry for every source
+ * account in the transaction (#836). Separate from `invalidateSubmittedTxAccounts`
+ * (which targets the `getAccount` cache) because it only applies when the
+ * failure is sequence-related.
+ */
+function invalidateSequenceCacheAccounts(tx: unknown): void {
+  try {
+    for (const acc of extractSourceAccounts(tx)) {
+      const sourceKey = resolveSourceKey(acc);
+      invalidateSequenceCacheEntry(sourceKey);
+      if (acc !== sourceKey) {
+        invalidateSequenceCacheEntry(acc);
       }
     }
   } catch {
