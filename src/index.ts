@@ -1883,10 +1883,20 @@ export {
 export {
   validateStellarAddress,
   validatePublicKey,
+  validatePublicKeyDetailed,
+  detectPublicKeyFormat,
+  verifyPublicKeyChecksum,
+  STELLAR_ED25519_PUBLIC_KEY_LENGTH,
+  STELLAR_MUXED_PUBLIC_KEY_LENGTH,
   validateAssetIssuer,
   STELLAR_MAX_DECIMAL_PLACES,
   STELLAR_MAX_ASSET_CODE_LENGTH,
   STELLAR_MIN_ASSET_CODE_LENGTH,
+} from "./shared/validation";
+export type {
+  PublicKeyFormat,
+  ValidatePublicKeyOptions,
+  PublicKeyValidationDetails,
 } from "./shared/validation";
 
 // ─── Account signer, history, effects, and data entries (#556/#557/#558/#559) ─
