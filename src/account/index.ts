@@ -250,3 +250,8 @@ export type {
   PortfolioUpdate,
   PortfolioUpdateCallback,
 } from "./portfolioDashboard";
+
+export { createAndFundAccount, FRIENDBOT_URLS } from "./fundingHelper";
+export type { FundingOptions } from "./fundingHelper";
+export { getAssetCreationSteps, prepareAssetForIssuing } from "./assetCreationHelper";
+export type { AssetCreationStep, AssetIssuingPreset } from "./assetCreationHelper";

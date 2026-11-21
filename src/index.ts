@@ -2263,3 +2263,17 @@ export type {
   RateLimiterQueueStats,
   RateLimitResponseMeta,
 } from "./network/rateLimiter";
+
+// ─── Issues #979, #981, #983, #984 ────────────────────────────────────────────
+export {
+  initializeSignatureCollection,
+  addSignature as addCollectedSignature,
+  finalizeTransaction,
+} from "./transaction/multiSigCoordinator";
+export type { SignatureCollectionProgress } from "./transaction/multiSigCoordinator";
+export { createAndFundAccount, FRIENDBOT_URLS } from "./account/fundingHelper";
+export type { FundingOptions } from "./account/fundingHelper";
+export { getAssetCreationSteps, prepareAssetForIssuing } from "./account/assetCreationHelper";
+export type { AssetCreationStep, AssetIssuingPreset } from "./account/assetCreationHelper";
+export { createOperationDebugger } from "./shared/operationDebug";
+export type { OperationDebugger } from "./shared/operationDebug";
