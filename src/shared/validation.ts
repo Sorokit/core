@@ -43,6 +43,78 @@ export const STELLAR_MAX_ASSET_CODE_LENGTH = 12;
  */
 export const STELLAR_MIN_ASSET_CODE_LENGTH = 1;
 
+/** Standard length of an Ed25519 G-address StrKey. */
+export const STELLAR_ED25519_PUBLIC_KEY_LENGTH = 56;
+
+/** Standard length of a Muxed M-address StrKey. */
+export const STELLAR_MUXED_PUBLIC_KEY_LENGTH = 69;
+
+const BASE32_REGEX = /^[A-Z2-7]+$/;
+const FEDERATION_ADDRESS_REGEX = /^[^*\s<>@]+\*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+
+/** Supported public key / account identifier formats on Stellar (#926). */
+export type PublicKeyFormat = "ed25519" | "muxed" | "federation";
+
+/** Options for public key validation (#926). */
+export interface ValidatePublicKeyOptions {
+  /** Allow M-prefixed 69-character muxed account addresses. Default: false. */
+  allowMuxed?: boolean;
+  /** Allow name*domain.tld federation addresses. Default: false. */
+  allowFederation?: boolean;
+}
+
+/** Detailed validation result including detected format and checksum status (#926). */
+export interface PublicKeyValidationDetails {
+  key: string;
+  format: PublicKeyFormat;
+  checksumValid: boolean;
+}
+
+/**
+ * Detect the format of a Stellar public key or account identifier (#926).
+ *
+ * Recognizes:
+ * - `"ed25519"` for G-prefixed Ed25519 public keys
+ * - `"muxed"` for M-prefixed Med25519 muxed account keys
+ * - `"federation"` for `name*domain.tld` federation addresses
+ * - `"unknown"` for anything else
+ */
+export function detectPublicKeyFormat(key: string): PublicKeyFormat | "unknown" {
+  if (typeof key !== "string" || key.length === 0) {
+    return "unknown";
+  }
+  if (key.includes("*")) {
+    return FEDERATION_ADDRESS_REGEX.test(key) ? "federation" : "unknown";
+  }
+  if (key.startsWith("G")) {
+    return "ed25519";
+  }
+  if (key.startsWith("M")) {
+    return "muxed";
+  }
+  return "unknown";
+}
+
+/**
+ * Verify the StrKey CRC16-XModem checksum for an Ed25519 (G...) or Muxed (M...) public key (#926).
+ */
+export function verifyPublicKeyChecksum(key: string): boolean {
+  if (typeof key !== "string" || key.length === 0) {
+    return false;
+  }
+  try {
+    if (key.startsWith("G")) {
+      return StrKey.isValidEd25519PublicKey(key);
+    }
+    if (key.startsWith("M")) {
+      return StrKey.isValidMed25519PublicKey(key);
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Validators ───────────────────────────────────────────────────────────────
 
 /**
@@ -86,19 +158,23 @@ export function validateStellarAddress(addr: string): SorokitResult<string> {
 }
 
 /**
- * Validate an Ed25519 Stellar public key.
+ * Validate a Stellar public key with checksum verification and format detection (#926).
  *
- * Distinct from validateStellarAddress in intent: this validator asserts that
- * the value is specifically an Ed25519 public key suitable for signing
- * operations, not just any G-prefixed StrKey variant. In the current Stellar
- * protocol all G-addresses are Ed25519 keys, so the underlying check is the
- * same, but the separation ensures the API surface matches the call site's
- * semantic intent and remains correct if future StrKey types are introduced.
+ * By default, validates standard 56-character G-prefixed Ed25519 public keys and
+ * verifies the StrKey CRC16 checksum with specific error diagnostics for wrong
+ * prefix, invalid length, non-Base32 characters, or corrupted checksum.
+ *
+ * When `options.allowMuxed` or `options.allowFederation` is enabled, also accepts
+ * M-prefixed 69-character muxed addresses or `name*domain.tld` federation addresses.
  *
  * @param key - The public key string to validate.
+ * @param options - Optional flags to allow muxed or federation formats.
  * @returns ok(key) when valid, err(INVALID_ADDRESS) with an actionable message otherwise.
  */
-export function validatePublicKey(key: string): SorokitResult<string> {
+export function validatePublicKey(
+  key: string,
+  options?: ValidatePublicKeyOptions,
+): SorokitResult<string> {
   if (typeof key !== "string" || key.length === 0) {
     return err(
       SorokitErrorCode.INVALID_ADDRESS,
@@ -106,21 +182,108 @@ export function validatePublicKey(key: string): SorokitResult<string> {
     );
   }
 
+  if (options?.allowFederation && key.includes("*")) {
+    if (!FEDERATION_ADDRESS_REGEX.test(key)) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        `publicKey — "${key}" is not a valid federation address. Fix: Use the format "name*domain.com" with a valid domain name and no spaces.`,
+      );
+    }
+    return ok(key);
+  }
+
+  if (options?.allowMuxed && key.startsWith("M")) {
+    if (key.length !== STELLAR_MUXED_PUBLIC_KEY_LENGTH) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        `publicKey — muxed key "${key}" has length ${key.length}, expected ${STELLAR_MUXED_PUBLIC_KEY_LENGTH}. Fix: Provide a full 69-character M-prefixed muxed Stellar address.`,
+      );
+    }
+    if (!BASE32_REGEX.test(key)) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        `publicKey — muxed key "${key}" contains invalid Base32 characters. Fix: Use only uppercase A–Z and digits 2–7.`,
+      );
+    }
+    if (!verifyPublicKeyChecksum(key)) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        `publicKey — muxed key "${key}" failed StrKey CRC16 checksum verification. Fix: Check the M-address for typos or bit corruption.`,
+      );
+    }
+    return ok(key);
+  }
+
   if (!key.startsWith("G")) {
+    if (key.startsWith("M")) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        `publicKey — "${key}" is a muxed M-address, not a G-prefixed Ed25519 key. Fix: Pass { allowMuxed: true } or extract the underlying G-prefixed Ed25519 public key.`,
+      );
+    }
+    if (key.includes("*")) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        `publicKey — "${key}" appears to be a federation address, not a G-prefixed Ed25519 key. Fix: Resolve the federation address to a G-address first or pass { allowFederation: true }.`,
+      );
+    }
     return err(
       SorokitErrorCode.INVALID_ADDRESS,
       `publicKey — "${key}" does not start with "G". Fix: Ed25519 public keys on Stellar always begin with G. You may have provided a secret key (S...) or contract address (C...) by mistake.`,
     );
   }
 
-  if (!StrKey.isValidEd25519PublicKey(key)) {
+  if (key.length !== STELLAR_ED25519_PUBLIC_KEY_LENGTH) {
     return err(
       SorokitErrorCode.INVALID_ADDRESS,
-      `publicKey — "${key}" is not a valid Ed25519 public key. Fix: Ensure the key is exactly 56 characters, Base32-encoded, starts with G, and contains no typos.`,
+      `publicKey — "${key}" has invalid length ${key.length} (expected ${STELLAR_ED25519_PUBLIC_KEY_LENGTH}). Fix: Ensure the Ed25519 public key is exactly 56 characters long and starts with G.`,
+    );
+  }
+
+  if (!BASE32_REGEX.test(key)) {
+    return err(
+      SorokitErrorCode.INVALID_ADDRESS,
+      `publicKey — "${key}" contains invalid Base32 characters. Fix: Stellar public keys only use uppercase letters A–Z and digits 2–7.`,
+    );
+  }
+
+  if (!verifyPublicKeyChecksum(key)) {
+    return err(
+      SorokitErrorCode.INVALID_ADDRESS,
+      `publicKey — "${key}" failed StrKey CRC16 checksum verification. Fix: Ensure the key is a valid 56-character Base32 Ed25519 public key starting with G and contains no typos.`,
     );
   }
 
   return ok(key);
+}
+
+/**
+ * Validate a Stellar public key or address across all supported formats
+ * (`ed25519` G-address, `muxed` M-address, and `federation` address) and
+ * return the detected format and checksum verification details (#926).
+ */
+export function validatePublicKeyDetailed(
+  key: string,
+  options: ValidatePublicKeyOptions = { allowMuxed: true, allowFederation: true },
+): SorokitResult<PublicKeyValidationDetails> {
+  const validation = validatePublicKey(key, options);
+  if (validation.status === "error") {
+    return validation;
+  }
+
+  const format = detectPublicKeyFormat(key);
+  if (format === "unknown") {
+    return err(
+      SorokitErrorCode.INVALID_ADDRESS,
+      `publicKey — "${key}" has an unrecognized public key format. Fix: Provide a valid G-address, M-address, or federation address.`,
+    );
+  }
+
+  return ok({
+    key,
+    format,
+    checksumValid: format === "federation" ? true : verifyPublicKeyChecksum(key),
+  });
 }
 
 /**

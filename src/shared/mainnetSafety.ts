@@ -1,8 +1,9 @@
 /**
- * Mainnet Safety Guards and Warnings (#577)
+ * Mainnet Safety Guards and Warnings (#577, #925)
  *
- * Prevents accidental execution of high-value transactions on Stellar Mainnet
- * by inspecting native XLM amounts across operations and enforcing safety thresholds.
+ * Prevents accidental execution of high-value or unintended development-mode
+ * transactions on Stellar Mainnet by inspecting native XLM amounts across
+ * operations, enforcing safety thresholds, and guarding dev-mode submissions.
  */
 
 import { TransactionBuilder, Operation, FeeBumpTransaction, type xdr } from "@stellar/stellar-sdk";
@@ -24,11 +25,95 @@ export interface MainnetSafetyOptions {
   mainnetSafetyThresholdXlm?: number;
   /** Optional logger for safety warning outputs */
   logger?: SorokitLogger;
+  /** Explicit per-call flag to allow Mainnet transactions in development mode. */
+  enableMainnet?: boolean;
+  /** Explicitly enforce or disable the development-mode Mainnet guard. */
+  enforceDevModeGuard?: boolean;
+  /** Environment override (defaults to process.env.NODE_ENV). */
+  nodeEnv?: string;
+  /** Throw an Error instead of returning an error result when blocked in dev mode. */
+  throwOnDevModeBlock?: boolean;
+}
+
+let mainnetEnabledInDev = false;
+
+/**
+ * Explicitly enable Mainnet transactions in development mode.
+ */
+export function enableMainnet(): void {
+  mainnetEnabledInDev = true;
+}
+
+/**
+ * Reset the development-mode Mainnet opt-in flag back to disabled.
+ */
+export function disableMainnet(): void {
+  mainnetEnabledInDev = false;
+}
+
+/**
+ * Check whether Mainnet transactions have been explicitly enabled via enableMainnet().
+ */
+export function isMainnetEnabled(): boolean {
+  return mainnetEnabledInDev;
 }
 
 /** Check if a network passphrase corresponds to Stellar Mainnet */
 export function isMainnetNetwork(networkPassphrase: string): boolean {
   return typeof networkPassphrase === "string" && networkPassphrase === MAINNET_NETWORK_PASSPHRASE;
+}
+
+/**
+ * Guard against accidental Mainnet transactions in non-production environments.
+ *
+ * Logs a warning whenever a Mainnet transaction is attempted while `NODE_ENV !== "production"`.
+ * Blocks the transaction unless `enableMainnet()` has been called or `enableMainnet` /
+ * `bypassMainnetSafety` is passed in options. Allows Mainnet transactions in production.
+ */
+export function guardMainnetInDevMode(
+  networkPassphrase: string,
+  options?: MainnetSafetyOptions,
+): SorokitResult<void> {
+  if (!isMainnetNetwork(networkPassphrase)) {
+    return ok(undefined);
+  }
+
+  const env =
+    options?.nodeEnv ??
+    (typeof process !== "undefined" ? process.env?.NODE_ENV : undefined) ??
+    "development";
+
+  if (env === "production") {
+    return ok(undefined);
+  }
+
+  const allowed =
+    mainnetEnabledInDev ||
+    options?.enableMainnet === true ||
+    options?.bypassMainnetSafety === true;
+
+  const warningMessage = `Mainnet transaction attempted in development mode (NODE_ENV="${env}").`;
+  const details = {
+    nodeEnv: env,
+    mainnetEnabled: allowed,
+    bypassMainnetSafety: options?.bypassMainnetSafety === true,
+  };
+
+  if (options?.logger) {
+    options.logger.warn(`Mainnet Safety Warning: ${warningMessage}`, details);
+  } else {
+    console.warn(`[sorokit] Mainnet Safety Warning: ${warningMessage}`, details);
+  }
+
+  if (!allowed) {
+    const blockMessage = `Mainnet transactions are blocked in development mode (NODE_ENV="${env}"). Call enableMainnet() or pass bypassMainnetSafety: true to proceed.`;
+    if (options?.throwOnDevModeBlock) {
+      throw new Error(blockMessage);
+    }
+    return err(SorokitErrorCode.MAINNET_SAFETY_LIMIT, blockMessage);
+  }
+
+  return ok(undefined);
 }
 
 // Convert decimal values exactly, including scientific notation used by numeric
@@ -179,6 +264,20 @@ export function checkMainnetSafety(
 ): SorokitResult<void> {
   if (!isMainnetNetwork(networkPassphrase)) {
     return ok(undefined);
+  }
+
+  const env =
+    options?.nodeEnv ??
+    (typeof process !== "undefined" ? process.env?.NODE_ENV : undefined);
+  const shouldEnforceDevGuard =
+    options?.enforceDevModeGuard === true ||
+    (options?.enforceDevModeGuard !== false && env === "development");
+
+  if (shouldEnforceDevGuard) {
+    const devGuard = guardMainnetInDevMode(networkPassphrase, options);
+    if (devGuard.status === "error") {
+      return devGuard;
+    }
   }
 
   const threshold = options?.mainnetSafetyThresholdXlm ?? DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM;

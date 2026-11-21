@@ -286,6 +286,8 @@ export {
   NETWORK_DEFAULTS,
   ConnectionPool,
   createConnectionPool,
+  streamAccountUpdates,
+  streamPayments,
 } from "./network";
 export type {
   AdaptiveRateLimiterOptions,
@@ -317,6 +319,12 @@ export type {
   NetworkSwitcherConfig,
   ConnectionPoolConfig,
   ConnectionPoolStats,
+  HorizonAccountUpdateEvent,
+  HorizonPaymentStreamEvent,
+  HorizonSSEStreamOptions,
+  HorizonSSESubscription,
+  EventSourceLike,
+  EventSourceFactory,
 } from "./network";
 export { setConnectionPool, getConnectionPool } from "./shared/serverFactory";
 
@@ -841,6 +849,10 @@ export {
   checkMainnetSafety,
   extractTransactionTotalXlm,
   isMainnetNetwork,
+  enableMainnet,
+  disableMainnet,
+  isMainnetEnabled,
+  guardMainnetInDevMode,
   DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM,
   MAINNET_NETWORK_PASSPHRASE,
 } from "./shared/mainnetSafety";
@@ -1879,10 +1891,20 @@ export {
 export {
   validateStellarAddress,
   validatePublicKey,
+  validatePublicKeyDetailed,
+  detectPublicKeyFormat,
+  verifyPublicKeyChecksum,
+  STELLAR_ED25519_PUBLIC_KEY_LENGTH,
+  STELLAR_MUXED_PUBLIC_KEY_LENGTH,
   validateAssetIssuer,
   STELLAR_MAX_DECIMAL_PLACES,
   STELLAR_MAX_ASSET_CODE_LENGTH,
   STELLAR_MIN_ASSET_CODE_LENGTH,
+} from "./shared/validation";
+export type {
+  PublicKeyFormat,
+  ValidatePublicKeyOptions,
+  PublicKeyValidationDetails,
 } from "./shared/validation";
 
 // ─── Account signer, history, effects, and data entries (#556/#557/#558/#559) ─
@@ -2229,3 +2251,15 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+// ─── Connection Pooling & Adaptive Rate Limiter (#930) ────────────────────────
+export {
+  HorizonRateLimiter,
+  createHorizonRateLimiter,
+} from "./network/rateLimiter";
+export type {
+  HorizonRateLimiterConfig,
+  EndpointRateLimitMetrics,
+  RateLimiterQueueStats,
+  RateLimitResponseMeta,
+} from "./network/rateLimiter";
