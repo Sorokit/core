@@ -597,3 +597,8 @@ export type {
   UpgradeEvent,
   ContractUpgradeDetectionOptions,
 } from "./upgradeDetection";
+export { getContractData, getContractStorage } from "./stateQueries";
+export type { ContractDurability } from "./stateQueries";
+export { parseABI, buildABI } from "./abiParser";
+export type { ParsedABI, ParsedAbiMethod, ParsedAbiArg } from "./abiParser";
+export { generateInterface } from "./interfaceGenerator";

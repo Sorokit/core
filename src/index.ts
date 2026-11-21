@@ -2263,3 +2263,18 @@ export type {
   RateLimiterQueueStats,
   RateLimitResponseMeta,
 } from "./network/rateLimiter";
+export {
+  getContractData,
+  getContractStorage,
+  parseABI,
+  buildABI,
+  generateInterface,
+} from "./soroban/index";
+export type {
+  ContractDurability,
+  ParsedABI,
+  ParsedAbiMethod,
+  ParsedAbiArg,
+} from "./soroban/index";
+export { replayTransaction, verifyTransaction } from "./transaction/index";
+export type { ExpectedTransactionResult } from "./transaction/index";
