@@ -208,3 +208,17 @@ export type {
   EndpointHealthResult,
   EndpointRegistryConfig,
 } from "./endpointRegistry";
+
+// ─── Horizon SSE Real-time Streaming (#929) ───────────────────────────────────
+export {
+  streamAccountUpdates,
+  streamPayments,
+} from "./streaming";
+export type {
+  HorizonAccountUpdateEvent,
+  HorizonPaymentStreamEvent,
+  HorizonSSEStreamOptions,
+  HorizonSSESubscription,
+  EventSourceLike,
+  EventSourceFactory,
+} from "./streaming";

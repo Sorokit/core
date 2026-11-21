@@ -286,6 +286,8 @@ export {
   NETWORK_DEFAULTS,
   ConnectionPool,
   createConnectionPool,
+  streamAccountUpdates,
+  streamPayments,
 } from "./network";
 export type {
   AdaptiveRateLimiterOptions,
@@ -317,6 +319,12 @@ export type {
   NetworkSwitcherConfig,
   ConnectionPoolConfig,
   ConnectionPoolStats,
+  HorizonAccountUpdateEvent,
+  HorizonPaymentStreamEvent,
+  HorizonSSEStreamOptions,
+  HorizonSSESubscription,
+  EventSourceLike,
+  EventSourceFactory,
 } from "./network";
 export { setConnectionPool, getConnectionPool } from "./shared/serverFactory";
 
