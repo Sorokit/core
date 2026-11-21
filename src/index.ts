@@ -1815,6 +1815,9 @@ export {
   SOROBAN_SCALAR_TYPES,
   SOROBAN_CONTAINER_TYPES,
   SOROBAN_SPECIAL_TYPES,
+  shortenAddress,
+  DEFAULT_ADDRESS_VISIBLE_CHARS,
+  ADDRESS_ELLIPSIS,
 } from "./utility";
 export type {
   StellarAddressType,
