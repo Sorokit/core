@@ -222,3 +222,15 @@ export type {
   EventSourceLike,
   EventSourceFactory,
 } from "./streaming";
+
+// ─── Connection Pooling & Adaptive Rate Limiter (#930) ────────────────────────
+export {
+  HorizonRateLimiter,
+  createHorizonRateLimiter,
+} from "./rateLimiter";
+export type {
+  HorizonRateLimiterConfig,
+  EndpointRateLimitMetrics,
+  RateLimiterQueueStats,
+  RateLimitResponseMeta,
+} from "./rateLimiter";

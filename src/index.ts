@@ -2251,3 +2251,15 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+// ─── Connection Pooling & Adaptive Rate Limiter (#930) ────────────────────────
+export {
+  HorizonRateLimiter,
+  createHorizonRateLimiter,
+} from "./network/rateLimiter";
+export type {
+  HorizonRateLimiterConfig,
+  EndpointRateLimitMetrics,
+  RateLimiterQueueStats,
+  RateLimitResponseMeta,
+} from "./network/rateLimiter";
