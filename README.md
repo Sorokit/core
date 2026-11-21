@@ -863,6 +863,8 @@ backward-compatible.
 
 ### Mainnet transaction safety
 
+In development mode (`NODE_ENV === "development"`), Mainnet transactions emit a safety warning and are blocked by default unless `enableMainnet()` is called or `bypassMainnetSafety: true` is passed. In production (`NODE_ENV === "production"`), Mainnet transactions are permitted up to the configured XLM safety threshold.
+
 Mainnet submissions require explicit confirmation when native XLM exposure exceeds
 1,000 XLM (configurable). Both `client.transaction.submit` and its
 `submitTransaction` alias return `MAINNET_SAFETY_LIMIT` before contacting Horizon

@@ -841,6 +841,10 @@ export {
   checkMainnetSafety,
   extractTransactionTotalXlm,
   isMainnetNetwork,
+  enableMainnet,
+  disableMainnet,
+  isMainnetEnabled,
+  guardMainnetInDevMode,
   DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM,
   MAINNET_NETWORK_PASSPHRASE,
 } from "./shared/mainnetSafety";
