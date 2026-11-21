@@ -94,7 +94,7 @@ jobs:
         run: npm run build
 
       - name: Check bundle size
-        run: npm run size:check --if-present
+        run: npm run size:check --if-present && node scripts/check-bundle-size.js
 
   security:
     name: Security Audit
