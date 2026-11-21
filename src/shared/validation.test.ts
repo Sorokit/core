@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import {
   validateNetworkPassphrase,
+  validateAmountPrecision,
   STELLAR_MAINNET_PASSPHRASE,
   STELLAR_TESTNET_PASSPHRASE,
 } from "./validation";
@@ -178,5 +179,74 @@ describe("validateNetworkPassphrase — integration paths", () => {
     );
     expect(result.status).toBe("error");
     expect(result.error?.code).toBe(SorokitErrorCode.INVALID_NETWORK);
+  });
+});
+
+// ─── validateAmountPrecision ──────────────────────────────────────────────────
+
+describe("validateAmountPrecision", () => {
+  it("accepts a valid 7dp amount", () => {
+    const result = validateAmountPrecision("1.1234567");
+    expect(result.status).toBe("ok");
+  });
+
+  it("accepts a valid fewer-decimal amount", () => {
+    const result = validateAmountPrecision("1.123");
+    expect(result.status).toBe("ok");
+  });
+
+  it("accepts an integer amount with no decimal point", () => {
+    const result = validateAmountPrecision("100");
+    expect(result.status).toBe("ok");
+  });
+
+  it("accepts the smallest valid 7dp amount", () => {
+    const result = validateAmountPrecision("0.0000001");
+    expect(result.status).toBe("ok");
+  });
+
+  it("accepts an amount with trailing zeros within the limit", () => {
+    const result = validateAmountPrecision("1.1000000");
+    expect(result.status).toBe("ok");
+  });
+
+  it("rejects an 8dp amount with VALIDATION", () => {
+    const result = validateAmountPrecision("1.12345678");
+    expect(result.status).toBe("error");
+    expect(result.error?.code).toBe(SorokitErrorCode.VALIDATION);
+  });
+
+  it("rejects an amount with custom 2dp limit when it has 3dp", () => {
+    const result = validateAmountPrecision("1.123", 2);
+    expect(result.status).toBe("error");
+    expect(result.error?.code).toBe(SorokitErrorCode.VALIDATION);
+  });
+
+  it("accepts an amount with custom 2dp limit when it has exactly 2dp", () => {
+    const result = validateAmountPrecision("1.12", 2);
+    expect(result.status).toBe("ok");
+  });
+
+  it("accepts a negative amount within the precision limit", () => {
+    const result = validateAmountPrecision("-1.123");
+    expect(result.status).toBe("ok");
+  });
+
+  it("rejects a non-numeric string with VALIDATION", () => {
+    const result = validateAmountPrecision("abc");
+    expect(result.status).toBe("error");
+    expect(result.error?.code).toBe(SorokitErrorCode.VALIDATION);
+  });
+
+  it("rejects a double-decimal string with VALIDATION", () => {
+    const result = validateAmountPrecision("1.2.3");
+    expect(result.status).toBe("error");
+    expect(result.error?.code).toBe(SorokitErrorCode.VALIDATION);
+  });
+
+  it("rejects an empty string with VALIDATION", () => {
+    const result = validateAmountPrecision("");
+    expect(result.status).toBe("error");
+    expect(result.error?.code).toBe(SorokitErrorCode.VALIDATION);
   });
 });

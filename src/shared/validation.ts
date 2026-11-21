@@ -281,6 +281,56 @@ export function validateAmount(amt: string | number): SorokitResult<string> {
 }
 
 /**
+ * Validate that a numeric amount string does not exceed a given decimal precision.
+ *
+ * Useful for per-asset enforcement where different assets may allow fewer than
+ * the Stellar maximum. The function only checks precision; it does not check
+ * sign, range, or whether the value is a valid payment amount — use
+ * `validateAmount` for the full set of business rules.
+ *
+ * @param amount   - The amount string to inspect (e.g. "1.1234567", "100", "-5").
+ * @param decimals - Maximum number of decimal places allowed.
+ *                   Defaults to 7 (Stellar's maximum, 1 stroop = 0.0000001 XLM).
+ * @returns ok(undefined) when the precision is within the limit,
+ *          err(VALIDATION) when it exceeds the limit or the input is not a
+ *          plain decimal string.
+ */
+export function validateAmountPrecision(
+  amount: string,
+  decimals: number = STELLAR_MAX_DECIMAL_PLACES,
+): SorokitResult<void> {
+  if (typeof amount !== "string" || amount.trim().length === 0) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `amountPrecision — amount is empty or not a string. Fix: Provide a plain decimal number string (e.g. "10", "0.5").`,
+    );
+  }
+
+  const trimmed = amount.trim();
+
+  // Must be a valid plain decimal (integer or fractional, optionally negative)
+  if (!/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `amountPrecision — "${trimmed}" is not a valid decimal string. Fix: Provide a plain decimal number without exponent notation (e.g. "10", "0.5", "-1.23").`,
+    );
+  }
+
+  const dotIndex = trimmed.indexOf(".");
+  if (dotIndex !== -1) {
+    const actualDecimals = trimmed.length - dotIndex - 1;
+    if (actualDecimals > decimals) {
+      return err(
+        SorokitErrorCode.VALIDATION,
+        `amountPrecision — "${trimmed}" has ${actualDecimals} decimal place${actualDecimals === 1 ? "" : "s"}, which exceeds the limit of ${decimals}. Fix: Round or truncate to at most ${decimals} decimal place${decimals === 1 ? "" : "s"}.`,
+      );
+    }
+  }
+
+  return ok(undefined);
+}
+
+/**
  * Validate a Stellar network passphrase.
  *
  * Accepted passphrases:
