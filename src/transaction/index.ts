@@ -809,3 +809,16 @@ export type { WaitForTransactionOptions } from "./polling";
 
 // ─── Transaction sponsorship builder (#974) ───────────────────────────────────
 export { sponsorTransaction, sponsorOperation } from "./sponsorshipBuilder";
+
+// ─── Transaction envelope builder (#975) ─────────────────────────────────────
+export { EnvelopeBuilder, createEnvelopeBuilder, MAX_ENVELOPE_SIGNATURES } from "./envelopeBuilder";
+export type {
+  EnvelopeSignature,
+  EnvelopeSignerInput,
+  TransactionEnvelope,
+  CreateEnvelopeBuilderOptions,
+} from "./envelopeBuilder";
+
+// ─── Transaction builder presets (#982) ──────────────────────────────────────
+export { presets, createPresets } from "./presets";
+export type { PresetContext, PresetAsset, PresetPrice, TransactionPresets } from "./presets";

@@ -255,3 +255,7 @@ export { createAndFundAccount, FRIENDBOT_URLS } from "./fundingHelper";
 export type { FundingOptions } from "./fundingHelper";
 export { getAssetCreationSteps, prepareAssetForIssuing } from "./assetCreationHelper";
 export type { AssetCreationStep, AssetIssuingPreset } from "./assetCreationHelper";
+
+// ─── Trustline balance queries (#980) ────────────────────────────────────────
+export { getTrustlineBalances } from "./queries";
+export type { Balance, TrustlineBalanceFilters } from "./queries";

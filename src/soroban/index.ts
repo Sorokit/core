@@ -604,3 +604,12 @@ export type { ContractDurability } from "./stateQueries";
 export { parseABI, buildABI } from "./abiParser";
 export type { ParsedABI, ParsedAbiMethod, ParsedAbiArg } from "./abiParser";
 export { generateInterface } from "./interfaceGenerator";
+
+// ─── Contract argument encoder (#976) ────────────────────────────────────────
+export { encodeArg, encodeArgs } from "./argumentEncoder";
+export type {
+  SorobanArgType,
+  SorobanArgSpec,
+  SorobanScalarType,
+  SorobanIntegerType,
+} from "./argumentEncoder";

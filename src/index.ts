@@ -2337,3 +2337,23 @@ export type {
   OperationDiff as TransactionDiffItem,
   TransactionSummary,
 } from "./utilities/transactionComparator";
+
+// ─── Issues #975, #976, #980, #982 ────────────────────────────────────────────
+export { EnvelopeBuilder, createEnvelopeBuilder, MAX_ENVELOPE_SIGNATURES } from "./transaction/envelopeBuilder";
+export type {
+  EnvelopeSignature,
+  EnvelopeSignerInput,
+  TransactionEnvelope,
+  CreateEnvelopeBuilderOptions,
+} from "./transaction/envelopeBuilder";
+export { presets, createPresets } from "./transaction/presets";
+export type { PresetContext, PresetAsset, PresetPrice, TransactionPresets } from "./transaction/presets";
+export { encodeArg, encodeArgs } from "./soroban/argumentEncoder";
+export type {
+  SorobanArgType,
+  SorobanArgSpec,
+  SorobanScalarType,
+  SorobanIntegerType,
+} from "./soroban/argumentEncoder";
+export { getTrustlineBalances } from "./account/queries";
+export type { Balance, TrustlineBalanceFilters } from "./account/queries";
