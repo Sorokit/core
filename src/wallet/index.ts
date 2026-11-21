@@ -796,3 +796,15 @@ export type {
   WalletAccountChangedEvent,
   WalletNetworkChangedEvent,
 } from "./eventEmitter";
+
+// ─── Albedo web wallet session adapter (#923) ─────────────────────────────────
+export {
+  connectAlbedo,
+  AlbedoSession,
+} from "./adapters/albedoAdapter";
+export type {
+  AlbedoIntentProvider,
+  AlbedoConnectOptions,
+  AlbedoSignedTx,
+  AlbedoSignedMessage,
+} from "./adapters/albedoAdapter";

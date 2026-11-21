@@ -2243,3 +2243,15 @@ export type {
   InfrastructureOperationStats,
   InfrastructureMetricsSnapshot,
 } from "./infrastructure/metrics";
+
+// ─── Albedo web wallet session adapter (#923) ─────────────────────────────────
+export {
+  connectAlbedo,
+  AlbedoSession,
+} from "./wallet/adapters/albedoAdapter";
+export type {
+  AlbedoIntentProvider,
+  AlbedoConnectOptions,
+  AlbedoSignedTx,
+  AlbedoSignedMessage,
+} from "./wallet/adapters/albedoAdapter";
