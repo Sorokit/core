@@ -234,3 +234,11 @@ export type {
   RateLimiterQueueStats,
   RateLimitResponseMeta,
 } from "./rateLimiter";
+
+// ─── Request deduplication (#971) ─────────────────────────────────────────────
+export {
+  RequestDeduplicator,
+  createDeduplicator,
+  buildRequestKey,
+} from "./deduplication";
+export type { DeduplicationStats } from "./deduplication";

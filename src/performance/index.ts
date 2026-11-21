@@ -30,3 +30,8 @@ export type {
 } from "./telemetry";
 export { createCache, CacheBuilder } from "./cacheStrategy";
 export type { CacheOptions, CachedData, CacheStats, CacheFetcher } from "./cacheStrategy";
+export {
+  EventSmartCache,
+  createEventSmartCache,
+} from "./smartCache";
+export type { EventCacheStats } from "./smartCache";
