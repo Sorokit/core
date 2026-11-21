@@ -1906,11 +1906,14 @@ export type {
 } from "./account/paymentHistory";
 export {
   getAccountEffects,
+  getAccountOffer,
   getAccountSigners,
+  getOffer,
   getSignerThresholds,
 } from "./account/queries";
 export type {
   Effect,
+  Offer,
   EffectFilters,
   Payment,
   PaymentDirection,
