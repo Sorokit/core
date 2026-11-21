@@ -324,7 +324,9 @@ export type {
 export { evaluateBalanceAlerts } from "./account/balanceAlerts";
 export { createBalanceAlert } from "./account/createBalanceAlert";
 export type { BalanceAlertConfig } from "./account/createBalanceAlert";
-export { getAccountsBatch } from "./account/getAccountsBatch";
+export { getAccountsBatch, getBalancesBatch } from "./account/batchQueries";
+export type { BatchQueryOptions } from "./account/batchQueries";
+export { getAccountsBatch as getAccountsBatchWithMetadata } from "./account/getAccountsBatch";
 export type {
   AccountBatchEntry,
   AccountBatchResult,
@@ -836,6 +838,17 @@ export { getTransactionStatus } from "./transaction/status";
 export { buildSetOptionsTransaction } from "./transaction/setOptions";
 export { buildAtomicSwap } from "./transaction/atomicSwap";
 export type { SetOptionsParams } from "./transaction/types";
+
+// ─── Transaction preflighting (#952) ─────────────────────────────────────────
+export { preflightTransaction } from "./transaction/preflighting";
+export type { PreflightData, PreflightOptions } from "./transaction/preflighting";
+
+// ─── Transaction group builder (#956) ────────────────────────────────────────
+export {
+  TransactionGroupBuilder,
+  createTransactionGroupBuilder,
+} from "./transaction/groupBuilder";
+export type { GroupBuilderOptions } from "./transaction/groupBuilder";
 
 // ─── Claimable balances (#543) ─────────────────────────────────────────────────
 export {

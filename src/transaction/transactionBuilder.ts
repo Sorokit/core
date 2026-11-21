@@ -1,13 +1,20 @@
 /**
- * Transaction Builder with Undo/Redo History (#139)
+ * Transaction Builder with Undo/Redo History & Fluent Chaining (#139, #955)
  *
  * `createTransactionBuilder()` returns a builder whose operations are stored
- * in an immutable history stack inside a closure.  Each call to `addOperation`
+ * in an immutable history stack inside a closure. Each call to `addOperation`
  * appends to the stack; `undo()` pops the last operation and moves it onto a
  * redo stack; `redo()` moves the next operation back onto the main stack.
  *
- * Committing the builder (via `getOperations`) always reflects the current
- * state of the history — it never includes undone operations.
+ * All setter methods support method chaining:
+ * ```ts
+ * const ops = builder
+ *   .setSourceAccount("G...")
+ *   .setFee(100)
+ *   .setMemo("hello")
+ *   .addOperation({ type: "payment", params: { ... } })
+ *   .build();
+ * ```
  */
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -74,41 +81,88 @@ export interface TransactionBuilder {
    * @returns The builder itself for chaining.
    */
   clear(): TransactionBuilder;
+
+  /**
+   * Set the transaction source account public key.
+   *
+   * @returns The builder itself for chaining.
+   */
+  setSourceAccount(source: string): TransactionBuilder;
+  getSourceAccount(): string | undefined;
+
+  /**
+   * Set the transaction fee.
+   *
+   * @returns The builder itself for chaining.
+   */
+  setFee(fee: string | number): TransactionBuilder;
+  getFee(): string | number | undefined;
+
+  /**
+   * Set the transaction memo.
+   *
+   * @returns The builder itself for chaining.
+   */
+  setMemo(memo: string): TransactionBuilder;
+  getMemo(): string | undefined;
+
+  /**
+   * Set the transaction timeout in seconds.
+   *
+   * @returns The builder itself for chaining.
+   */
+  setTimeout(timeout: number): TransactionBuilder;
+  getTimeout(): number | undefined;
+
+  /**
+   * Set the network identifier.
+   *
+   * @returns The builder itself for chaining.
+   */
+  setNetwork(network: string): TransactionBuilder;
+  getNetwork(): string | undefined;
+
+  /**
+   * Set the sequence number.
+   *
+   * @returns The builder itself for chaining.
+   */
+  setSequenceNumber(seq: string): TransactionBuilder;
+  getSequenceNumber(): string | undefined;
+
+  /**
+   * Finalize and build operations array.
+   */
+  build(): ReadonlyArray<TransactionOperation>;
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────────
 
 /**
- * Create a new transaction builder that tracks full undo/redo history.
- *
- * The history is stored entirely in a closure — no external state is mutated.
+ * Create a new transaction builder that tracks full undo/redo history
+ * and supports fluent method chaining.
  *
  * @example
  * ```ts
  * const builder = createTransactionBuilder();
  *
- * builder
+ * const ops = builder
+ *   .setSourceAccount("G...")
+ *   .setFee("100")
  *   .addOperation({ type: "payment", params: { destination: "GDEST...", amount: "10" } })
- *   .addOperation({ type: "trustline", params: { assetCode: "USDC" } });
- *
- * builder.undo();           // removes "trustline"
- * builder.redo();           // re-adds "trustline"
- * builder.getOperations();  // [payment, trustline]
+ *   .addOperation({ type: "trustline", params: { assetCode: "USDC" } })
+ *   .build();
  * ```
  */
 export function createTransactionBuilder(): TransactionBuilder {
-  // ── Closure state ──────────────────────────────────────────────────────────
-  //
-  // `_history`  – operations that are currently "applied" (will be returned by
-  //               getOperations).
-  // `_redoStack` – operations that have been undone and can be re-applied. The
-  //                top of the redo stack is the LAST element in the array.
-  //
-  // Invariant: every element in both arrays is a plain object — we never hold
-  //            references to the caller's object (shallow-copied on entry).
-
   let _history: TransactionOperation[] = [];
   let _redoStack: TransactionOperation[] = [];
+  let _sourceAccount: string | undefined;
+  let _fee: string | number | undefined;
+  let _memo: string | undefined;
+  let _timeout: number | undefined;
+  let _network: string | undefined;
+  let _sequenceNumber: string | undefined;
 
   // ── Helper ─────────────────────────────────────────────────────────────────
 
@@ -120,8 +174,6 @@ export function createTransactionBuilder(): TransactionBuilder {
 
   const builder: TransactionBuilder = {
     addOperation(operation: TransactionOperation): TransactionBuilder {
-      // Adding a new operation after undo(s) discards the redo stack so that
-      // history stays linear (no branching).
       _redoStack = [];
       _history.push(shallowCopyOp(operation));
       return builder;
@@ -146,7 +198,6 @@ export function createTransactionBuilder(): TransactionBuilder {
     },
 
     getOperations(): ReadonlyArray<TransactionOperation> {
-      // Return a shallow copy so callers cannot mutate internal state.
       return [..._history];
     },
 
@@ -161,7 +212,71 @@ export function createTransactionBuilder(): TransactionBuilder {
     clear(): TransactionBuilder {
       _history = [];
       _redoStack = [];
+      _sourceAccount = undefined;
+      _fee = undefined;
+      _memo = undefined;
+      _timeout = undefined;
+      _network = undefined;
+      _sequenceNumber = undefined;
       return builder;
+    },
+
+    setSourceAccount(source: string): TransactionBuilder {
+      _sourceAccount = source;
+      return builder;
+    },
+
+    getSourceAccount(): string | undefined {
+      return _sourceAccount;
+    },
+
+    setFee(fee: string | number): TransactionBuilder {
+      _fee = fee;
+      return builder;
+    },
+
+    getFee(): string | number | undefined {
+      return _fee;
+    },
+
+    setMemo(memo: string): TransactionBuilder {
+      _memo = memo;
+      return builder;
+    },
+
+    getMemo(): string | undefined {
+      return _memo;
+    },
+
+    setTimeout(timeout: number): TransactionBuilder {
+      _timeout = timeout;
+      return builder;
+    },
+
+    getTimeout(): number | undefined {
+      return _timeout;
+    },
+
+    setNetwork(network: string): TransactionBuilder {
+      _network = network;
+      return builder;
+    },
+
+    getNetwork(): string | undefined {
+      return _network;
+    },
+
+    setSequenceNumber(seq: string): TransactionBuilder {
+      _sequenceNumber = seq;
+      return builder;
+    },
+
+    getSequenceNumber(): string | undefined {
+      return _sequenceNumber;
+    },
+
+    build(): ReadonlyArray<TransactionOperation> {
+      return [..._history];
     },
   };
 
