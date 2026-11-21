@@ -8,7 +8,9 @@ export {
 export type { GetAccountOptions } from "./getAccount";
 export { getOffers, getTrades } from "./dexActivity";
 export type { DexActivityOptions, DexActivityResult, DexAsset, DexAssetAmount, OfferInfo, TradeInfo } from "./dexActivity";
-export { getAccountsBatch } from "./getAccountsBatch";
+export { getAccountsBatch, getBalancesBatch } from "./batchQueries";
+export type { BatchQueryOptions } from "./batchQueries";
+export { getAccountsBatch as getAccountsBatchWithMetadata } from "./getAccountsBatch";
 export type {
   AccountBatchEntry,
   AccountBatchResult,

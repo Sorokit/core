@@ -187,11 +187,12 @@ export interface ComposeBuilder {
   setData(key: string, value: DataEntryValue): ComposeBuilder;
   addDeleteDataEntry(key: string): ComposeBuilder;
   deleteData(key: string): ComposeBuilder;
-  addMemo(
-    memo: string,
-    memoType?: MemoType,
-    options?: { allowEmpty?: boolean },
-  ): ComposeBuilder;
+  addMemo(memo: string, memoType?: MemoType): ComposeBuilder;
+  setMemo(memo: string, memoType?: MemoType): ComposeBuilder;
+  setFee(fee: string | number): ComposeBuilder;
+  setSourceAccount(sourcePublicKey: string): ComposeBuilder;
+  setSource(sourcePublicKey: string): ComposeBuilder;
+  setNetwork(network: ComposeNetwork): ComposeBuilder;
   /** Enable automatic fee estimation; `{ mode: "high" }` prefers the fast tier. */
   estimateFee(mode: FeeEstimateMode): ComposeBuilder;
   setSequenceNumber(sequenceNumber: string): ComposeBuilder;
@@ -724,6 +725,43 @@ export function compose(
           allowEmptyMemo: memoOptions.allowEmpty,
         }),
       };
+      return builder;
+    },
+
+    setMemo(memo, memoType) {
+      memoState = { memo, ...(memoType !== undefined && { memoType }) };
+      return builder;
+    },
+
+    setFee(fee) {
+      feeOverride = typeof fee === "number" ? fee.toString() : fee;
+      return builder;
+    },
+
+    setSourceAccount(source) {
+      sourcePublicKey = source;
+      return builder;
+    },
+
+    setSource(source) {
+      sourcePublicKey = source;
+      return builder;
+    },
+
+    setNetwork(network) {
+      if (typeof network === "string") {
+        const resolved = resolveNetwork(network, {
+          horizonUrl: options.horizonUrl,
+          rpcUrl: options.rpcUrl,
+        });
+        if (resolved.status === "error") {
+          networkError = resolved;
+        } else if (resolved.status === "ok") {
+          networkConfig = resolved.data;
+        }
+      } else {
+        networkConfig = { ...network };
+      }
       return builder;
     },
 

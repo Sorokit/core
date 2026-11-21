@@ -789,3 +789,15 @@ export type {
   StateChange,
   PreviewSummaryLine,
 } from "./simulationPreview";
+
+// ─── Transaction preflighting (#952) ─────────────────────────────────────────
+export { preflightTransaction } from "./preflighting";
+export type { PreflightData, PreflightOptions } from "./preflighting";
+
+// ─── Transaction group builder (#956) ────────────────────────────────────────
+export {
+  TransactionGroupBuilder,
+  createTransactionGroupBuilder,
+} from "./groupBuilder";
+export type { GroupBuilderOptions } from "./groupBuilder";
+
