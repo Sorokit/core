@@ -103,10 +103,10 @@ describe("mapRpcError", () => {
     expect(result.code).toBe(SorokitErrorCode.INVALID_TRANSACTION);
   });
 
-  it("maps -32601 (Method not found) to INVALID_TRANSACTION", () => {
+  it("maps -32601 (Method not found) to INVALID_CONFIG", () => {
     const error = { code: -32601, message: "Method not found" };
     const result = mapRpcError(error);
-    expect(result.code).toBe(SorokitErrorCode.INVALID_TRANSACTION);
+    expect(result.code).toBe(SorokitErrorCode.INVALID_CONFIG);
   });
 
   it("maps -32602 (Invalid params) to INVALID_TRANSACTION", () => {

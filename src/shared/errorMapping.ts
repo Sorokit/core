@@ -23,7 +23,7 @@ const RPC_SERVER_ERROR_MAX = -32000;
  * |----------------------|---------------------------|
  * | -32700 (Parse error) | INVALID_TRANSACTION       |
  * | -32600 (Invalid req) | INVALID_TRANSACTION       |
- * | -32601 (Method n/f)  | INVALID_TRANSACTION       |
+ * | -32601 (Method n/f)  | INVALID_CONFIG            |
  * | -32602 (Invalid par) | INVALID_TRANSACTION       |
  * | -32603 (Internal)    | NETWORK_ERROR             |
  * | -32000…-32099        | CONTRACT_INVOKE_FAILED or |
@@ -67,10 +67,13 @@ export function mapRpcError(error: unknown): {
 
   if (rpcCode === undefined) {
     code = SorokitErrorCode.NETWORK_ERROR;
+  } else if (rpcCode === RPC_METHOD_NOT_FOUND) {
+    // -32601: the client called a method that does not exist on the server —
+    // this is a client configuration or SDK version issue, not a bad transaction.
+    code = SorokitErrorCode.INVALID_CONFIG;
   } else if (
     rpcCode === RPC_PARSE_ERROR ||
     rpcCode === RPC_INVALID_REQUEST ||
-    rpcCode === RPC_METHOD_NOT_FOUND ||
     rpcCode === RPC_INVALID_PARAMS
   ) {
     code = SorokitErrorCode.INVALID_TRANSACTION;

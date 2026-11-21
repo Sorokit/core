@@ -156,14 +156,15 @@ export async function executeContract(
       hash,
     });
   } catch (cause) {
-    const message = describeContractSubmissionFailure(cause);
+    const rpcMapped = mapRpcError(cause);
+    const describeMessage = describeContractSubmissionFailure(cause);
+    const message = `${describeMessage}${rpcMapped.message !== describeMessage ? ` (RPC: ${rpcMapped.message})` : ""}`;
     logger?.warn("soroban.execute.submit", {
       operation: "soroban.execute.submit",
       status: "error",
       errorMessage: message,
     });
     // Decode any numeric JSON-RPC 2.0 error code carried by the exception
-    const rpcMapped = mapRpcError(cause);
     return err(rpcMapped.code, message, cause);
   }
 
@@ -244,7 +245,9 @@ export async function executeContract(
     });
     return err(SorokitErrorCode.CONTRACT_INVOKE_FAILED, message);
   } catch (cause) {
-    const message = describeContractPollingFailure(cause);
+    const rpcMapped = mapRpcError(cause);
+    const describeMessage = describeContractPollingFailure(cause);
+    const message = `${describeMessage}${rpcMapped.message !== describeMessage ? ` (RPC: ${rpcMapped.message})` : ""}`;
     logger?.warn("soroban.execute.poll", {
       operation: "soroban.execute.poll",
       status: "error",
@@ -252,7 +255,6 @@ export async function executeContract(
       errorMessage: message,
     });
     // Decode any numeric JSON-RPC 2.0 error code carried by the exception
-    const rpcMapped = mapRpcError(cause);
     return err(rpcMapped.code, message, cause);
   }
 }

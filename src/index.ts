@@ -2017,3 +2017,5 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+// ─── Horizon error mapping (#913) & RPC error mapping (#914) ─────────────────
+export { mapHorizonError, mapRpcError } from "./shared/errorMapping";

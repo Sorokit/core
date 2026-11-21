@@ -188,9 +188,11 @@ export async function prepareContractCall(
   } catch (cause) {
     // Decode any numeric JSON-RPC 2.0 error code from the exception
     const rpcMapped = mapRpcError(cause);
+    const describeMessage = describePrepareFailure(cause);
+    const message = `${describeMessage}${rpcMapped.message !== describeMessage ? ` (RPC: ${rpcMapped.message})` : ""}`;
     return err(
       rpcMapped.code,
-      describePrepareFailure(cause),
+      message,
       cause,
     );
   }
