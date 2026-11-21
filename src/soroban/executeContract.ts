@@ -182,7 +182,11 @@ export async function executeContract(
 
   try {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      await sleep(intervalMs);
+      // Check status immediately on the first attempt; the transaction may
+      // already be confirmed. Only wait between subsequent attempts.
+      if (attempt > 0) {
+        await sleep(intervalMs);
+      }
       logger?.debug("soroban.execute.poll.attempt", {
         operation: "soroban.execute.poll.attempt",
         status: "start",

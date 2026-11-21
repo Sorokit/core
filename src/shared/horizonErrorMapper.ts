@@ -88,3 +88,24 @@ export function horizonErrorResult<T>(
 export function getHorizonErrorStatus(error: unknown): number | undefined {
   return statusOf(error);
 }
+
+/**
+ * Detects whether a Horizon submission failure is sequence-related
+ * (e.g. `tx_bad_seq`), checking both the structured `extras.result_codes`
+ * Horizon returns and a message-based fallback (#836).
+ */
+export function isSequenceError(error: unknown): boolean {
+  const response = property(error, "response");
+  const data = property(response, "data");
+  const extras = property(data, "extras");
+  const resultCodes = property(extras, "result_codes");
+  const txCode = property(resultCodes, "transaction");
+  if (typeof txCode === "string" && txCode.toLowerCase().includes("bad_seq")) {
+    return true;
+  }
+  const opCodes = property(resultCodes, "operations");
+  if (Array.isArray(opCodes) && opCodes.some((c) => typeof c === "string" && c.toLowerCase().includes("bad_seq"))) {
+    return true;
+  }
+  return /bad_seq/i.test(messageOf(error));
+}

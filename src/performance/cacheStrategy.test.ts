@@ -19,6 +19,15 @@ describe("cacheStrategy", () => {
         .warmCache([]);
       expect(cache).toBeInstanceOf(CacheBuilder);
     });
+
+    it("accepts maximum entry and byte limits", () => {
+      expect(createCache<number>({ maxEntries: 2, maxSizeBytes: 100 })).toBeInstanceOf(CacheBuilder);
+    });
+
+    it("rejects invalid capacity limits", () => {
+      expect(() => createCache({ maxEntries: -1 })).toThrow();
+      expect(() => createCache({ maxSizeBytes: Number.NaN })).toThrow();
+    });
   });
 
   describe("get()", () => {
@@ -323,6 +332,44 @@ describe("cacheStrategy", () => {
       const stats = cache.getStats();
 
       expect(stats.memoryUsageBytes).toBeGreaterThan(900);
+    });
+
+    it("evicts the least-recently-used entry when the entry limit is reached", async () => {
+      const cache = createCache<string>({ maxEntries: 2 });
+      const fetcher = vi.fn(async (key: string) => key);
+
+      await cache.get("a", fetcher);
+      await cache.get("b", fetcher);
+      await cache.get("a", fetcher);
+      await cache.get("c", fetcher);
+
+      expect(cache.peek("a").status === "ok" && cache.peek("a").data?.value).toBe("a");
+      expect(cache.peek("b").status === "ok" && cache.peek("b").data).toBeNull();
+      expect(cache.peek("c").status === "ok" && cache.peek("c").data?.value).toBe("c");
+      expect(cache.getStats()).toMatchObject({ size: 2, evictions: 1 });
+    });
+
+    it("evicts oldest entries until the estimated byte limit is met", async () => {
+      const cache = createCache<string>({ maxSizeBytes: 7 });
+      const fetcher = vi.fn(async (key: string) => key);
+
+      await cache.get("a", fetcher);
+      await cache.get("bb", fetcher);
+      await cache.get("ccc", fetcher);
+
+      const stats = cache.getStats();
+      expect(stats.size).toBe(1);
+      expect(stats.memoryUsageBytes).toBeLessThanOrEqual(7);
+      expect(stats.evictions).toBe(2);
+    });
+
+    it("does not retain an entry larger than the configured byte limit", async () => {
+      const cache = createCache<string>({ maxSizeBytes: 3 });
+      const result = await cache.get("large", async () => "too large");
+
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") expect(result.data.value).toBe("too large");
+      expect(cache.getStats()).toMatchObject({ size: 0, memoryUsageBytes: 0, evictions: 0 });
     });
   });
 });

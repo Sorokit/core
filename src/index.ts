@@ -14,6 +14,7 @@ export {
   completeSep10Auth,
   deriveKey,
   fetchStellarToml,
+  getAuthChallenge,
   getSep6TransactionStatus,
   getKycFields,
   getKycStatus,
@@ -30,10 +31,12 @@ export {
   rotateSecretKey,
   sendDirectPayment,
   submitKycInfo,
+  submitSignedChallenge,
   trackDirectPayment,
   trackTransaction,
   validateSecretKey,
   validateSep10Token,
+  verifyAuthToken,
   loadIntegration,
   loadKeyManagement,
   loadSoroban,
@@ -44,6 +47,13 @@ export {
   LAZY_MODULES,
   loadGovernance,
 } from "./lazy";
+export {
+  pruneExpiredChallenges,
+  getPendingChallengesCount,
+  clearPendingChallenges,
+  CHALLENGE_TTL_MS,
+  MAX_PENDING_CHALLENGES,
+} from "./integration";
 export type {
   AnchorAsset,
   AnchorRequestOptions,
@@ -73,6 +83,16 @@ export type {
   SorokitClientConfig,
   HealthCheckReport,
 } from "./client/createSorokitClient";
+export {
+  checkStellarSdkVersionCompatibility,
+  compareStellarSdkVersion,
+  parseSemverCore,
+  SUPPORTED_STELLAR_SDK_VERSION,
+} from "./client/sdkVersionCompatibility";
+export type {
+  StellarSdkCompatibility,
+  ParsedVersion,
+} from "./client/sdkVersionCompatibility";
 
 // ─── Wallet discovery & account linking ───────────────────────────────────────
 export {
@@ -212,11 +232,13 @@ export {
   getSigningHistory,
   exportSigningHistory,
   InMemorySigningHistoryStore,
+  DEFAULT_SIGNING_HISTORY_MAX_ENTRIES,
 } from "./wallet/signingHistory";
 export type {
   SigningRecord,
   SigningHistoryFilter,
   SigningHistoryStore,
+  InMemorySigningHistoryStoreOptions,
 } from "./wallet/signingHistory";
 
 // ─── Wallet connection throttling and abuse detection (#506) ──────────────────
@@ -264,6 +286,8 @@ export {
   NETWORK_DEFAULTS,
   ConnectionPool,
   createConnectionPool,
+  streamAccountUpdates,
+  streamPayments,
 } from "./network";
 export type {
   AdaptiveRateLimiterOptions,
@@ -295,6 +319,12 @@ export type {
   NetworkSwitcherConfig,
   ConnectionPoolConfig,
   ConnectionPoolStats,
+  HorizonAccountUpdateEvent,
+  HorizonPaymentStreamEvent,
+  HorizonSSEStreamOptions,
+  HorizonSSESubscription,
+  EventSourceLike,
+  EventSourceFactory,
 } from "./network";
 export { setConnectionPool, getConnectionPool } from "./shared/serverFactory";
 
@@ -496,6 +526,7 @@ export {
 export type {
   TimeBounds,
   TimeLockExecutionStatus,
+  TimeLockTransactionOptions,
 } from "./transaction/timeLocks";
 
 // ─── Transaction cost forecasting (#588) ──────────────────────────────────────
@@ -571,6 +602,26 @@ export type {
   SplitPaymentPlan,
   SplitPaymentOptions,
 } from "./transaction/pathPayment";
+export {
+  TrustlineManager,
+  createTrustlineManager,
+  createTrustline,
+} from "./transaction/trustlineManager";
+export type {
+  TrustlineManagerOptions,
+  CreateTrustlineResult,
+} from "./transaction/trustlineManager";
+export {
+  serializeContractDataKey,
+  equalContractDataKeys,
+} from "./soroban/contractData";
+export type { ContractDataKey } from "./soroban/contractData";
+export { StreamEventEmitter } from "./streaming/streamEventEmitter";
+export type {
+  StreamEventMap,
+  StreamEventListener,
+  StreamEventUnsubscribe,
+} from "./streaming/streamEventEmitter";
 export { streamTransactions } from "./transaction/streamTransactions";
 export {
   streamTransactionsSSE,
@@ -682,6 +733,10 @@ export type {
   PaymentWebhookRegistration,
   PaymentNotificationInput,
   PaymentNotificationChannel,
+  PaymentDeliveryFailure,
+  PaymentDeliveryFailureCallback,
+  DispatchPaymentNotificationOptions,
+  DispatchPaymentNotificationHandler,
 } from "./transaction/paymentNotifications";
 export {
   DEFAULT_PRICE_CACHE_TTL_MS,
@@ -794,12 +849,27 @@ export {
   checkMainnetSafety,
   extractTransactionTotalXlm,
   isMainnetNetwork,
+  enableMainnet,
+  disableMainnet,
+  isMainnetEnabled,
+  guardMainnetInDevMode,
   DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM,
   MAINNET_NETWORK_PASSPHRASE,
 } from "./shared/mainnetSafety";
 export type { MainnetSafetyOptions } from "./shared/mainnetSafety";
 export { getTransactionStatus } from "./transaction/status";
 export { buildSetOptionsTransaction } from "./transaction/setOptions";
+export {
+  buildManageOffer,
+  buildSetOptions,
+  ManageOfferBuilder,
+  SetOptionsBuilder,
+} from "./transaction/builders";
+export type {
+  FluentBuilderContext,
+  ManageOfferPrice,
+  SetOptionsFlags,
+} from "./transaction/builders";
 export { buildAtomicSwap } from "./transaction/atomicSwap";
 export type { SetOptionsParams } from "./transaction/types";
 
@@ -953,7 +1023,7 @@ export type {
   ContractErrorMap,
   DecodedContractError,
 } from "./soroban/contractErrors";
-export { ContractInteractionBuilder } from "./soroban";
+export { ContractInteractionBuilder, createContractInteractionBuilder } from "./soroban";
 export type {
   ContractInteractionBuilderConfig,
   ArgumentField,
@@ -1048,8 +1118,18 @@ export {
 } from "./soroban/contractCallIdentity";
 export type { BuildContractDeployOptions } from "./soroban/deployContract";
 export { invokeBatchContracts } from "./soroban/invokeBatchContracts";
-export { simulateTransactionBatch } from "./soroban/simulateTransaction";
-export type { BatchSimulationResult } from "./soroban/simulateTransaction";
+export {
+  simulateTransaction,
+  simulateTransactionBatch,
+  extractResourceUsage,
+  validateResourceUsageResponse,
+} from "./soroban/simulateTransaction";
+export type {
+  BatchSimulationResult,
+  SimulateTransactionOptions,
+  ExtractResourceUsageOptions,
+  ResourceUsageValidationResult,
+} from "./soroban/simulateTransaction";
 export { getNftMetadata, clearNftMetadataCache } from "./soroban/nftMetadata";
 export type { NftMetadata, NftMetadataOptions } from "./soroban/nftMetadata";
 export {
@@ -1090,6 +1170,7 @@ export type {
 export {
   createClaimCommitment,
   createProofEnvelope,
+  configureZeroKnowledgeVerificationLimits,
   verifyProof,
   validatePrivateTransaction,
 } from "./privacy/zeroKnowledge";
@@ -1100,8 +1181,10 @@ export type {
   ZeroKnowledgeProof,
   ProofVerificationContext,
   ZeroKnowledgeVerifier,
+  ZeroKnowledgeVerificationLimits,
   PrivateTransactionValidationResult,
 } from "./privacy/zeroKnowledge";
+export { DEFAULT_ZERO_KNOWLEDGE_VERIFICATION_LIMITS } from "./privacy/zeroKnowledge";
 export type {
   CallOptimizationReport,
   CallOptimizationSuggestion,
@@ -1257,6 +1340,7 @@ export type { LogLevel, LoggerOptions, SorokitLogger } from "./shared/logger";
 export {
   SorokitErrorCategory,
   SorokitErrorCode,
+  assertNever,
   assertOk,
   attachTraceId,
   err,
@@ -1264,6 +1348,7 @@ export {
   isErrorCode,
   isOk,
   ok,
+  toSorokitResult,
 } from "./shared/response";
 export type {
   RecoveryAttempt,
@@ -1365,24 +1450,6 @@ export type {
   ProfilingConfig,
   PerformanceMetricsReport,
 } from "./shared/metrics";
-
-// ─── Governance voting utilities (#456) ───────────────────────────────────────
-export {
-  getVotingPower,
-  delegateVote,
-  castVote,
-  getVotingHistory,
-} from "./governance";
-export type {
-  VotingPowerParams,
-  VotingPowerResult,
-  DelegationParams,
-  DelegationResult,
-  CastVoteParams,
-  CastVoteResult,
-  VotingHistoryEntry,
-  GetVotingHistoryParams,
-} from "./governance";
 
 // ─── Transaction bundles (#457) ───────────────────────────────────────────────
 export {
@@ -1706,16 +1773,138 @@ export type {
   EndpointCheckOptions,
 } from "./shared/diagnostics";
 
+// ─── Compliance audit trail (#791) ────────────────────────────────────────────
+// Previously implemented but unreachable from the package's public entry
+// point: no export here, no package.json subpath, and not in tsup.config.ts's
+// entry list, so it never even shipped in dist/.
+export {
+  createAuditTrail,
+  recordOperation,
+  recordAction,
+  getAuditTrail,
+  queryAuditLog,
+  getAllEntries,
+  clearAuditTrail,
+  generateComplianceReport,
+} from "./compliance";
+export type {
+  AuditContext,
+  AuditFilters,
+  AuditQueryOptions,
+  AuditRecord,
+  AuditTrail,
+  ComplianceAuditReport,
+  ComplianceDateRange,
+} from "./compliance";
+
+// ─── Data validation/sanitization utilities (#791) ────────────────────────────
+// Same unreachable-module issue as compliance/ above. Note: these duplicate
+// some validators already in shared/validation.ts (STELLAR_MAX_DECIMALS vs.
+// STELLAR_MAX_DECIMAL_PLACES, a second validateAssetCode/isValidAddress, etc).
+// Consolidating the two is a larger follow-up; for now this module's symbols
+// are aliased with a `Utility` suffix to avoid colliding with the
+// already-exported shared/validation.ts names.
+export {
+  validateAddress as validateAddressUtility,
+  isValidAddress as isValidAddressUtility,
+  validateAmount as validateAmountUtility,
+  validateAssetCode as validateAssetCodeUtility,
+  validateUrl as validateUrlUtility,
+  sanitizeInput,
+  STELLAR_MAX_DECIMALS as UTILITY_STELLAR_MAX_DECIMALS,
+  STELLAR_MAX_AMOUNT as UTILITY_STELLAR_MAX_AMOUNT,
+  STELLAR_MIN_ASSET_CODE_LEN,
+  STELLAR_MAX_ASSET_CODE_LEN,
+  deduplicateRequest,
+  createRateLimiter,
+  withRateLimit,
+  SorokitRateLimitError,
+  validateContractMethodSpec,
+  isValidContractMethodSpec,
+  validateSorobanType,
+  SOROBAN_MAX_METHOD_NAME_LEN,
+  SOROBAN_RESERVED_KEYWORDS,
+  SOROBAN_SCALAR_TYPES,
+  SOROBAN_CONTAINER_TYPES,
+  SOROBAN_SPECIAL_TYPES,
+  shortenAddress,
+  DEFAULT_ADDRESS_VISIBLE_CHARS,
+  ADDRESS_ELLIPSIS,
+} from "./utility";
+export type {
+  StellarAddressType,
+  AddressValidationData,
+  AmountValidationData,
+  AssetCodeValidationData,
+  UrlValidationData,
+  ValidationData as UtilityValidationData,
+  AmountValidationOptions,
+  UrlValidationOptions,
+  SanitizeInputOptions,
+  RateLimiterOptions,
+  RateLimiter,
+  AsyncMethod,
+  MethodRateLimitConfig,
+  RateLimitDecoratorConfig,
+  ContractMethodParamSpec,
+  ContractMethodSpecInput,
+  ContractMethodValidationData,
+} from "./utility";
+
+// ─── Structured operation logger (#791) ────────────────────────────────────────
+// Same unreachable-module issue as compliance/ and utility/ above. Aliased
+// with an `Infra` suffix — shared/logger.ts (exported above as
+// createTracedLogger) defines its own LogLevel/LoggerOptions/createLogger
+// with a different, incompatible shape, and is the SDK's canonical logger.
+// This module is kept as a distinct, separately-named API rather than
+// silently merged with it.
+export {
+  createLogger as createInfraLogger,
+  createConsoleTransport as createInfraConsoleTransport,
+  createFileTransport as createInfraFileTransport,
+  createExternalTransport as createInfraExternalTransport,
+} from "./infrastructure/logger";
+export type {
+  LogLevel as InfraLogLevel,
+  LogContext as InfraLogContext,
+  LogEntry as InfraLogEntry,
+  LogFormatterName as InfraLogFormatterName,
+  LogFormatter as InfraLogFormatter,
+  LogTransport as InfraLogTransport,
+  Logger as InfraLogger,
+  LoggerOptions as InfraLoggerOptions,
+  ExternalLogSink as InfraExternalLogSink,
+} from "./infrastructure/logger";
+
+// ─── Runtime shape validators (#790) ──────────────────────────────────────────
+// Validate untrusted data against the SDK's own public type shapes at
+// runtime. All return SorokitResult<T> and never throw.
+export {
+  validateAssetBalance,
+  validateAccountInfo,
+  validateResolvedNetworkConfig,
+} from "./types-validation";
+
 // ─── Centralised input validation ─────────────────────────────────────────────
 // Five validators covering the most common input types across the SDK.
 // All return SorokitResult<string> and never throw.
 export {
   validateStellarAddress,
   validatePublicKey,
+  validatePublicKeyDetailed,
+  detectPublicKeyFormat,
+  verifyPublicKeyChecksum,
+  STELLAR_ED25519_PUBLIC_KEY_LENGTH,
+  STELLAR_MUXED_PUBLIC_KEY_LENGTH,
   validateAssetIssuer,
   STELLAR_MAX_DECIMAL_PLACES,
   STELLAR_MAX_ASSET_CODE_LENGTH,
   STELLAR_MIN_ASSET_CODE_LENGTH,
+} from "./shared/validation";
+export type {
+  PublicKeyFormat,
+  ValidatePublicKeyOptions,
+  PublicKeyValidationDetails,
 } from "./shared/validation";
 
 // ─── Account signer, history, effects, and data entries (#556/#557/#558/#559) ─
@@ -1737,6 +1926,24 @@ export type {
   PaymentPage,
   PaymentHistoryOptions,
 } from "./account/paymentHistory";
+export {
+  getAccountEffects,
+  getAccountOffer,
+  getAccountSigners,
+  getOffer,
+  getSignerThresholds,
+} from "./account/queries";
+export type {
+  Effect,
+  Offer,
+  EffectFilters,
+  Payment,
+  PaymentDirection,
+  PaymentFilters,
+  SignerData,
+  SignerEntry,
+  SignerThresholds,
+} from "./account/queries";
 export { getEffects } from "./account/getEffects";
 export type {
   EffectInfo,
@@ -1748,6 +1955,17 @@ export type { AccountDataEntries } from "./account/dataEntries";
 export {
   buildSetDataEntryTransaction,
   buildDeleteDataEntryTransaction,
+  setData,
+  deleteData,
+  validateDataEntryKey,
+  validateDataEntryValue,
+  getDataByteLength,
+  MAX_DATA_ENTRY_KEY_BYTES,
+  MAX_DATA_ENTRY_VALUE_BYTES,
+} from "./transaction/dataEntry";
+export type {
+  DataEntryTransactionOptions,
+  DataEntryValue,
 } from "./transaction/dataEntry";
 export { detectContractUpgrade } from "./soroban/upgradeDetection";
 export type {
@@ -1804,12 +2022,19 @@ export type {
 
 // ─── SEP-7 Handler (#602) ────────────────────────────────────────────────────
 export {
-  parseSep7Uri,
-  validateSep7Uri,
   buildFromSep7Uri,
+  buildSep7SigningRedirect,
+  createSep7SigningRedirect,
+  encodeSep7TransactionXdr,
   generateSep7Uri,
+  isValidSep7XdrBase64,
+  parseSep7Uri,
+  validateSep7CallbackUrl,
+  validateSep7Uri,
 } from "./integration/sep7Handler";
 export type {
+  Sep7SigningRedirect,
+  Sep7SigningRedirectOptions,
   Sep7OperationType,
   Sep7BaseParams,
   Sep7PayParams,
@@ -1850,6 +2075,9 @@ export {
   getTelemetryManager,
   getTelemetryData,
   isTelemetryInitialized,
+  validateTelemetryInitialized,
+  requireTelemetryManager,
+  requireTelemetryData,
   shutdownTelemetry,
   resetTelemetry,
   traceSpan,
@@ -1892,6 +2120,7 @@ export type {
 // ─── Transaction scheduler (#453) ────────────────────────────────────────────
 export { createCache, CacheBuilder } from "./performance/cacheStrategy";
 export type {
+  CacheOptions,
   CachedData,
   CacheStats,
   CacheFetcher,
@@ -1907,17 +2136,21 @@ export type {
 // ─── Entry point ──────────────────────────────────────────────────────────────
 export type { LazyModule, LazyModuleName } from "./lazy";
 
-// ─── On-chain governance (#686) ──────────────────────────────────────────────
-// `getVotingPower` is already exported above by the #456 governance helpers
-// (object-parameter signature), so the #686 variant is re-exported here as
-// `getGovernanceVotingPower`; it is also available unaliased as
-// `getVotingPower` from "sorokit-core/integration" and on client.integration.
+// ─── On-chain governance (#686, #785, #788) ──────────────────────────────────
+// The unrelated #456 stub module (src/governance/, permanent no-op
+// placeholders that never implemented anything real) previously also
+// exported a `getVotingPower`, forcing this one to be aliased as
+// `getGovernanceVotingPower`. #788 removed that stub module and
+// consolidated governance into this one, real implementation, so the
+// alias is no longer needed: this is exported unaliased, matching
+// "sorokit-core/integration" and client.integration.
 export {
   configureGovernance,
   createHttpGovernanceProvider,
   getProposal,
   getProposals,
-  getVotingPower as getGovernanceVotingPower,
+  getUserVotingHistory,
+  getVotingPower,
   trackProposal,
   voteOnProposal,
   PROPOSAL_STATUSES,
@@ -1934,6 +2167,7 @@ export type {
   ProposalTally,
   ProposalTracker,
   TrackProposalOptions,
+  UserVoteRecord,
   VoteChoice,
   VoteReceipt,
   VotingPower,
@@ -2017,5 +2251,29 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
-// ─── Horizon error mapping (#913) & RPC error mapping (#914) ─────────────────
-export { mapHorizonError, mapRpcError } from "./shared/errorMapping";
+
+// ─── Connection Pooling & Adaptive Rate Limiter (#930) ────────────────────────
+export {
+  HorizonRateLimiter,
+  createHorizonRateLimiter,
+} from "./network/rateLimiter";
+export type {
+  HorizonRateLimiterConfig,
+  EndpointRateLimitMetrics,
+  RateLimiterQueueStats,
+  RateLimitResponseMeta,
+} from "./network/rateLimiter";
+
+// ─── Issues #979, #981, #983, #984 ────────────────────────────────────────────
+export {
+  initializeSignatureCollection,
+  addSignature as addCollectedSignature,
+  finalizeTransaction,
+} from "./transaction/multiSigCoordinator";
+export type { SignatureCollectionProgress } from "./transaction/multiSigCoordinator";
+export { createAndFundAccount, FRIENDBOT_URLS } from "./account/fundingHelper";
+export type { FundingOptions } from "./account/fundingHelper";
+export { getAssetCreationSteps, prepareAssetForIssuing } from "./account/assetCreationHelper";
+export type { AssetCreationStep, AssetIssuingPreset } from "./account/assetCreationHelper";
+export { createOperationDebugger } from "./shared/operationDebug";
+export type { OperationDebugger } from "./shared/operationDebug";

@@ -16,9 +16,10 @@ import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_TX_CACHE_TTL_MS } from "../shared/constants";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
-import { mapHorizonErrorLegacy } from "../shared/horizonErrorMapper";
-import { mapHorizonError } from "../shared/errorMapping";
+import { mapHorizonError, isSequenceError } from "../shared/horizonErrorMapper";
 import { traceTransactionSubmit, type TelemetrySpan } from "../performance/telemetry";
+import { invalidateAccount } from "../account/getAccount";
+import { invalidateSequenceCacheEntry } from "./buildTransaction";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -42,9 +43,11 @@ const horizonCircuitBreaker = new CircuitBreakerRegistry({
 interface ReplayRecord {
   submittedAt: number;   // Unix ms
   hash: string;
+  groupId: string;
 }
 
 const _submittedHashes = new Map<string, ReplayRecord>();
+const _inFlightGroups = new Set<string>();
 
 /** Key used to namespace replay entries per Horizon endpoint. */
 function replayKey(horizonUrl: string, txHash: string): string {
@@ -57,13 +60,13 @@ function replayKey(horizonUrl: string, txHash: string): string {
  * memory bounded. Defaults to 5 minutes, which is well past Stellar's
  * transaction timeout window.
  */
-function registerSubmitted(horizonUrl: string, txHash: string, ttlMs = 300_000): void {
+function registerSubmitted(horizonUrl: string, txHash: string, groupId = txHash, ttlMs = 300_000): void {
   const now = Date.now();
   // Prune stale entries before inserting
   for (const [key, record] of _submittedHashes) {
     if (now - record.submittedAt > ttlMs) _submittedHashes.delete(key);
   }
-  _submittedHashes.set(replayKey(horizonUrl, txHash), { submittedAt: now, hash: txHash });
+  _submittedHashes.set(replayKey(horizonUrl, txHash), { submittedAt: now, hash: txHash, groupId });
 }
 
 /**
@@ -85,7 +88,7 @@ export interface ReplayProtectionStats {
   /** Number of transaction hashes currently tracked. */
   trackedHashes: number;
   /** The tracked entries, including the Horizon endpoint they were submitted to. */
-  entries: Array<{ horizonUrl: string; hash: string; submittedAt: number }>;
+  entries: Array<{ horizonUrl: string; hash: string; groupId: string; submittedAt: number }>;
 }
 
 /**
@@ -97,6 +100,7 @@ export interface ReplayProtectionStats {
  */
 export function clearReplayProtection(): void {
   _submittedHashes.clear();
+  _inFlightGroups.clear();
 }
 
 /** Inspect the in-process replay-protection registry (for observability/tests). */
@@ -106,6 +110,7 @@ export function getReplayProtectionStats(): ReplayProtectionStats {
     return {
       horizonUrl: separator === -1 ? key : key.slice(0, separator),
       hash: record.hash,
+      groupId: record.groupId,
       submittedAt: record.submittedAt,
     };
   });
@@ -229,15 +234,26 @@ async function submitTransactionImpl(
   }
 
   let txHash: string | undefined;
+  let replayGroupId: string | undefined;
+  let parsedTx: unknown;
 
   try {
     const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+    parsedTx = tx;
     try {
       // Only needed to label webhook events on failure paths; never let hash
       // computation itself fail a submission.
       txHash = tx.hash().toString("hex");
     } catch {
       txHash = undefined;
+    }
+
+    try {
+      replayGroupId = tx instanceof FeeBumpTransaction
+        ? tx.innerTransaction.hash().toString("hex")
+        : txHash;
+    } catch {
+      replayGroupId = txHash;
     }
 
     if (detectNetworkPassphraseMismatch(tx, networkPassphrase)) {
@@ -255,8 +271,9 @@ async function submitTransactionImpl(
     // Reject duplicate XDR submissions within the same process lifetime.
     // This guards against double-clicks, retry loops, and copied XDRs being
     // reused — catastrophic for payment operations.
-    if (txHash) {
-      const duplicate = getReplayRecord(horizonUrl, txHash);
+    if (replayGroupId) {
+      const duplicate = getReplayRecord(horizonUrl, replayGroupId) ??
+        (txHash ? getReplayRecord(horizonUrl, txHash) : undefined);
       if (duplicate) {
         const ageSeconds = Math.round((Date.now() - duplicate.submittedAt) / 1000);
         return err(
@@ -267,6 +284,14 @@ async function submitTransactionImpl(
             `Build and sign a new transaction if you want to retry the operation.`,
         );
       }
+      const groupKey = replayKey(horizonUrl, replayGroupId);
+      if (_inFlightGroups.has(groupKey)) {
+        return err(
+          SorokitErrorCode.TX_SUBMIT_FAILED,
+          `Replay protection: a submission for transaction group ${replayGroupId} is already in flight.`,
+        );
+      }
+      _inFlightGroups.add(groupKey);
     }
 
     const response = await horizonCircuitBreaker.call(horizonUrl, async () => {
@@ -275,6 +300,9 @@ async function submitTransactionImpl(
         return await server.submitTransaction(tx);
       });
     });
+
+    // Invalidate cached/inflight getAccount sequence state for the source account (#752)
+    invalidateSubmittedTxAccounts(tx, horizonUrl);
 
     const result: TransactionResult = {
       hash: response.hash,
@@ -290,7 +318,10 @@ async function submitTransactionImpl(
 
     // Register in the replay-protection registry so the same XDR cannot be
     // submitted again within the TTL window.
-    registerSubmitted(horizonUrl, response.hash);
+    registerSubmitted(horizonUrl, response.hash, replayGroupId ?? response.hash);
+    if (replayGroupId && replayGroupId !== response.hash) {
+      registerSubmitted(horizonUrl, replayGroupId, replayGroupId);
+    }
 
     // Horizon's synchronous submit returns after ledger inclusion, so a
     // success is both "submitted" and "confirmed". Fire-and-forget: webhook
@@ -302,7 +333,18 @@ async function submitTransactionImpl(
     span?.setStatus("ok");
     return ok(result);
   } catch (cause) {
-    const mapped = mapHorizonErrorLegacy(cause, {
+    if (parsedTx) {
+      invalidateSubmittedTxAccounts(parsedTx, horizonUrl);
+      // #836: a sequence-related submission failure (e.g. tx_bad_seq) means
+      // the build-time autoFetchSequence cache is now stale for this
+      // account. Invalidate it so the next build is forced to fetch a fresh
+      // sequence from Horizon instead of reusing the bad one and cascading
+      // into further tx_bad_seq failures.
+      if (isSequenceError(cause)) {
+        invalidateSequenceCacheAccounts(parsedTx);
+      }
+    }
+    const mapped = mapHorizonError(cause, {
       resource: "transaction",
       fallbackCode: SorokitErrorCode.TX_SUBMIT_FAILED,
     });
@@ -335,5 +377,69 @@ async function submitTransactionImpl(
       undefined,
       mapped.recovery ? { recovery: mapped.recovery } : undefined,
     );
+  } finally {
+    if (replayGroupId) _inFlightGroups.delete(replayKey(horizonUrl, replayGroupId));
+  }
+}
+
+/** Extract the set of source-account public keys (muxed accounts resolved to G...) from a tx. */
+function extractSourceAccounts(tx: unknown): Set<string> {
+  const accounts = new Set<string>();
+  if (tx instanceof FeeBumpTransaction) {
+    if (tx.feeSource) accounts.add(tx.feeSource);
+    if (tx.innerTransaction?.source) accounts.add(tx.innerTransaction.source);
+  } else if (tx && typeof tx === "object" && "source" in tx && typeof (tx as any).source === "string") {
+    accounts.add((tx as any).source);
+  }
+  return accounts;
+}
+
+/** Resolve a (possibly muxed `M...`) account id to its underlying `G...` key. */
+function resolveSourceKey(acc: string): string {
+  if (!acc.startsWith("M")) return acc;
+  try {
+    return StrKey.encodeEd25519PublicKey(
+      StrKey.decodeMed25519PublicKey(acc).subarray(0, 32),
+    );
+  } catch {
+    return acc;
+  }
+}
+
+/**
+ * Invalidate cached and in-flight sequence fetches for all source accounts
+ * involved in the submitted transaction (#752).
+ */
+function invalidateSubmittedTxAccounts(tx: unknown, horizonUrl: string): void {
+  try {
+    for (const acc of extractSourceAccounts(tx)) {
+      const sourceKey = resolveSourceKey(acc);
+      invalidateAccount(sourceKey, horizonUrl);
+      if (acc !== sourceKey) {
+        invalidateAccount(acc, horizonUrl);
+      }
+    }
+  } catch {
+    // Ignore invalidation errors during submit
+  }
+}
+
+/**
+ * Invalidate the build-time `autoFetchSequence` cache entry for every source
+ * account in the transaction (#836). Separate from `invalidateSubmittedTxAccounts`
+ * (which targets the `getAccount` cache) because it only applies when the
+ * failure is sequence-related.
+ */
+function invalidateSequenceCacheAccounts(tx: unknown): void {
+  try {
+    for (const acc of extractSourceAccounts(tx)) {
+      const sourceKey = resolveSourceKey(acc);
+      invalidateSequenceCacheEntry(sourceKey);
+      if (acc !== sourceKey) {
+        invalidateSequenceCacheEntry(acc);
+      }
+    }
+  } catch {
+    // Ignore invalidation errors during submit
   }
 }

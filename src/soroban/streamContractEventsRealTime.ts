@@ -90,6 +90,7 @@ export function streamContractEventsRealTime(
 ): { stop: () => void } {
   const baseInterval = options.intervalMs ?? 1500;
   const maxBackoff = options.maxBackoffMs ?? 60_000;
+  const emptyPollDelay = options.emptyPollDelayMs ?? baseInterval;
   const requestFetch = options.fetch ?? fetch;
 
   let backoffMs = baseInterval;
@@ -133,12 +134,13 @@ export function streamContractEventsRealTime(
         return true;
       });
 
-      // Success — reset backoff
-      backoffMs = baseInterval;
+      // Success — reset backoff; use emptyPollDelay when no new events
       attempt = 0;
-
       if (newEvents.length > 0) {
+        backoffMs = baseInterval;
         options.onEvent(newEvents);
+      } else {
+        backoffMs = emptyPollDelay;
       }
     } catch (caught) {
       const error = caught instanceof Error ? caught : new Error(String(caught));

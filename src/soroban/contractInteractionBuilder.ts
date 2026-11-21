@@ -407,3 +407,9 @@ const result = await client.soroban.invoke({
     this._emit();
   }
 }
+
+export function createContractInteractionBuilder(
+  config: ContractInteractionBuilderConfig,
+): ContractInteractionBuilder {
+  return new ContractInteractionBuilder(config);
+}

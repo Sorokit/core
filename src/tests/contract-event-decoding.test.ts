@@ -11,7 +11,9 @@ describe("contract event decoders", () => {
       name: "pair_created",
       value: ["TOKEN_A", "TOKEN_B", "CPAIR"],
     });
-    expect(result).toMatchObject({
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data).toMatchObject({
       type: "factory.pair_created",
       data: { tokenA: "TOKEN_A", tokenB: "TOKEN_B", pair: "CPAIR" },
     });
@@ -23,7 +25,9 @@ describe("contract event decoders", () => {
       topics: ["router", "swap"],
       value: ["GSENDER", ["A", "B", "C"], 100n, 95n],
     });
-    expect(result).toMatchObject({
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.data).toMatchObject({
       type: "router.swap",
       data: { sender: "GSENDER", path: ["A", "B", "C"], amountIn: "100", amountOut: "95" },
     });
@@ -32,6 +36,14 @@ describe("contract event decoders", () => {
   it("allows custom decoders to take precedence without changing the API", () => {
     const custom: ContractEventDecoder = (event) =>
       event.name === "future" ? { type: "custom.future", contractId: "", data: 1, raw: event } : null;
-    expect(decodeContractEvent({ name: "future" }, [custom])?.type).toBe("custom.future");
+    const result = decodeContractEvent({ name: "future" }, undefined, [custom]);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") expect(result.data.type).toBe("custom.future");
+  });
+
+  it("returns a structured validation error for malformed input", () => {
+    const result = decodeContractEvent(null);
+    expect(result.status).toBe("error");
+    if (result.status === "error") expect(result.error.code).toBe("CONTRACT_READ_FAILED");
   });
 });

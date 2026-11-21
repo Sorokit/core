@@ -462,12 +462,21 @@ describe("checkSdkHealth", () => {
   });
 
   it("queries the endpoints concurrently", async () => {
-    const start = Date.now();
-    await checkSdkHealth({ fetchFn: okFetch(80), slowLatencyMs: 10_000 });
-    const elapsed = Date.now() - start;
+    let releaseRequests!: () => void;
+    const requestGate = new Promise<void>((resolve) => { releaseRequests = resolve; });
+    const fetchFn = vi.fn(async () => {
+      await requestGate;
+      return new Response(JSON.stringify({ status: "healthy" }), { status: 200 });
+    }) as unknown as typeof fetch;
 
-    // Sequential calls would take ~160ms; concurrent ones about half that.
-    expect(elapsed).toBeLessThan(150);
+    const health = checkSdkHealth({ fetchFn, slowLatencyMs: 10_000 });
+    try {
+      await Promise.resolve();
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    } finally {
+      releaseRequests();
+    }
+    await health;
   });
 
   it("defaults the slow-latency threshold when unset", async () => {

@@ -66,8 +66,8 @@ describe("merged main feature helpers", () => {
     expect(analyzeBatchCost([]).status).toBe("error");
   });
 
-  it("tracks batch transaction status and retry guidance", () => {
-    const submitted = submitBatch(["tx-one", "tx-two"], {
+  it("tracks batch transaction status and retry guidance", async () => {
+    const submitted = await submitBatch(["tx-one", "tx-two"], {
       atomic: true,
       rollbackOnFailure: true,
     });

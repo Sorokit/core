@@ -1,5 +1,5 @@
-/**
- * Tests for recoverAccountKeys (#401).
+﻿/**
+ * Tests for recoverAccountKeys (#401) and fee surge logic (#735).
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -9,18 +9,23 @@ import type { AccountInfo } from "../account/types";
 import type { ResolvedNetworkConfig } from "../shared/types";
 
 const mockGetAccount = vi.hoisted(() => vi.fn());
+const mockFetchCongestionFeeEstimate = vi.hoisted(() => vi.fn());
 
 vi.mock("../account/getAccount", () => ({
   getAccount: mockGetAccount,
 }));
 
-import { recoverAccountKeys } from "../account/keyRotation";
+vi.mock("../transaction/estimateFee", () => ({
+  fetchCongestionFeeEstimate: mockFetchCongestionFeeEstimate,
+}));
+
+import { recoverAccountKeys, rotateAccountKey, setAccountRecovery } from "../account/keyRotation";
 
 const NETWORK_CONFIG: ResolvedNetworkConfig = {
-  network: "testnet",
-  horizonUrl: "https://horizon-testnet.stellar.org",
-  rpcUrl: "https://soroban-testnet.stellar.org",
-  networkPassphrase: Networks.TESTNET,
+  network: "mainnet",
+  horizonUrl: "https://horizon.stellar.org",
+  rpcUrl: "https://soroban.stellar.org",
+  networkPassphrase: Networks.PUBLIC,
 };
 
 function fakeAccount(publicKey: string, sequence = "100"): AccountInfo {
@@ -32,6 +37,83 @@ function fakeAccount(publicKey: string, sequence = "100"): AccountInfo {
     balances: [],
   };
 }
+
+describe("keyRotation fee surge logic (#735)", () => {
+  let account: string;
+  let oldKey: string;
+  let newKey: string;
+  let recoveryKey: string;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    account = Keypair.random().publicKey();
+    oldKey = Keypair.random().publicKey();
+    newKey = Keypair.random().publicKey();
+    recoveryKey = Keypair.random().publicKey();
+    mockGetAccount.mockResolvedValue(ok(fakeAccount(account)));
+    mockFetchCongestionFeeEstimate.mockResolvedValue({ recommendedFee: "2500" });
+  });
+
+  it("rotateAccountKey uses an explicit fee override", async () => {
+    const result = await rotateAccountKey("https://horizon.stellar.org", NETWORK_CONFIG, {
+      account,
+      oldKey,
+      newKey,
+      fee: "5000",
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const tx = TransactionBuilder.fromXDR(result.data, NETWORK_CONFIG.networkPassphrase);
+      // 5000 base fee * 2 operations (add key, remove key) = 10000 total max fee
+      expect(tx.fee).toBe("10000");
+    }
+    expect(mockFetchCongestionFeeEstimate).not.toHaveBeenCalled();
+  });
+
+  it("rotateAccountKey fetches congestion fee when no fee is supplied", async () => {
+    const result = await rotateAccountKey("https://horizon.stellar.org", NETWORK_CONFIG, {
+      account,
+      oldKey,
+      newKey,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const tx = TransactionBuilder.fromXDR(result.data, NETWORK_CONFIG.networkPassphrase);
+      // 2500 estimated fee * 2 operations (add key, remove key) = 5000 total max fee
+      expect(tx.fee).toBe("5000");
+    }
+    expect(mockFetchCongestionFeeEstimate).toHaveBeenCalledTimes(1);
+  });
+
+  it("setAccountRecovery fetches congestion fee when no fee is supplied", async () => {
+    const result = await setAccountRecovery("https://horizon.stellar.org", NETWORK_CONFIG, {
+      account,
+      recoveryKey,
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const tx = TransactionBuilder.fromXDR(result.data, NETWORK_CONFIG.networkPassphrase);
+      // 2500 estimated fee * 1 operation = 2500 total max fee
+      expect(tx.fee).toBe("2500");
+    }
+    expect(mockFetchCongestionFeeEstimate).toHaveBeenCalledTimes(1);
+  });
+
+  it("recoverAccountKeys fetches congestion fee when no fee is supplied", async () => {
+    const result = await recoverAccountKeys("https://horizon.stellar.org", NETWORK_CONFIG, {
+      account,
+      recoveryKey,
+      newKeys: [{ key: newKey, weight: 1 }],
+    });
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      const tx = TransactionBuilder.fromXDR(result.data, NETWORK_CONFIG.networkPassphrase);
+      // 2500 estimated fee * 1 operation = 2500 total max fee
+      expect(tx.fee).toBe("2500");
+    }
+    expect(mockFetchCongestionFeeEstimate).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("recoverAccountKeys (#401)", () => {
   let account: string;
@@ -46,6 +128,7 @@ describe("recoverAccountKeys (#401)", () => {
     compromisedKey = Keypair.random().publicKey();
     newKey = Keypair.random().publicKey();
     mockGetAccount.mockResolvedValue(ok(fakeAccount(account)));
+    mockFetchCongestionFeeEstimate.mockResolvedValue({ recommendedFee: "100" });
   });
 
   it("rejects an invalid account address", async () => {
@@ -244,7 +327,6 @@ describe("recoverAccountKeys (#401)", () => {
 
     const tx = TransactionBuilder.fromXDR(result.data, NETWORK_CONFIG.networkPassphrase);
     const ops = ("operations" in tx ? tx.operations : []) as Operation.SetOptions[];
-    // 2 new signers + 1 threshold-setOptions op + 1 removal = 4 ops
     expect(ops).toHaveLength(4);
     expect(ops[0]?.signer?.ed25519PublicKey).toBe(newKey);
     expect(ops[1]?.signer?.ed25519PublicKey).toBe(secondKey);

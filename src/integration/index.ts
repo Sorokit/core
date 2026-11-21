@@ -1,5 +1,7 @@
 export {
   authenticateSep10,
+  clearAnchorCache,
+  getAnchorInfo,
   getSep6TransactionStatus,
   initiateSep6Transfer,
   initiateSep24Interactive,
@@ -7,6 +9,7 @@ export {
 export type {
   AnchorAsset,
   AnchorRequestOptions,
+  GetAnchorInfoOptions,
   Sep10AuthOptions,
   Sep24InteractiveResult,
 } from "./anchors";
@@ -39,11 +42,13 @@ export type {
   VerifyDIDOwnershipResult,
 } from "./didSupport";
 // #686: governance proposals, voting, voting power and tracking.
+// #785: getUserVotingHistory — a voter's own cast votes, open/closed/all.
 export {
   configureGovernance,
   createHttpGovernanceProvider,
   getProposal,
   getProposals,
+  getUserVotingHistory,
   getVotingPower,
   normalizeProposal,
   resetGovernance,
@@ -63,6 +68,7 @@ export type {
   ProposalTally,
   ProposalTracker,
   TrackProposalOptions,
+  UserVoteRecord,
   VoteChoice,
   VoteReceipt,
   VotingPower,
@@ -79,8 +85,16 @@ export {
 export type { FetchStellarTomlOptions, StellarToml } from "./sep1Toml";
 export {
   completeSep10Auth,
+  getAuthChallenge,
   initiateSep10Auth,
+  submitSignedChallenge,
   validateSep10Token,
+  verifyAuthToken,
+  pruneExpiredChallenges,
+  getPendingChallengesCount,
+  clearPendingChallenges,
+  CHALLENGE_TTL_MS,
+  MAX_PENDING_CHALLENGES,
 } from "./sep10Auth";
 export type { AuthToken, InitiateSep10AuthOptions } from "./sep10Auth";
 export {

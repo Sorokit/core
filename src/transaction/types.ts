@@ -36,6 +36,11 @@ export interface MemoValidationConfig {
   format?: RegExp | string | ((memo: string) => boolean);
   /** Optional custom error message to return on validation failure */
   errorMessage?: string;
+  /**
+   * When true, allows empty strings or whitespace-only memos.
+   * Defaults to false (empty and whitespace-only memos are rejected by default).
+   */
+  allowEmpty?: boolean;
 }
 
 export interface MemoParams {
@@ -56,6 +61,11 @@ export interface MemoParams {
    * Supports "required", "prohibit", and "require_format" with custom format patterns.
    */
   memoValidation?: MemoValidationConfig | MemoValidationRule;
+  /**
+   * When true, opt in to allowing empty strings or whitespace-only memos (#846).
+   * Defaults to false (empty and whitespace-only memos are rejected by default).
+   */
+  allowEmptyMemo?: boolean;
 }
 
 export interface PaymentParams extends MemoParams {
@@ -131,6 +141,22 @@ export interface ManageOfferParams extends MemoParams {
   buyingAssetIssuer?: string;
   amount: string;
   price: string;
+  /**
+   * Suppress warnings when `price` is outside the typical range
+   * (below 0.001 or above 1000 buying units per selling unit).
+   */
+  suppressPriceWarnings?: boolean;
+  /** Override the default offer-price warning bounds (0.001–1000). */
+  priceWarningRange?: { min?: number; max?: number };
+  /**
+   * By default, an offer where `sellingAssetCode`/`sellingAssetIssuer` and
+   * `buyingAssetCode`/`buyingAssetIssuer` are identical is rejected with a
+   * `TX_BUILD_FAILED` error, since such an offer can never fill and only
+   * wastes fees. Set `true` to downgrade this to a console warning and build
+   * the transaction anyway, for callers with a deliberate same-asset use case
+   * (e.g. a sequence-number bump disguised as a cancel-and-recreate offer).
+   */
+  allowSameAsset?: boolean;
   offerId?: string;
   autoFetchSequence?: boolean;
 }
@@ -193,6 +219,10 @@ export type PathPaymentMode = "strict-send" | "strict-receive";
 
 export interface PathPaymentParams extends MemoParams {
   destination: string;
+  /** How to handle destination equal to the source account. Defaults to "warn". */
+  selfPaymentBehavior?: "warn" | "error" | "allow";
+  /** Explicit opt-in for intentional self-payments. */
+  allowSelfPayment?: boolean;
   sendAssetCode?: string;
   sendAssetIssuer?: string;
   destAssetCode?: string;

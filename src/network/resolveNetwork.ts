@@ -10,13 +10,29 @@ export interface NetworkOverrides {
   rpcUrl?: string | undefined;
 }
 
+const LOCALHOST_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+
+const URL_RULE_DESCRIPTION =
+  "Must be a valid HTTPS URL, or an HTTP URL on localhost/127.0.0.1.";
+
+/**
+ * Validate that a value is a well-formed HTTPS URL, or an HTTP URL pointing
+ * at localhost (common for local Horizon/RPC nodes during development).
+ * Purely structural — never performs a DNS lookup or reachability check.
+ */
 function isValidUrl(value: string): boolean {
+  let parsed: URL;
   try {
-    const u = new URL(value);
-    return u.protocol === "http:" || u.protocol === "https:";
+    parsed = new URL(value);
   } catch {
     return false;
   }
+
+  if (parsed.protocol === "https:") return true;
+  if (parsed.protocol === "http:" && LOCALHOST_HOSTNAMES.has(parsed.hostname)) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -51,14 +67,14 @@ export function resolveNetwork(
   ) {
     return err(
       SorokitErrorCode.INVALID_NETWORK,
-      `Invalid horizonUrl: "${overrides.horizonUrl}". Must be a non-empty URL starting with http:// or https://.`,
+      `Invalid horizonUrl: "${overrides.horizonUrl}". ${URL_RULE_DESCRIPTION}`,
     );
   }
 
   if (overrides.rpcUrl !== undefined && !isValidUrl(overrides.rpcUrl)) {
     return err(
       SorokitErrorCode.INVALID_NETWORK,
-      `Invalid rpcUrl: "${overrides.rpcUrl}". Must be a non-empty URL starting with http:// or https://.`,
+      `Invalid rpcUrl: "${overrides.rpcUrl}". ${URL_RULE_DESCRIPTION}`,
     );
   }
 

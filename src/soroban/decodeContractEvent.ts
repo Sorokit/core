@@ -8,6 +8,10 @@ import type { SorokitResult } from "../shared/response";
 import { decodeContractValue } from "./contractEncoding";
 import type { DecodedContractEvent, ContractAbi, ContractAbiObject, ContractAbiFunctionObject } from "./types";
 
+export type ContractEventDecoder = (event: Record<string, unknown>) =>
+  | (Partial<DecodedContractEvent> & { type: string; contractId: string; data?: unknown; raw: unknown })
+  | null;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -69,7 +73,8 @@ function hasMethod(abi: ContractAbi, name: string): boolean {
 export function decodeContractEvent(
   rawEvent: unknown,
   abi?: ContractAbi,
-): SorokitResult<DecodedContractEvent> {
+  customDecoders: ContractEventDecoder[] = [],
+): SorokitResult<DecodedContractEvent & { data?: unknown }> {
   if (!isRecord(rawEvent) || Array.isArray(rawEvent)) {
     return err(
       SorokitErrorCode.CONTRACT_READ_FAILED,
@@ -78,6 +83,11 @@ export function decodeContractEvent(
   }
 
   try {
+    for (const decoder of customDecoders) {
+      const custom = decoder(rawEvent);
+      if (custom) return ok(custom as DecodedContractEvent & { data?: unknown });
+    }
+
     const contractId = String(rawEvent.contractId ?? rawEvent.contract_id ?? "");
     const name = String(rawEvent.name ?? rawEvent.event_type ?? "");
 
@@ -105,6 +115,28 @@ export function decodeContractEvent(
       decodedValue = decodeContractValue(rawValue as any);
     } else {
       decodedValue = rawValue;
+    }
+
+    if (name === "pair_created" && Array.isArray(rawValue) && rawValue.length >= 3) {
+      const [tokenA, tokenB, pair] = rawValue;
+      return ok({
+        contractId, name, topics, value: rawValue, raw: rawEvent,
+        type: "factory.pair_created",
+        data: { tokenA: String(tokenA), tokenB: String(tokenB), pair: String(pair) },
+      });
+    }
+    if (topics[0] === "router" && topics[1] === "swap" && Array.isArray(rawValue) && rawValue.length >= 4) {
+      const [sender, path, amountIn, amountOut] = rawValue;
+      return ok({
+        contractId, name, topics, value: rawValue, raw: rawEvent,
+        type: "router.swap",
+        data: {
+          sender: String(sender),
+          path: Array.isArray(path) ? path.map(String) : [],
+          amountIn: String(amountIn),
+          amountOut: String(amountOut),
+        },
+      });
     }
 
     return ok<DecodedContractEvent>({

@@ -12,9 +12,32 @@ export class MemoryCursorStore implements CursorStore {
   async clear(key?: string): Promise<void> { key === undefined ? this.cursors.clear() : this.cursors.delete(key); }
 }
 
-/** localStorage-backed cursor store. It never throws when storage is unavailable. */
+/**
+ * localStorage-backed cursor store.
+ *
+ * It fails fast when storage is unavailable: constructing it without a usable
+ * Storage implementation throws a descriptive Error instead of silently holding
+ * an `undefined` reference that makes every later call reject with a TypeError.
+ */
 export class LocalStorageCursorStore implements CursorStore {
-  constructor(private readonly storage: Storage = globalThis.localStorage, private readonly prefix = "sorokit:cursor:") {}
+  private readonly storage: Storage;
+
+  constructor(storage: Storage | null | undefined = globalThis.localStorage, private readonly prefix = "sorokit:cursor:") {
+    if (storage === null || storage === undefined) {
+      throw new Error("LocalStorageCursorStore requires a Storage implementation: localStorage is unavailable in this environment. Pass a Storage instance explicitly, or use createCursorStore() / MemoryCursorStore instead.");
+    }
+    for (const method of ["getItem", "setItem", "removeItem", "key"] as const) {
+      const candidate: unknown = storage[method];
+      if (typeof candidate !== "function") {
+        throw new Error(`LocalStorageCursorStore requires a Storage implementation exposing ${method}(); received ${typeof candidate}.`);
+      }
+    }
+    const length: unknown = storage.length;
+    if (typeof length !== "number" || !Number.isFinite(length) || length < 0) {
+      throw new Error(`LocalStorageCursorStore requires a Storage implementation whose length is a finite, non-negative number; received ${typeof length} ${String(length)}.`);
+    }
+    this.storage = storage;
+  }
   async save(key: string, cursor: string): Promise<void> { this.storage.setItem(this.prefix + key, cursor); }
   async load(key: string): Promise<string | undefined> { return this.storage.getItem(this.prefix + key) ?? undefined; }
   async clear(key?: string): Promise<void> {
@@ -28,7 +51,12 @@ export class LocalStorageCursorStore implements CursorStore {
 /** Creates localStorage persistence in browsers and memory persistence elsewhere. */
 export function createCursorStore(storage?: Storage): CursorStore {
   if (storage) return new LocalStorageCursorStore(storage);
-  if (typeof globalThis.localStorage !== "undefined") return new LocalStorageCursorStore(globalThis.localStorage);
+  try {
+    if (typeof globalThis.localStorage !== "undefined") return new LocalStorageCursorStore(globalThis.localStorage);
+  } catch {
+    // Reading localStorage can itself throw (a privacy-mode getter raising
+    // SecurityError, for example). Fall through to the in-memory store.
+  }
   return new MemoryCursorStore();
 }
 

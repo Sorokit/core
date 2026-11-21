@@ -33,6 +33,12 @@ export type WalletStatusUnsubscribe = () => void;
 
 export interface WalletStatusTrackerConfig {
   onStatusChange?: WalletStatusListener;
+  /**
+   * When true, rapid status changes within the same microtask checkpoint are
+   * coalesced and emitted once. Listeners always receive the latest state.
+   * Defaults to false (synchronous, unchanged behaviour).
+   */
+  batchUpdates?: boolean;
 }
 
 const ADAPTER_NAMES: Record<WalletType, string> = {
@@ -96,11 +102,14 @@ const INITIAL_STATUS: WalletStatus = {
 export class WalletStatusTracker {
   private _status: WalletStatus = { ...INITIAL_STATUS };
   private _listeners: Set<WalletStatusListener> = new Set();
+  private _batchUpdates: boolean;
+  private _flushPending = false;
 
   constructor(config?: WalletStatusTrackerConfig) {
     if (config?.onStatusChange) {
       this._listeners.add(config.onStatusChange);
     }
+    this._batchUpdates = config?.batchUpdates ?? false;
   }
 
   get status(): WalletStatus {
@@ -131,6 +140,19 @@ export class WalletStatusTracker {
   }
 
   private _emit(): void {
+    if (this._batchUpdates) {
+      if (!this._flushPending) {
+        this._flushPending = true;
+        queueMicrotask(() => {
+          this._flushPending = false;
+          const status = this._status;
+          for (const listener of this._listeners) {
+            listener(status);
+          }
+        });
+      }
+      return;
+    }
     const status = this._status;
     for (const listener of this._listeners) {
       listener(status);
@@ -244,5 +266,6 @@ export class WalletStatusTracker {
   destroy(): void {
     this._listeners.clear();
     this._status = { ...INITIAL_STATUS };
+    this._flushPending = false;
   }
 }

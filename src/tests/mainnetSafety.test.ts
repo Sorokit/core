@@ -14,6 +14,10 @@ import {
   checkMainnetSafety,
   extractTransactionTotalXlm,
   isMainnetNetwork,
+  enableMainnet,
+  disableMainnet,
+  isMainnetEnabled,
+  guardMainnetInDevMode,
   DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM,
   MAINNET_NETWORK_PASSPHRASE,
 } from "../shared/mainnetSafety";
@@ -36,6 +40,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   rpcSend.mockResolvedValue({ status: "PENDING", hash: "rpc-hash" });
   horizonFactory.mockReturnValue({ submitTransaction: horizonSubmit });
+  disableMainnet();
   horizonSubmit.mockImplementation(async (tx) => ({
     hash: tx.hash().toString("hex"), ledger: 1,
     envelope_xdr: tx.toXDR(), result_xdr: "",
@@ -435,5 +440,46 @@ describe("all operation families and public submission APIs", () => {
     expect(rpcSend).not.toHaveBeenCalled();
     expect((await client.soroban.execute(signed, { intervalMs: 0 }, undefined, { bypassMainnetSafety: true })).status).toBe("ok");
     expect(rpcSend).toHaveBeenCalledOnce();
+  });
+
+  it("blocks and warns on Mainnet transactions in development mode unless enableMainnet() is called (#925)", () => {
+    const signed = transaction(Operation.payment({ destination, asset: native, amount: "10" }));
+    const warnLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    expect(isMainnetEnabled()).toBe(false);
+    const blocked = checkMainnetSafety(signed, Networks.PUBLIC, {
+      nodeEnv: "development",
+      logger: warnLogger,
+    });
+    expect(blocked.status).toBe("error");
+    if (blocked.status === "error") {
+      expect(blocked.error.code).toBe(SorokitErrorCode.MAINNET_SAFETY_LIMIT);
+      expect(blocked.error.message).toContain("enableMainnet()");
+    }
+    expect(warnLogger.warn).toHaveBeenCalledOnce();
+
+    expect(() =>
+      guardMainnetInDevMode(Networks.PUBLIC, {
+        nodeEnv: "development",
+        throwOnDevModeBlock: true,
+        logger: warnLogger,
+      }),
+    ).toThrow(/enableMainnet\(\)/);
+
+    enableMainnet();
+    expect(isMainnetEnabled()).toBe(true);
+    const allowedInDev = checkMainnetSafety(signed, Networks.PUBLIC, {
+      nodeEnv: "development",
+      logger: warnLogger,
+    });
+    expect(allowedInDev.status).toBe("ok");
+
+    disableMainnet();
+    expect(isMainnetEnabled()).toBe(false);
+    const allowedInProd = checkMainnetSafety(signed, Networks.PUBLIC, {
+      nodeEnv: "production",
+      logger: warnLogger,
+    });
+    expect(allowedInProd.status).toBe("ok");
   });
 });

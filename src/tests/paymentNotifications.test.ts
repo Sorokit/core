@@ -16,9 +16,11 @@ import {
   dispatchPaymentNotification,
   generatePaymentEventId,
   isPaymentNotificationEvent,
+  getRegisteredChannelCount,
   PAYMENT_NOTIFICATION_EVENTS,
   type PaymentNotificationChannel,
   type PaymentNotificationEvent,
+  type PaymentDeliveryFailure,
 } from "../transaction/paymentNotifications";
 
 const SECRET_URL = "https://pay.example.com/webhook";
@@ -376,6 +378,57 @@ describe("paymentNotifications", () => {
       expect(results[1].status).toBe("error"); // channel rejected
       expect(results[1].error?.code).toBe("NETWORK_ERROR");
     });
+
+    it("does not register the same channel instance twice (#842)", async () => {
+      global.fetch = vi.fn(() => Promise.resolve(okResponse()));
+      const channel: PaymentNotificationChannel = {
+        name: "dedup-channel",
+        deliver: vi.fn(() => Promise.resolve(true)),
+      };
+      registerPaymentWebhook(SECRET_URL, ["payment_received"], {
+        channels: [channel],
+      });
+      registerPaymentWebhook(SECRET_URL, ["payment_sent"], {
+        channels: [channel],
+      });
+
+      expect(getRegisteredChannelCount()).toBe(1);
+
+      const results = await triggerPaymentNotifications("payment_received", {
+        transactionId: "tx-dedup",
+        account: "GA001",
+      });
+      expect(results).toHaveLength(2);
+      expect(channel.deliver).toHaveBeenCalledTimes(1);
+    });
+
+    it("stops delivering to a channel once it is garbage collected (#842)", async () => {
+      // Node exposes global.gc only when run with --expose-gc; vitest's
+      // default config enables it, but skip gracefully if unavailable so
+      // this test never flakes the suite on a different runtime config.
+      if (typeof global.gc !== "function") {
+        return;
+      }
+      global.fetch = vi.fn(() => Promise.resolve(okResponse()));
+
+      let channel: PaymentNotificationChannel | null = {
+        name: "collectable-channel",
+        deliver: vi.fn(() => Promise.resolve(true)),
+      };
+      registerPaymentWebhook(SECRET_URL, ["payment_received"], {
+        channels: [channel],
+      });
+      expect(getRegisteredChannelCount()).toBe(1);
+
+      // Drop the only strong reference and force a collection cycle.
+      channel = null;
+      global.gc();
+      // Give the GC a tick; some engines schedule finalization asynchronously.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      global.gc();
+
+      expect(getRegisteredChannelCount()).toBe(0);
+    });
   });
 
   describe("dispatchPaymentNotification", () => {
@@ -423,5 +476,236 @@ describe("paymentNotifications", () => {
       });
       expect(fetchMock).not.toHaveBeenCalled();
     });
+
+    describe("failure tracking and observability (#745)", () => {
+      it("invokes onDeliveryFailure callback when webhook delivery fails", async () => {
+        const error = new Error("connection reset");
+        global.fetch = vi.fn(() => Promise.reject(error));
+        registerPaymentWebhook(SECRET_URL, ["payment_received"], {
+          maxRetries: 0,
+        });
+
+        const failures: PaymentDeliveryFailure[] = [];
+        await dispatchPaymentNotification(
+          "payment_received",
+          {
+            transactionId: "tx-fail-cb",
+            account: "GA001",
+          },
+          (f) => {
+            failures.push(f);
+          },
+        );
+
+        expect(failures).toHaveLength(1);
+        expect(failures[0].url).toBe(SECRET_URL);
+        expect(failures[0].event).toBe("payment_received");
+        expect(failures[0].error).toBe(error);
+        expect(failures[0].payload?.transactionId).toBe("tx-fail-cb");
+      });
+
+      it("invokes onDeliveryFailure when provided on PaymentNotificationInput", async () => {
+        global.fetch = vi.fn(() => Promise.reject(new Error("network failure")));
+        registerPaymentWebhook(SECRET_URL, ["payment_sent"], {
+          maxRetries: 0,
+        });
+
+        const failureCallback = vi.fn();
+        await dispatchPaymentNotification("payment_sent", {
+          transactionId: "tx-input-cb",
+          account: "GA001",
+          onDeliveryFailure: failureCallback,
+        });
+
+        expect(failureCallback).toHaveBeenCalledTimes(1);
+        expect(failureCallback).toHaveBeenCalledWith(
+          expect.objectContaining({
+            url: SECRET_URL,
+            event: "payment_sent",
+            error: expect.any(Error),
+          }),
+        );
+      });
+
+      it("invokes onDeliveryFailure when provided in DispatchPaymentNotificationOptions", async () => {
+        global.fetch = vi.fn(() => Promise.reject(new Error("http 500")));
+        registerPaymentWebhook(SECRET_URL, ["payment_failed"], {
+          maxRetries: 0,
+        });
+
+        const failureCallback = vi.fn();
+        await dispatchPaymentNotification(
+          "payment_failed",
+          {
+            transactionId: "tx-options-cb",
+            account: "GA001",
+          },
+          {
+            onDeliveryFailure: failureCallback,
+          },
+        );
+
+        expect(failureCallback).toHaveBeenCalledTimes(1);
+        expect(failureCallback).toHaveBeenCalledWith(
+          expect.objectContaining({
+            url: SECRET_URL,
+            event: "payment_failed",
+          }),
+        );
+      });
+
+      it("logs delivery failure to console.warn by default with url, event, and error", async () => {
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        global.fetch = vi.fn(() => Promise.reject(new Error("timeout error")));
+        registerPaymentWebhook(SECRET_URL, ["payment_received"], {
+          maxRetries: 0,
+        });
+
+        await dispatchPaymentNotification("payment_received", {
+          transactionId: "tx-console-warn",
+          account: "GA001",
+        });
+
+        expect(warnSpy).toHaveBeenCalled();
+        const [message, meta] = warnSpy.mock.calls[0] as [string, Record<string, unknown>];
+        expect(message).toContain(SECRET_URL);
+        expect(message).toContain("payment_received");
+        expect(meta.url).toBe(SECRET_URL);
+        expect(meta.event).toBe("payment_received");
+        expect(meta.error).toBeDefined();
+      });
+
+      it("logs delivery failure using custom logger when provided", async () => {
+        const customLogger = {
+          debug: vi.fn(),
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+        };
+        global.fetch = vi.fn(() => Promise.reject(new Error("custom logger err")));
+        registerPaymentWebhook(SECRET_URL, ["payment_confirmed"], {
+          maxRetries: 0,
+        });
+
+        await dispatchPaymentNotification(
+          "payment_confirmed",
+          {
+            transactionId: "tx-custom-log",
+            account: "GA001",
+          },
+          {
+            logger: customLogger,
+          },
+        );
+
+        expect(customLogger.warn).toHaveBeenCalledTimes(1);
+        const [message, meta] = customLogger.warn.mock.calls[0] as [string, Record<string, unknown>];
+        expect(message).toContain(SECRET_URL);
+        expect(message).toContain("payment_confirmed");
+        expect(meta.url).toBe(SECRET_URL);
+        expect(meta.event).toBe("payment_confirmed");
+        expect(meta.error).toBeDefined();
+      });
+
+      it("surfaces failures for notification channels", async () => {
+        const channel: PaymentNotificationChannel = {
+          name: "alert-channel",
+          deliver: vi.fn(() => Promise.reject(new Error("channel unavailable"))),
+        };
+        registerPaymentWebhook(SECRET_URL, ["payment_received"], {
+          channels: [channel],
+        });
+        global.fetch = vi.fn(() => Promise.resolve(okResponse()));
+
+        const failures: PaymentDeliveryFailure[] = [];
+        await dispatchPaymentNotification(
+          "payment_received",
+          {
+            transactionId: "tx-chan-fail",
+            account: "GA001",
+          },
+          (f) => failures.push(f),
+        );
+
+        // Webhook succeeded, but channel failed
+        expect(failures).toHaveLength(1);
+        expect(failures[0].url).toBe("alert-channel");
+        expect(failures[0].event).toBe("payment_received");
+        expect(failures[0].error).toBeDefined();
+      });
+
+      it("invokes callback for multiple failed endpoints independently", async () => {
+        const failingUrl1 = "https://fail1.example.com/webhook";
+        const failingUrl2 = "https://fail2.example.com/webhook";
+        global.fetch = vi.fn(() => Promise.reject(new Error("down")));
+        registerPaymentWebhook(failingUrl1, ["payment_received"], { maxRetries: 0 });
+        registerPaymentWebhook(failingUrl2, ["payment_received"], { maxRetries: 0 });
+
+        const failures: PaymentDeliveryFailure[] = [];
+        await dispatchPaymentNotification(
+          "payment_received",
+          {
+            transactionId: "tx-multi-fail",
+            account: "GA001",
+          },
+          (f) => failures.push(f),
+        );
+
+        expect(failures).toHaveLength(2);
+        const urls = failures.map((f) => f.url);
+        expect(urls).toContain(failingUrl1);
+        expect(urls).toContain(failingUrl2);
+      });
+
+      it("does not invoke callback when delivery succeeds after retries", async () => {
+        let attempts = 0;
+        global.fetch = vi.fn(() => {
+          attempts++;
+          if (attempts < 2) return Promise.reject(new Error("temporary"));
+          return Promise.resolve(okResponse());
+        });
+        registerPaymentWebhook(SECRET_URL, ["payment_received"], {
+          maxRetries: 2,
+        });
+
+        const failureCallback = vi.fn();
+        await dispatchPaymentNotification(
+          "payment_received",
+          {
+            transactionId: "tx-retry-success",
+            account: "GA001",
+          },
+          failureCallback,
+        );
+
+        expect(attempts).toBe(2);
+        expect(failureCallback).not.toHaveBeenCalled();
+      });
+
+      it("swallows exceptions thrown by onDeliveryFailure callback", async () => {
+        global.fetch = vi.fn(() => Promise.reject(new Error("down")));
+        registerPaymentWebhook(SECRET_URL, ["payment_received"], {
+          maxRetries: 0,
+        });
+
+        const throwingCallback = vi.fn(() => {
+          throw new Error("callback explosion");
+        });
+
+        await expect(
+          dispatchPaymentNotification(
+            "payment_received",
+            {
+              transactionId: "tx-callback-throw",
+              account: "GA001",
+            },
+            throwingCallback,
+          ),
+        ).resolves.not.toThrow();
+
+        expect(throwingCallback).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 });
+

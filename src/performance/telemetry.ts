@@ -275,6 +275,18 @@ export function resolveOpenTelemetryConfig(config: TelemetryConfig): OpenTelemet
 
 let activeManager: OpenTelemetryManager | null = null;
 let activeData: TelemetryData | null = null;
+const warnedMethods = new Set<string>();
+
+function warnIfUninitialized(methodName: string): void {
+  if (!activeManager && !warnedMethods.has(methodName)) {
+    warnedMethods.add(methodName);
+    console.warn(
+      `[sorokit:telemetry] ${methodName}() was called before initTelemetry() was invoked. ` +
+        `Telemetry is uninitialized and operations will silently no-op. ` +
+        `Call initTelemetry({ serviceName: '...' }) to configure tracing and metrics.`,
+    );
+  }
+}
 
 /**
  * Initializes OpenTelemetry-compatible tracing and metrics for the SDK.
@@ -315,6 +327,7 @@ export function initTelemetry(config: TelemetryConfig): SorokitResult<TelemetryD
 
     activeManager = manager;
     activeData = data;
+    warnedMethods.clear();
 
     return ok(data);
   } catch (cause) {
@@ -326,13 +339,32 @@ export function initTelemetry(config: TelemetryConfig): SorokitResult<TelemetryD
   }
 }
 
-/** Returns the currently installed telemetry manager, or `null` if uninitialized. */
+/**
+ * Returns the currently installed telemetry manager, or `null` if uninitialized.
+ *
+ * Emits a console warning if called before `initTelemetry()`. To prevent log spam,
+ * the warning is logged at most once per session until telemetry is initialized or reset.
+ */
 export function getTelemetryManager(): OpenTelemetryManager | null {
+  if (!activeManager) {
+    warnIfUninitialized("getTelemetryManager");
+    return null;
+  }
   return activeManager;
 }
 
-/** Returns the `TelemetryData` from the most recent successful `initTelemetry` call. */
+/**
+ * Returns the `TelemetryData` from the most recent successful `initTelemetry` call,
+ * or `null` if uninitialized.
+ *
+ * Emits a console warning if called before `initTelemetry()`. To prevent log spam,
+ * the warning is logged at most once per session until telemetry is initialized or reset.
+ */
 export function getTelemetryData(): TelemetryData | null {
+  if (!activeData) {
+    warnIfUninitialized("getTelemetryData");
+    return null;
+  }
   return activeData;
 }
 
@@ -342,18 +374,69 @@ export function isTelemetryInitialized(): boolean {
 }
 
 /**
+ * Validates that telemetry has been initialized and is currently active.
+ *
+ * Returns an ok `SorokitResult` if active, or an error `SorokitResult` with
+ * `SorokitErrorCode.INVALID_CONFIG` if uninitialized.
+ */
+export function validateTelemetryInitialized(): SorokitResult<void> {
+  if (!activeManager || !activeManager.isEnabled()) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "Telemetry is uninitialized. Call initTelemetry({ serviceName: '...' }) before accessing telemetry.",
+    );
+  }
+  return ok(undefined);
+}
+
+/**
+ * Returns the active telemetry manager, or an error `SorokitResult` if uninitialized.
+ *
+ * Useful for callers that require strict initialization guarantees without silent no-ops.
+ */
+export function requireTelemetryManager(): SorokitResult<OpenTelemetryManager> {
+  if (!activeManager) {
+    warnIfUninitialized("requireTelemetryManager");
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "Telemetry manager is uninitialized. Call initTelemetry({ serviceName: '...' }) before accessing the manager.",
+    );
+  }
+  return ok(activeManager);
+}
+
+/**
+ * Returns the active `TelemetryData`, or an error `SorokitResult` if uninitialized.
+ *
+ * Useful for callers that require strict initialization guarantees without silent no-ops.
+ */
+export function requireTelemetryData(): SorokitResult<TelemetryData> {
+  if (!activeData) {
+    warnIfUninitialized("requireTelemetryData");
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "Telemetry data is uninitialized. Call initTelemetry({ serviceName: '...' }) before accessing telemetry data.",
+    );
+  }
+  return ok(activeData);
+}
+
+/**
  * Shuts down the active telemetry manager (flushing/stopping its exporter)
  * and clears the installed singleton. Safe to call when telemetry was never
  * initialized.
  */
 export async function shutdownTelemetry(): Promise<SorokitResult<void>> {
   if (!activeManager) {
+    activeData = null;
+    warnedMethods.clear();
     return ok(undefined);
   }
   try {
     await activeManager.shutdown();
     activeManager = null;
     activeData = null;
+    warnedMethods.clear();
     return ok(undefined);
   } catch (cause) {
     return err(
@@ -371,6 +454,7 @@ export async function shutdownTelemetry(): Promise<SorokitResult<void>> {
 export function resetTelemetry(): void {
   activeManager = null;
   activeData = null;
+  warnedMethods.clear();
 }
 
 // ─── Tracing Helpers ────────────────────────────────────────────────────────
@@ -460,12 +544,27 @@ export function recordCacheHit(
   );
 }
 
-/** Returns aggregated metric summaries (duration percentiles, counts) from the active manager. */
+/**
+ * Returns aggregated metric summaries (duration percentiles, counts) from the active manager.
+ * Emits a console warning if called before `initTelemetry()` (at most once per session).
+ */
 export function getTelemetryMetricsSummary(metricName?: string): Record<string, OtelMetricSummary> {
-  return activeManager ? activeManager.getMetricsSummary(metricName) : {};
+  if (!activeManager) {
+    warnIfUninitialized("getTelemetryMetricsSummary");
+    return {};
+  }
+  return activeManager.getMetricsSummary(metricName);
 }
 
-/** Returns exported spans held by the in-memory exporter, if that's the active exporter. */
+/**
+ * Returns exported spans held by the in-memory exporter, if that's the active exporter.
+ * Emits a console warning if called before `initTelemetry()` (at most once per session).
+ */
 export function getTelemetrySpans(): SpanData[] {
-  return activeManager ? activeManager.getExportedSpans() : [];
+  if (!activeManager) {
+    warnIfUninitialized("getTelemetrySpans");
+    return [];
+  }
+  return activeManager.getExportedSpans();
 }
+

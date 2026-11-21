@@ -16,6 +16,11 @@ export interface ContractDataValidationResult {
 
 export { readContract } from "./readContract";
 export {
+  serializeContractDataKey,
+  equalContractDataKeys,
+} from "./contractData";
+export type { ContractDataKey } from "./contractData";
+export {
   createContractReadCacheKey,
   invalidateContractReadCache,
 } from "./contractCallIdentity";
@@ -28,8 +33,18 @@ export {
 } from "./contractEncoding";
 export { parseContractResult } from "./parseContractResult";
 export { prepareContractCall } from "./prepareCall";
-export { simulateTransaction, simulateTransactionBatch } from "./simulateTransaction";
-export type { BatchSimulationResult, SimulateTransactionOptions } from "./simulateTransaction";
+export {
+  simulateTransaction,
+  simulateTransactionBatch,
+  extractResourceUsage,
+  validateResourceUsageResponse,
+} from "./simulateTransaction";
+export type {
+  BatchSimulationResult,
+  SimulateTransactionOptions,
+  ExtractResourceUsageOptions,
+  ResourceUsageValidationResult,
+} from "./simulateTransaction";
 export { simulateContractSafe } from "./simulateContractSafe";
 export type {
   SimulateContractSafeOptions,
@@ -118,7 +133,7 @@ export type {
   ContractErrorMap,
   DecodedContractError,
 } from "./contractErrors";
-export { ContractInteractionBuilder } from "./contractInteractionBuilder";
+export { ContractInteractionBuilder, createContractInteractionBuilder } from "./contractInteractionBuilder";
 export type {
   ContractInteractionBuilderConfig,
   ArgumentField,
@@ -582,3 +597,8 @@ export type {
   UpgradeEvent,
   ContractUpgradeDetectionOptions,
 } from "./upgradeDetection";
+export { getContractData, getContractStorage } from "./stateQueries";
+export type { ContractDurability } from "./stateQueries";
+export { parseABI, buildABI } from "./abiParser";
+export type { ParsedABI, ParsedAbiMethod, ParsedAbiArg } from "./abiParser";
+export { generateInterface } from "./interfaceGenerator";

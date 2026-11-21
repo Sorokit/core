@@ -6,8 +6,12 @@ import {
   validateAssetCode,
   validateUrl,
   sanitizeInput,
+  validateContractMethodSpec,
+  isValidContractMethodSpec,
+  validateSorobanType,
   STELLAR_MAX_DECIMALS,
   STELLAR_MAX_AMOUNT,
+  SOROBAN_MAX_METHOD_NAME_LEN,
 } from "../utility/validator";
 import { SorokitErrorCode, SorokitErrorCategory } from "../shared/response";
 
@@ -314,6 +318,301 @@ describe("Validator Framework", () => {
       expect(sanitizeInput(null)).toBe("");
       expect(sanitizeInput(undefined)).toBe("");
       expect(sanitizeInput(12345)).toBe("12345");
+    });
+  });
+
+  describe("validateContractMethodSpec (#769)", () => {
+    describe("method name validation", () => {
+      it("accepts valid alphanumeric and snake_case method names", () => {
+        const validNames = ["transfer", "balance", "allowance", "increase_allowance", "_internal", "mint123", "CamelCase"];
+        for (const name of validNames) {
+          const res = validateContractMethodSpec({ name, inputs: [], returnType: "void" });
+          expect(res.status).toBe("ok");
+          if (res.status === "ok") {
+            expect(res.data.name).toBe(name);
+          }
+        }
+      });
+
+      it("rejects method names starting with a digit (e.g. 123_invalid)", () => {
+        const res = validateContractMethodSpec({ name: "123_invalid" });
+        expect(res.status).toBe("error");
+        if (res.status === "error") {
+          expect(res.error.code).toBe(SorokitErrorCode.VALIDATION);
+          expect(res.error.message).toContain("starts with a digit");
+          expect(res.error.message).toContain("Soroban method specification");
+        }
+      });
+
+      it("rejects method names with hyphens, spaces, or symbols", () => {
+        const invalidNames = ["foo-bar", "transfer token", "deposit.asset", "bad@method", "test#1", " transfer "];
+        for (const name of invalidNames) {
+          const res = validateContractMethodSpec({ name });
+          expect(res.status).toBe("error");
+          if (res.status === "error") {
+            expect(res.error.message).toContain("invalid characters");
+            expect(res.error.message).toContain("CAP-0046");
+          }
+        }
+      });
+
+      it("rejects reserved keywords in Soroban and Rust", () => {
+        const keywords = ["fn", "let", "mut", "impl", "struct", "match", "return", "__constructor"];
+        for (const name of keywords) {
+          const res = validateContractMethodSpec({ name });
+          expect(res.status).toBe("error");
+          if (res.status === "error") {
+            expect(res.error.message).toContain("reserved keyword");
+            expect(res.error.message).toContain("Soroban specification");
+          }
+        }
+      });
+
+      it("rejects method names exceeding 32 characters", () => {
+        const longName = "a".repeat(SOROBAN_MAX_METHOD_NAME_LEN + 1);
+        const res = validateContractMethodSpec({ name: longName });
+        expect(res.status).toBe("error");
+        if (res.status === "error") {
+          expect(res.error.message).toContain("exceeds the maximum Soroban symbol limit of 32 characters");
+        }
+      });
+
+      it("rejects empty or non-string method names", () => {
+        expect(validateContractMethodSpec({ name: "" }).status).toBe("error");
+        expect(validateContractMethodSpec({ name: "   " }).status).toBe("error");
+        expect(validateContractMethodSpec({ name: 123 }).status).toBe("error");
+        expect(validateContractMethodSpec({ name: null }).status).toBe("error");
+      });
+    });
+
+    describe("parameter and type validation", () => {
+      it("accepts valid Soroban scalar types", () => {
+        const scalars = [
+          "u32", "i32", "u64", "i64", "u128", "i128", "u256", "i256",
+          "bool", "void", "string", "symbol", "bytes", "bytes32", "address",
+        ];
+        for (const type of scalars) {
+          const res = validateContractMethodSpec({
+            name: "test_method",
+            inputs: [{ name: "param1", type }],
+            returnType: "void",
+          });
+          expect(res.status).toBe("ok");
+        }
+      });
+
+      it("accepts valid container types with generics", () => {
+        const containers = [
+          "vec<u32>",
+          "vec<string>",
+          "map<string, i128>",
+          "option<address>",
+          "result<u32, error>",
+          "tuple<u32, bool>",
+        ];
+        for (const type of containers) {
+          const res = validateContractMethodSpec({
+            name: "test_container",
+            inputs: [{ name: "data", type }],
+          });
+          expect(res.status).toBe("ok");
+        }
+      });
+
+      it("accepts nested container types", () => {
+        const nested = [
+          "vec<vec<u32>>",
+          "map<string, vec<i64>>",
+          "option<vec<address>>",
+        ];
+        for (const type of nested) {
+          const res = validateContractMethodSpec({
+            name: "test_nested",
+            inputs: [{ name: "nested_data", type }],
+          });
+          expect(res.status).toBe("ok");
+        }
+      });
+
+      it("rejects invalid scalar types (e.g. invalid_scval_type, int, float)", () => {
+        const invalidTypes = ["invalid_scval_type", "int", "float", "decimal", "uint", "boolean"];
+        for (const type of invalidTypes) {
+          const res = validateContractMethodSpec({
+            name: "transfer",
+            inputs: [{ name: "amount", type }],
+          });
+          expect(res.status).toBe("error");
+          if (res.status === "error") {
+            expect(res.error.message).toContain("Invalid Soroban type");
+            expect(res.error.message).toContain("ScSpecTypeDef");
+          }
+        }
+      });
+
+      it("rejects container types with incorrect arity", () => {
+        // option requires 1 param
+        expect(validateContractMethodSpec({
+          name: "op_test",
+          inputs: [{ name: "x", type: "option<u32, i64>" }],
+        }).status).toBe("error");
+
+        // map requires 2 params
+        expect(validateContractMethodSpec({
+          name: "map_test",
+          inputs: [{ name: "m", type: "map<string>" }],
+        }).status).toBe("error");
+
+        // vec requires 1 param
+        expect(validateContractMethodSpec({
+          name: "vec_test",
+          inputs: [{ name: "v", type: "vec<u32, i64>" }],
+        }).status).toBe("error");
+
+        for (const type of ["vec", "map", "option", "result"]) {
+          expect(validateContractMethodSpec({
+            name: "bare_container",
+            inputs: [{ name: "value", type }],
+          }).status).toBe("error");
+        }
+      });
+
+      it("rejects scalar types with generic arguments", () => {
+        const res = validateContractMethodSpec({
+          name: "bad_scalar",
+          inputs: [{ name: "x", type: "u32<string>" }],
+        });
+        expect(res.status).toBe("error");
+        if (res.status === "error") {
+          expect(res.error.message).toContain("Scalar type \"u32\" cannot have generic type parameters");
+        }
+      });
+
+      it("rejects malformed generic brackets", () => {
+        expect(validateContractMethodSpec({
+          name: "unclosed",
+          inputs: [{ name: "x", type: "vec<u32" }],
+        }).status).toBe("error");
+
+        expect(validateContractMethodSpec({
+          name: "empty_inner",
+          inputs: [{ name: "x", type: "vec<>" }],
+        }).status).toBe("error");
+      });
+
+      it("rejects invalid parameter names", () => {
+        const res = validateContractMethodSpec({
+          name: "transfer",
+          inputs: [{ name: "123_invalid_param", type: "u32" }],
+        });
+        expect(res.status).toBe("error");
+        if (res.status === "error") {
+          expect(res.error.message).toContain("Parameter name \"123_invalid_param\"");
+        }
+      });
+
+      it("rejects non-array inputs", () => {
+        const res = validateContractMethodSpec({
+          name: "transfer",
+          inputs: "u32" as any,
+        });
+        expect(res.status).toBe("error");
+      });
+    });
+
+    describe("return type validation", () => {
+      it("accepts void, unit, or omitted return types", () => {
+        const voidVariants = [undefined, null, "void", "()", "unit"];
+        for (const ret of voidVariants) {
+          const res = validateContractMethodSpec({
+            name: "execute",
+            returnType: ret,
+          });
+          expect(res.status).toBe("ok");
+          if (res.status === "ok") {
+            expect(res.data.returnType).toBeNull();
+          }
+        }
+      });
+
+      it("accepts valid non-void return types", () => {
+        const res = validateContractMethodSpec({
+          name: "get_balance",
+          returnType: "i128",
+        });
+        expect(res.status).toBe("ok");
+        if (res.status === "ok") {
+          expect(res.data.returnType).toBe("i128");
+        }
+      });
+
+      it("rejects invalid return type", () => {
+        const res = validateContractMethodSpec({
+          name: "bad_return",
+          returnType: "invalid_scval_type",
+        });
+        expect(res.status).toBe("error");
+        if (res.status === "error") {
+          expect(res.error.message).toContain("Invalid Soroban type \"invalid_scval_type\"");
+          expect(res.error.message).toContain("returnType");
+        }
+      });
+
+      it("rejects malformed return type descriptors", () => {
+        for (const returnType of [123, {}, { type: 123 }, ""]) {
+          expect(validateContractMethodSpec({ name: "malformed_return", returnType }).status).toBe("error");
+        }
+      });
+    });
+
+    describe("flexible input shapes & helpers", () => {
+      it("supports parameters / params / args aliases", () => {
+        const resParams = validateContractMethodSpec({
+          name: "test_params",
+          params: [{ name: "x", type: "u32" }],
+        });
+        expect(resParams.status).toBe("ok");
+
+        const resArgs = validateContractMethodSpec({
+          name: "test_args",
+          args: ["i64", "address"],
+        });
+        expect(resArgs.status).toBe("ok");
+        if (resArgs.status === "ok") {
+          expect(resArgs.data.inputs).toHaveLength(2);
+          expect(resArgs.data.inputs[0].name).toBe("arg0");
+          expect(resArgs.data.inputs[0].type).toBe("i64");
+          expect(resArgs.data.inputs[1].name).toBe("arg1");
+          expect(resArgs.data.inputs[1].type).toBe("address");
+        }
+      });
+
+      it("supports returns / return_type aliases", () => {
+        const res1 = validateContractMethodSpec({
+          name: "check",
+          returns: "bool",
+        });
+        expect(res1.status).toBe("ok");
+        if (res1.status === "ok") expect(res1.data.returnType).toBe("bool");
+
+        const res2 = validateContractMethodSpec({
+          name: "check2",
+          return_type: "u64",
+        });
+        expect(res2.status).toBe("ok");
+        if (res2.status === "ok") expect(res2.data.returnType).toBe("u64");
+      });
+
+      it("rejects non-object method specs", () => {
+        expect(validateContractMethodSpec(null).status).toBe("error");
+        expect(validateContractMethodSpec(undefined).status).toBe("error");
+        expect(validateContractMethodSpec("string").status).toBe("error");
+        expect(validateContractMethodSpec([]).status).toBe("error");
+      });
+
+      it("isValidContractMethodSpec helper returns boolean", () => {
+        expect(isValidContractMethodSpec({ name: "valid_method", inputs: ["u32"] })).toBe(true);
+        expect(isValidContractMethodSpec({ name: "123_invalid" })).toBe(false);
+      });
     });
   });
 });

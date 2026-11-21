@@ -11,9 +11,12 @@ import type { SorokitResult } from "../shared/response";
 import { SorokitErrorCategory, SorokitErrorCode } from "../shared/response";
 
 /**
- * Transaction priority level.
+ * Priority level for queue scheduling.
+ *
+ * Kept separate from the fee-estimation `TransactionPriority` (which uses
+ * "urgent" rather than "critical").
  */
-export type TransactionPriority = "low" | "normal" | "high" | "critical";
+export type QueuePriority = "low" | "normal" | "high" | "critical";
 
 /**
  * Queue item status.
@@ -29,7 +32,7 @@ export interface QueuedTransaction {
   /** Transaction envelope XDR */
   envelopeXdr: string;
   /** Priority level */
-  priority: TransactionPriority;
+  priority: QueuePriority;
   /** Current status */
   status: QueueItemStatus;
   /** Dependencies on other transaction IDs */
@@ -149,7 +152,7 @@ export class TransactionQueue {
   enqueue(
     id: string,
     envelopeXdr: string,
-    priority: TransactionPriority = "normal",
+    priority: QueuePriority = "normal",
     dependsOn?: string[],
   ): SorokitResult<QueuedTransaction> {
     try {
@@ -467,11 +470,33 @@ export class TransactionQueue {
           tx.processingStartedAt = Date.now();
         }
 
-        submissionFn(batch).catch((error) => {
-          for (const tx of batch) {
-            this.markFailed(tx.id, error.message);
-          }
-        });
+        submissionFn(batch)
+          .then((batchResult) => {
+            // Correlate results back to queued transactions by ID, not by
+            // array index.  Results may arrive out of order when the
+            // submissionFn executes operations concurrently, so we always
+            // look up each transaction by its stable queue ID rather than
+            // relying on positional correspondence.
+            for (const tx of batch) {
+              const result = batchResult.results.get(tx.id);
+              if (result === undefined) {
+                // submissionFn did not report a result for this ID — treat
+                // as a failure so the transaction can be retried.
+                this.markFailed(tx.id, "No result returned for transaction");
+              } else if (result.success) {
+                this.markCompleted(tx.id, result.hash);
+              } else {
+                this.markFailed(tx.id, result.error ?? "Submission failed");
+              }
+            }
+          })
+          .catch((error: unknown) => {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            for (const tx of batch) {
+              this.markFailed(tx.id, message);
+            }
+          });
       }
     }, this.config.schedulingIntervalMs);
   }

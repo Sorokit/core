@@ -34,13 +34,31 @@ export interface ValidationRules {
     op: { type: string; [key: string]: unknown },
     index: number,
   ) => TransactionValidationFinding[] | null;
+  /**
+   * Maximum accepted length of the base64-encoded XDR string, in
+   * characters. Rejecting oversized envelopes before attempting to parse
+   * them bounds the CPU/memory cost of a malicious or malformed input
+   * (#838). Default: 100_000 (base64 chars) — far beyond any legitimate
+   * Stellar transaction, which is bounded on-chain to 100 operations and a
+   * handful of KB of XDR.
+   */
+  maxXdrLength?: number;
+  /**
+   * Maximum number of operations a transaction may contain before being
+   * rejected outright, bounding the structural complexity of what gets
+   * iterated below (#838). Default: 100 (the protocol's own operations-
+   * per-transaction cap).
+   */
+  maxOperationCount?: number;
 }
 
 export const DEFAULT_VALIDATION_RULES: Required<
-  Pick<ValidationRules, "maxFeePerOpStroops" | "minFeeStroops">
+  Pick<ValidationRules, "maxFeePerOpStroops" | "minFeeStroops" | "maxXdrLength" | "maxOperationCount">
 > = {
   maxFeePerOpStroops: 1_000_000,
   minFeeStroops: 100,
+  maxXdrLength: 100_000,
+  maxOperationCount: 100,
 };
 
 function isValidStellarAddress(addr: unknown): addr is string {
@@ -74,6 +92,28 @@ export function validateTransactionXdr(
   const findings: TransactionValidationFinding[] = [];
   const maxFeePerOp = rules.maxFeePerOpStroops ?? DEFAULT_VALIDATION_RULES.maxFeePerOpStroops;
   const minFee = rules.minFeeStroops ?? DEFAULT_VALIDATION_RULES.minFeeStroops;
+  const maxXdrLength = rules.maxXdrLength ?? DEFAULT_VALIDATION_RULES.maxXdrLength;
+  const maxOperationCount = rules.maxOperationCount ?? DEFAULT_VALIDATION_RULES.maxOperationCount;
+
+  // ── Size limit (#838) ───────────────────────────────────────────────────
+  // Reject oversized envelopes before attempting to parse them at all, so
+  // an attacker cannot spend CPU/memory on XDR decoding just by sending a
+  // very large payload.
+  if (typeof xdr !== "string" || xdr.length > maxXdrLength) {
+    findings.push({
+      severity: "error",
+      code: "XDR_TOO_LARGE",
+      message: `XDR length (${typeof xdr === "string" ? xdr.length : 0} chars) exceeds the maximum of ${maxXdrLength} chars.`,
+    });
+    return ok({
+      valid: false,
+      findings,
+      warnings: [],
+      errors: findings,
+      operationCount: 0,
+      fee: null,
+    });
+  }
 
   let tx: ReturnType<typeof TransactionBuilder.fromXDR>;
   try {
@@ -98,6 +138,27 @@ export function validateTransactionXdr(
   const operations: ReadonlyArray<{ type: string; [key: string]: unknown }> =
     "operations" in tx ? (tx.operations as never) : [];
   const fee = "fee" in tx ? String((tx as { fee: string | number }).fee) : null;
+
+  // ── Structural complexity limit (#838) ──────────────────────────────────
+  // Bound the number of operations iterated below. The Stellar protocol
+  // itself caps a transaction at 100 operations, so a successfully-parsed
+  // XDR with more than that is either malformed or deliberately crafted to
+  // maximize validation cost — reject it before the per-operation loop.
+  if (operations.length > maxOperationCount) {
+    findings.push({
+      severity: "error",
+      code: "TOO_MANY_OPERATIONS",
+      message: `Transaction contains ${operations.length} operations, exceeding the maximum of ${maxOperationCount}.`,
+    });
+    return ok({
+      valid: false,
+      findings,
+      warnings: [],
+      errors: findings,
+      operationCount: operations.length,
+      fee,
+    });
+  }
 
   if (fee !== null) {
     const feeNum = Number(fee);

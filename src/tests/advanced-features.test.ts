@@ -7,6 +7,8 @@ import {
   captureContractState,
   createClaimCommitment,
   createProofEnvelope,
+  configureZeroKnowledgeVerificationLimits,
+  DEFAULT_ZERO_KNOWLEDGE_VERIFICATION_LIMITS,
   diffContractState,
   inspectContractInvocation,
   optimizeContractArgs,
@@ -108,5 +110,44 @@ describe("zero-knowledge proof infrastructure", () => {
     const result = await verifyProof(envelope, verifier);
     expect(result.valid).toBe(true);
     expect(verifier.verify).toHaveBeenCalledOnce();
+  });
+
+  it("rejects proofs larger than the configured byte limit before verification", async () => {
+    configureZeroKnowledgeVerificationLimits({ maxProofSizeBytes: 3 });
+    const envelope = createProofEnvelope(
+      "mock",
+      { type: "payment-limit", publicInputs: {} },
+      "éé",
+    );
+    const verifier = { verify: vi.fn(async () => true) };
+
+    try {
+      await expect(verifyProof(envelope, verifier)).rejects.toThrow(
+        "proof size 4 bytes exceeds the configured limit of 3 bytes",
+      );
+      expect(verifier.verify).not.toHaveBeenCalled();
+    } finally {
+      configureZeroKnowledgeVerificationLimits(DEFAULT_ZERO_KNOWLEDGE_VERIFICATION_LIMITS);
+    }
+  });
+
+  it("rejects proofs whose public inputs and disclosed claims exceed circuit complexity", async () => {
+    configureZeroKnowledgeVerificationLimits({ maxCircuitComplexity: 1 });
+    const envelope = createProofEnvelope(
+      "mock",
+      { type: "payment-limit", publicInputs: { amount: "10" } },
+      new Uint8Array([1]),
+      { claims: { asset: "USDC" }, commitment: "commitment" },
+    );
+    const verifier = { verify: vi.fn(async () => true) };
+
+    try {
+      await expect(verifyProof(envelope, verifier)).rejects.toThrow(
+        "circuit complexity exceeds the configured limit of 1",
+      );
+      expect(verifier.verify).not.toHaveBeenCalled();
+    } finally {
+      configureZeroKnowledgeVerificationLimits(DEFAULT_ZERO_KNOWLEDGE_VERIFICATION_LIMITS);
+    }
   });
 });

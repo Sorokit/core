@@ -22,6 +22,9 @@ import {
   validateTelemetryConfig,
   resolveOpenTelemetryConfig,
   DatadogHttpTelemetryExporter,
+  validateTelemetryInitialized,
+  requireTelemetryManager,
+  requireTelemetryData,
 } from "./telemetry";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
@@ -433,4 +436,156 @@ describe("telemetry", () => {
       expect(isTelemetryInitialized()).toBe(false);
     });
   });
+
+  describe("initialization validation and uninitialized warning behavior (#768)", () => {
+    it("emits a console warning when getTelemetryManager() is called before initTelemetry()", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const manager = getTelemetryManager();
+      expect(manager).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("getTelemetryManager() was called before initTelemetry()"),
+      );
+    });
+
+    it("does not spam the console when getTelemetryManager() is called repeatedly (warn-once)", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      for (let i = 0; i < 5; i++) {
+        expect(getTelemetryManager()).toBeNull();
+      }
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("emits a warning once when getTelemetryData() is called before initTelemetry()", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(getTelemetryData()).toBeNull();
+      expect(getTelemetryData()).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("getTelemetryData() was called before initTelemetry()"),
+      );
+    });
+
+    it("emits a warning once when getTelemetryMetricsSummary() is called before initTelemetry()", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(getTelemetryMetricsSummary()).toEqual({});
+      expect(getTelemetryMetricsSummary()).toEqual({});
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("getTelemetryMetricsSummary() was called before initTelemetry()"),
+      );
+    });
+
+    it("emits a warning once when getTelemetrySpans() is called before initTelemetry()", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(getTelemetrySpans()).toEqual([]);
+      expect(getTelemetrySpans()).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("getTelemetrySpans() was called before initTelemetry()"),
+      );
+    });
+
+    it("does not emit warnings when telemetry has been initialized", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      initTelemetry({ serviceName: "active-service", exporter: "memory" });
+
+      expect(getTelemetryManager()).not.toBeNull();
+      expect(getTelemetryData()?.serviceName).toBe("active-service");
+      expect(getTelemetryMetricsSummary()).toBeDefined();
+      expect(getTelemetrySpans()).toEqual([]);
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it("resets the warning state when resetTelemetry() is called", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(getTelemetryManager()).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      // Subsequent call does not warn
+      expect(getTelemetryManager()).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      // Reset telemetry
+      resetTelemetry();
+
+      // Should warn again after reset
+      expect(getTelemetryManager()).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("resets the warning state when shutdownTelemetry() is called", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      initTelemetry({ serviceName: "shutdown-service", exporter: "memory" });
+      await shutdownTelemetry();
+
+      expect(getTelemetryManager()).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("resets the warning state when shutdownTelemetry() is called before initialization", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(getTelemetryManager()).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      await shutdownTelemetry();
+
+      expect(getTelemetryManager()).toBeNull();
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("isTelemetryInitialized() returns false without logging a warning", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(isTelemetryInitialized()).toBe(false);
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it("validateTelemetryInitialized() returns error when uninitialized and ok when initialized", () => {
+      const uninit = validateTelemetryInitialized();
+      expect(uninit.status).toBe("error");
+      if (uninit.status === "error") {
+        expect(uninit.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+        expect(uninit.error.message).toMatch(/uninitialized/i);
+      }
+
+      initTelemetry({ serviceName: "val-test", exporter: "memory" });
+      const init = validateTelemetryInitialized();
+      expect(init.status).toBe("ok");
+    });
+
+    it("requireTelemetryManager() returns error when uninitialized and manager when initialized", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const uninit = requireTelemetryManager();
+      expect(uninit.status).toBe("error");
+      if (uninit.status === "error") {
+        expect(uninit.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+      }
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      initTelemetry({ serviceName: "req-mgr-test", exporter: "memory" });
+      const init = requireTelemetryManager();
+      expect(init.status).toBe("ok");
+      if (init.status === "ok") {
+        expect(init.data).toBe(getTelemetryManager());
+      }
+    });
+
+    it("requireTelemetryData() returns error when uninitialized and data when initialized", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const uninit = requireTelemetryData();
+      expect(uninit.status).toBe("error");
+      if (uninit.status === "error") {
+        expect(uninit.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
+      }
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+
+      initTelemetry({ serviceName: "req-data-test", exporter: "memory" });
+      const init = requireTelemetryData();
+      expect(init.status).toBe("ok");
+      if (init.status === "ok") {
+        expect(init.data.serviceName).toBe("req-data-test");
+      }
+    });
+  });
 });
+

@@ -71,11 +71,11 @@ describe("event deduplication index", () => {
     expect(filterNewEvents(index, [events[0]!, events[0]!, events[1]!])).toEqual(events.slice(0, 2));
     expect(index.has(events[0]!)).toBe(true);
     index.add(events[2]!);
-    expect(index.size).toBe(2);
+    expect(index.size()).toBe(2);
     expect(index.has(events[0]!)).toBe(false);
     expect(index.has(events[1]!)).toBe(true);
     index.clear();
-    expect(index.size).toBe(0);
+    expect(index.size()).toBe(0);
   });
 
   it("deduplicates records without IDs from their stable fields", () => {

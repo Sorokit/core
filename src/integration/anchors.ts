@@ -2,6 +2,15 @@ import { StellarToml, TransactionBuilder, WebAuth } from "@stellar/stellar-sdk";
 import type { Transaction } from "@stellar/stellar-sdk";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import {
+  cacheStellarToml,
+  clearStellarTomlCache,
+  getCachedStellarToml,
+  detectStellarTomlConflict,
+  DEFAULT_STELLAR_TOML_CACHE_TTL_MS,
+} from "./sep1Toml";
+import type { StellarToml as StellarTomlData } from "./sep1Toml";
+import type { SorokitLogger } from "../shared/logger";
 
 export interface AnchorAsset {
   code: string;
@@ -13,6 +22,7 @@ export interface Sep10AuthOptions {
   /** Ask a wallet or secure signer to sign the verified challenge XDR. */
   signChallenge: (challengeXdr: string) => Promise<string>;
   networkPassphrase?: string;
+  ttlMs?: number;
   fetch?: typeof fetch;
   timeoutMs?: number;
 }
@@ -21,6 +31,7 @@ export interface AnchorRequestOptions {
   accountId?: string;
   signChallenge?: (challengeXdr: string) => Promise<string>;
   networkPassphrase?: string;
+  ttlMs?: number;
   fetch?: typeof fetch;
   timeoutMs?: number;
   amount?: string;
@@ -51,10 +62,89 @@ function asUrl(value: string): URL | null {
   }
 }
 
-async function loadToml(anchorUrl: string, timeoutMs: number): Promise<AnchorToml> {
+export interface GetAnchorInfoOptions {
+  ttlMs?: number;
+  timeoutMs?: number;
+  /** See FetchStellarTomlOptions.verifyOnCacheHit in ./sep1Toml (#837). Defaults to true. */
+  verifyOnCacheHit?: boolean;
+  /** Logger for conflict warnings when verifyOnCacheHit detects a divergence. */
+  logger?: SorokitLogger;
+}
+
+async function resolveAnchorToml(homeDomain: string, timeoutMs: number): Promise<StellarTomlData> {
+  return StellarToml.Resolver.resolve(homeDomain, { timeout: timeoutMs }) as Promise<StellarTomlData>;
+}
+
+const NOOP_LOGGER: SorokitLogger = {
+  debug: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
+
+export async function getAnchorInfo(
+  homeDomain: string,
+  options: GetAnchorInfoOptions = {},
+): Promise<SorokitResult<StellarTomlData>> {
+  const ttlMs = options.ttlMs ?? DEFAULT_STELLAR_TOML_CACHE_TTL_MS;
+  if (!Number.isFinite(ttlMs) || ttlMs < 0) {
+    return err(SorokitErrorCode.VALIDATION, "Cache TTL must be a non-negative finite number.");
+  }
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return err(SorokitErrorCode.VALIDATION, "Request timeout must be a positive finite number.");
+  }
+
+  const cached = getCachedStellarToml(homeDomain);
+  if (cached) {
+    const verifyOnCacheHit = options.verifyOnCacheHit ?? true;
+    if (!verifyOnCacheHit) return ok(cached);
+
+    // #837: re-verify against a fresh resolve before trusting the cache,
+    // the same protection fetchStellarToml applies to its own cache.
+    let fresh: StellarTomlData;
+    try {
+      fresh = await resolveAnchorToml(homeDomain, timeoutMs);
+    } catch {
+      // Re-verification itself failed — serve the (unproven-stale) cache
+      // rather than failing the call outright.
+      return ok(cached);
+    }
+
+    const conflict = detectStellarTomlConflict(cached, fresh);
+    if (conflict) {
+      (options.logger ?? NOOP_LOGGER).warn(
+        `Anchor stellar.toml for "${homeDomain}" diverged from cached data: ${conflict}. Invalidating cache.`,
+        { domain: homeDomain, conflict },
+      );
+      clearStellarTomlCache(homeDomain);
+    }
+    cacheStellarToml(homeDomain, fresh, ttlMs);
+    return ok(fresh);
+  }
+
+  try {
+    const data = await resolveAnchorToml(homeDomain, timeoutMs);
+    cacheStellarToml(homeDomain, data, ttlMs);
+    return ok(data);
+  } catch (cause) {
+    return err(SorokitErrorCode.NETWORK_ERROR, "Failed to resolve anchor stellar.toml.", cause);
+  }
+}
+
+export function clearAnchorCache(homeDomain?: string): void {
+  clearStellarTomlCache(homeDomain);
+}
+
+async function loadToml(
+  anchorUrl: string,
+  options: GetAnchorInfoOptions,
+): Promise<AnchorToml> {
   const url = asUrl(anchorUrl);
   if (!url) throw new Error("Anchor URL must use HTTPS.");
-  return await StellarToml.Resolver.resolve(url.hostname, { timeout: timeoutMs }) as AnchorToml;
+  const result = await getAnchorInfo(url.hostname, options);
+  if (result.status === "error") throw new Error(result.error.message);
+  return result.data;
 }
 
 async function fetchJson<T>(
@@ -82,7 +172,10 @@ export async function authenticateSep10(
   const fetcher = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? 15_000;
   try {
-    const toml = await loadToml(anchorUrl, timeoutMs);
+    const toml = await loadToml(anchorUrl, {
+      timeoutMs,
+      ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
+    });
     const endpoint = toml.WEB_AUTH_ENDPOINT ? asUrl(toml.WEB_AUTH_ENDPOINT) : null;
     if (!endpoint || !toml.SIGNING_KEY) {
       return err(SorokitErrorCode.INVALID_CONFIG, "Anchor stellar.toml must define WEB_AUTH_ENDPOINT and SIGNING_KEY.");
@@ -192,7 +285,10 @@ export async function initiateSep6Transfer(
   options: AnchorRequestOptions & { direction?: "deposit" | "withdraw" } = {},
 ): Promise<SorokitResult<Record<string, unknown>>> {
   try {
-    const toml = await loadToml(anchorUrl, options.timeoutMs ?? 15_000);
+    const toml = await loadToml(anchorUrl, {
+      timeoutMs: options.timeoutMs ?? 15_000,
+      ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
+    });
     const server = toml.TRANSFER_SERVER ? asUrl(toml.TRANSFER_SERVER) : null;
     if (!server) return err(SorokitErrorCode.INVALID_CONFIG, "Anchor has no valid TRANSFER_SERVER in stellar.toml.");
     const direction = options.direction ?? "deposit";
@@ -214,7 +310,10 @@ export async function initiateSep24Interactive(
   options: AnchorRequestOptions & { direction?: "deposit" | "withdraw" } = {},
 ): Promise<SorokitResult<Sep24InteractiveResult>> {
   try {
-    const toml = await loadToml(anchorUrl, options.timeoutMs ?? 15_000);
+    const toml = await loadToml(anchorUrl, {
+      timeoutMs: options.timeoutMs ?? 15_000,
+      ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
+    });
     const server = toml.TRANSFER_SERVER_SEP0024 ? asUrl(toml.TRANSFER_SERVER_SEP0024) : null;
     if (!server) return err(SorokitErrorCode.INVALID_CONFIG, "Anchor has no valid TRANSFER_SERVER_SEP0024 in stellar.toml.");
     const direction = options.direction ?? "deposit";
@@ -243,7 +342,10 @@ export async function getSep6TransactionStatus(
 ): Promise<SorokitResult<Record<string, unknown>>> {
   if (!id.trim()) return err(SorokitErrorCode.VALIDATION, "A transaction ID is required.");
   try {
-    const toml = await loadToml(anchorUrl, options.timeoutMs ?? 15_000);
+    const toml = await loadToml(anchorUrl, {
+      timeoutMs: options.timeoutMs ?? 15_000,
+      ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
+    });
     const server = toml.TRANSFER_SERVER ? asUrl(toml.TRANSFER_SERVER) : null;
     if (!server) return err(SorokitErrorCode.INVALID_CONFIG, "Anchor has no valid TRANSFER_SERVER in stellar.toml.");
     const endpoint = new URL("transaction", `${server.toString().replace(/\/$/, "")}/`);

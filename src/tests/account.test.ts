@@ -593,6 +593,193 @@ describe("account", () => {
       expect(alerts[0]?.rule.id).toBe("low-xlm");
     });
 
+    describe("guards for null, NaN, and negative balance values (#747)", () => {
+      it("skips and logs when new balance is NaN", async () => {
+        const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const alerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+          [bal("XLM", "100")],
+          [{ ...bal("XLM", "NaN"), balanceFloat: NaN }],
+        );
+
+        expect(alerts).toHaveLength(0);
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('invalid new balance for asset "XLM"'),
+        );
+        warnSpy.mockRestore();
+      });
+
+      it("skips and logs when new balance is negative, preventing false 'below' alerts", async () => {
+        const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const alerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+          [bal("XLM", "100")],
+          [{ ...bal("XLM", "-10"), balanceFloat: -10 }],
+        );
+
+        expect(alerts).toHaveLength(0);
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('invalid new balance for asset "XLM"'),
+        );
+        warnSpy.mockRestore();
+      });
+
+      it("skips and logs when new balance is non-finite (Infinity)", async () => {
+        const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const alerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "above", threshold: 50 }],
+          [bal("XLM", "10")],
+          [{ ...bal("XLM", "Infinity"), balanceFloat: Infinity }],
+        );
+
+        expect(alerts).toHaveLength(0);
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('invalid new balance for asset "XLM"'),
+        );
+        warnSpy.mockRestore();
+      });
+
+      it("skips and logs when baseline (old balance) is NaN", async () => {
+        const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const alerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+          [{ ...bal("XLM", "NaN"), balanceFloat: NaN }],
+          [bal("XLM", "40")],
+        );
+
+        expect(alerts).toHaveLength(0);
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('invalid baseline balance for asset "XLM"'),
+        );
+        warnSpy.mockRestore();
+      });
+
+      it("skips and logs when baseline (old balance) is negative", async () => {
+        const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const alerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "change_percent", threshold: 10 }],
+          [{ ...bal("XLM", "-50"), balanceFloat: -50 }],
+          [bal("XLM", "100")],
+        );
+
+        expect(alerts).toHaveLength(0);
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('invalid baseline balance for asset "XLM"'),
+        );
+        warnSpy.mockRestore();
+      });
+
+      it("handles null baseline consistently across all conditions", async () => {
+        const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+
+        // 1. below: fires once on initial state when starting below threshold
+        const belowAlerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+          [], // null baseline
+          [bal("XLM", "30")],
+        );
+        expect(belowAlerts).toHaveLength(1);
+        expect(belowAlerts[0]?.newBalance).toBe("30");
+        expect(belowAlerts[0]?.oldBalance).toBe("30");
+        expect(belowAlerts[0]?.changePercent).toBeNull();
+
+        // 2. above: fires once on initial state when starting above threshold
+        const aboveAlerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "above", threshold: 50 }],
+          [], // null baseline
+          [bal("XLM", "80")],
+        );
+        expect(aboveAlerts).toHaveLength(1);
+        expect(aboveAlerts[0]?.newBalance).toBe("80");
+        expect(aboveAlerts[0]?.oldBalance).toBe("80");
+        expect(aboveAlerts[0]?.changePercent).toBeNull();
+
+        // 3. change_percent: requires baseline, so does not fire on null baseline
+        const changeAlerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "change_percent", threshold: 10 }],
+          [], // null baseline
+          [bal("XLM", "80")],
+        );
+        expect(changeAlerts).toHaveLength(0);
+      });
+
+      it("handles explicitly null/undefined baseline balance entries consistently", async () => {
+        const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+
+        const explicitNullOld = [
+          {
+            assetType: "native" as const,
+            assetCode: "XLM",
+            assetIssuer: null,
+            balance: null as any,
+            balanceFloat: null as any,
+          },
+        ];
+
+        const belowAlerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+          explicitNullOld,
+          [bal("XLM", "20")],
+        );
+        expect(belowAlerts).toHaveLength(1);
+
+        const changeAlerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "change_percent", threshold: 10 }],
+          explicitNullOld,
+          [bal("XLM", "20")],
+        );
+        expect(changeAlerts).toHaveLength(0);
+      });
+
+      it("skips and logs when rule threshold is NaN or negative", async () => {
+        const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+        const nanThresholdAlerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "below", threshold: NaN }],
+          [bal("XLM", "100")],
+          [bal("XLM", "40")],
+        );
+        expect(nanThresholdAlerts).toHaveLength(0);
+
+        const negativeThresholdAlerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "below", threshold: -10 }],
+          [bal("XLM", "100")],
+          [bal("XLM", "40")],
+        );
+        expect(negativeThresholdAlerts).toHaveLength(0);
+
+        expect(warnSpy).toHaveBeenCalledTimes(2);
+        warnSpy.mockRestore();
+      });
+
+      it("handles null or malformed balance arrays gracefully without throwing", async () => {
+        const { evaluateBalanceAlerts } = await import("../account/balanceAlerts");
+
+        expect(evaluateBalanceAlerts(null as any, [], [])).toEqual([]);
+        expect(evaluateBalanceAlerts([], null as any, [])).toEqual([]);
+        expect(evaluateBalanceAlerts([], [], null as any)).toEqual([]);
+
+        // Malformed array items
+        const alerts = evaluateBalanceAlerts(
+          [{ assetCode: "XLM", condition: "below", threshold: 50 }],
+          [null as any],
+          [null as any, bal("XLM", "30")],
+        );
+        expect(alerts).toHaveLength(1);
+      });
+    });
+
     it("streamAccount dispatches alerts to onAlert as balances change", async () => {
       const { getAccount } = await import("../account/getAccount");
       const { streamAccount } = await import("../account/streamAccount");

@@ -142,7 +142,21 @@ export function resolveMemo(
   const policyResult = validateMemoPolicy(params);
   if (policyResult.status === "error") return policyResult;
 
+  const allowEmpty =
+    params.allowEmptyMemo === true ||
+    (typeof params.memoValidation === "object" &&
+      params.memoValidation !== null &&
+      params.memoValidation.allowEmpty === true);
+
   if (!params.memo) {
+    if (params.memo === "" && allowEmpty) {
+      const memoType = params.memoType ?? "text";
+      try {
+        if (memoType === "text") return ok(Memo.text(""));
+      } catch {
+        // Fall through
+      }
+    }
     return ok(undefined);
   }
 

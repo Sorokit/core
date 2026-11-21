@@ -99,6 +99,60 @@ describe("network/resolveNetwork", () => {
       expect(result.data.networkPassphrase).toContain("Test SDF");
     }
   });
+
+  describe("URL validation (#789)", () => {
+    it.each([
+      ["not-a-url", "a non-URL string"],
+      ["ftp://example.com", "a non-http(s) protocol"],
+      ["http://example.com", "plain HTTP on a non-localhost host"],
+      ["", "an empty string"],
+      ["   ", "a whitespace-only string"],
+    ])("rejects horizonUrl override %j (%s)", (value) => {
+      const result = resolveNetwork("testnet", { horizonUrl: value });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_NETWORK);
+        expect(result.error.message).toContain("horizonUrl");
+      }
+    });
+
+    it.each([
+      ["not-a-url", "a non-URL string"],
+      ["ftp://example.com", "a non-http(s) protocol"],
+      ["http://example.com", "plain HTTP on a non-localhost host"],
+    ])("rejects rpcUrl override %j (%s)", (value) => {
+      const result = resolveNetwork("testnet", { rpcUrl: value });
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.INVALID_NETWORK);
+        expect(result.error.message).toContain("rpcUrl");
+      }
+    });
+
+    it.each([
+      "https://custom-horizon.example.com",
+      "http://localhost:8000",
+      "http://127.0.0.1:8000",
+    ])("accepts valid horizonUrl override %j", (value) => {
+      const result = resolveNetwork("testnet", { horizonUrl: value });
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.horizonUrl).toBe(value);
+      }
+    });
+
+    it.each([
+      "https://my-rpc.example.com",
+      "http://localhost:8000/soroban/rpc",
+      "http://127.0.0.1:8000/soroban/rpc",
+    ])("accepts valid rpcUrl override %j", (value) => {
+      const result = resolveNetwork("testnet", { rpcUrl: value });
+      expect(result.status).toBe("ok");
+      if (result.status === "ok") {
+        expect(result.data.rpcUrl).toBe(value);
+      }
+    });
+  });
 });
 
 describe("network/getNetwork (delegates to resolveNetwork)", () => {

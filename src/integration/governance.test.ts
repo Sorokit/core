@@ -5,6 +5,7 @@ import {
   createHttpGovernanceProvider,
   getProposal,
   getProposals,
+  getUserVotingHistory,
   getVotingPower,
   normalizeProposal,
   resetGovernance,
@@ -34,6 +35,7 @@ function fakeProvider(overrides: Partial<GovernanceProvider> = {}): GovernancePr
   getProposal: ReturnType<typeof vi.fn>;
   submitVote: ReturnType<typeof vi.fn>;
   getVotingPower: ReturnType<typeof vi.fn>;
+  getVoterHistory: ReturnType<typeof vi.fn>;
 } {
   return {
     listProposals: vi.fn(async () => [
@@ -44,6 +46,10 @@ function fakeProvider(overrides: Partial<GovernanceProvider> = {}): GovernancePr
     getProposal: vi.fn(async (_n, id) => raw({ id })),
     submitVote: vi.fn(async () => ({ txHash: "abc123" })),
     getVotingPower: vi.fn(async () => ({ power: "5000" })),
+    getVoterHistory: vi.fn(async () => [
+      { proposalId: 1, vote: "yes", proposalStatus: "active", txHash: "vote-1" },
+      { proposalId: 2, vote: "no", proposalStatus: "passed", txHash: "vote-2" },
+    ]),
     ...overrides,
   } as never;
 }
@@ -211,6 +217,125 @@ describe("getVotingPower", () => {
   });
 });
 
+// #785 — a voter's own cast votes, queryable by proposal status.
+describe("getUserVotingHistory", () => {
+  it("returns every vote across proposals when status is omitted (defaults to 'all')", async () => {
+    const provider = fakeProvider();
+    const res = await getUserVotingHistory(VOTER, { provider, network: "mainnet" });
+
+    expect(res.status).toBe("ok");
+    expect(res.data).toEqual([
+      { proposalId: 1, vote: "yes", proposalStatus: "active", txHash: "vote-1" },
+      { proposalId: 2, vote: "no", proposalStatus: "passed", txHash: "vote-2" },
+    ]);
+    expect(provider.getVoterHistory).toHaveBeenCalledWith("mainnet", VOTER);
+  });
+
+  it("filters to open proposals only", async () => {
+    const provider = fakeProvider();
+    const res = await getUserVotingHistory(VOTER, { provider, status: "open" });
+
+    expect(res.data).toEqual([{ proposalId: 1, vote: "yes", proposalStatus: "active", txHash: "vote-1" }]);
+  });
+
+  it("filters to closed (terminal) proposals only", async () => {
+    const provider = fakeProvider();
+    const res = await getUserVotingHistory(VOTER, { provider, status: "closed" });
+
+    expect(res.data).toEqual([{ proposalId: 2, vote: "no", proposalStatus: "passed", txHash: "vote-2" }]);
+  });
+
+  it("supports the { votes: [...] } wrapper shape, same as listProposals", async () => {
+    const provider = fakeProvider({
+      getVoterHistory: vi.fn(async () => ({
+        votes: [{ proposalId: 1, vote: "abstain", proposalStatus: "active" }],
+      })),
+    });
+    const res = await getUserVotingHistory(VOTER, { provider });
+
+    expect(res.data).toEqual([{ proposalId: 1, vote: "abstain", proposalStatus: "active" }]);
+  });
+
+  it("omits txHash when the provider does not report one", async () => {
+    const provider = fakeProvider({
+      getVoterHistory: vi.fn(async () => [{ proposalId: 1, vote: "yes", proposalStatus: "active" }]),
+    });
+    const res = await getUserVotingHistory(VOTER, { provider });
+
+    expect(res.data?.[0]).toEqual({ proposalId: 1, vote: "yes", proposalStatus: "active" });
+    expect(res.data?.[0]).not.toHaveProperty("txHash");
+  });
+
+  it("rejects an invalid public key before touching the provider", async () => {
+    const provider = fakeProvider();
+    const res = await getUserVotingHistory("GNOPE", { provider });
+
+    expect(res.error?.code).toBe("INVALID_ADDRESS");
+    expect(provider.getVoterHistory).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown status filter", async () => {
+    const res = await getUserVotingHistory(VOTER, {
+      provider: fakeProvider(),
+      status: "bogus" as never,
+    });
+
+    expect(res.error?.code).toBe("VALIDATION");
+  });
+
+  it("reports INVALID_CONFIG when the configured provider has no getVoterHistory method", async () => {
+    const provider = fakeProvider({ getVoterHistory: undefined });
+    const res = await getUserVotingHistory(VOTER, { provider });
+
+    expect(res.error?.code).toBe("INVALID_CONFIG");
+  });
+
+  it("rejects a malformed vote entry from the provider", async () => {
+    const provider = fakeProvider({
+      getVoterHistory: vi.fn(async () => [{ proposalId: 1, vote: "maybe", proposalStatus: "active" }]),
+    });
+    const res = await getUserVotingHistory(VOTER, { provider });
+
+    expect(res.error?.code).toBe("VALIDATION");
+  });
+
+  it("rejects a non-array response from the provider", async () => {
+    const provider = fakeProvider({ getVoterHistory: vi.fn(async () => ({})) });
+    const res = await getUserVotingHistory(VOTER, { provider });
+
+    expect(res.error?.code).toBe("VALIDATION");
+  });
+
+  it("surfaces a NETWORK_ERROR when the provider throws", async () => {
+    const provider = fakeProvider({
+      getVoterHistory: vi.fn(async () => {
+        throw new Error("connection refused");
+      }),
+    });
+    const res = await getUserVotingHistory(VOTER, { provider });
+
+    expect(res.error?.code).toBe("NETWORK_ERROR");
+  });
+
+  it("verifies history retrieval for multiple distinct voters", async () => {
+    const voterA = Keypair.random().publicKey();
+    const voterB = Keypair.random().publicKey();
+    const provider = fakeProvider({
+      getVoterHistory: vi.fn(async (_network, publicKey) =>
+        publicKey === voterA
+          ? [{ proposalId: 1, vote: "yes", proposalStatus: "active" }]
+          : [{ proposalId: 1, vote: "no", proposalStatus: "active" }],
+      ),
+    });
+
+    const resA = await getUserVotingHistory(voterA, { provider });
+    const resB = await getUserVotingHistory(voterB, { provider });
+
+    expect(resA.data?.[0]?.vote).toBe("yes");
+    expect(resB.data?.[0]?.vote).toBe("no");
+  });
+});
+
 describe("trackProposal", () => {
   function sequence(states: Array<Record<string, unknown> | Error>) {
     let i = 0;
@@ -320,6 +445,9 @@ describe("createHttpGovernanceProvider", () => {
       "GET https://gov.test/proposals/1": { body: raw() },
       "POST https://gov.test/proposals/1/votes": { body: { txHash: "tx9" } },
       [`GET https://gov.test/voting-power/${VOTER}`]: { body: { power: "42" } },
+      [`GET https://gov.test/votes/${VOTER}`]: {
+        body: { votes: [{ proposalId: 1, vote: "yes", proposalStatus: "active" }] },
+      },
     });
     configureGovernance(createHttpGovernanceProvider({ endpoints: { testnet: "https://gov.test/" }, fetch: fetchFn, headers: { "X-Api-Key": "k" } }));
 
@@ -327,6 +455,9 @@ describe("createHttpGovernanceProvider", () => {
     const vote = await voteOnProposal(1, "yes", { voter: VOTER });
     expect(vote.data?.txHash).toBe("tx9");
     expect((await getVotingPower(VOTER)).data?.power).toBe(42n);
+    expect((await getUserVotingHistory(VOTER)).data).toEqual([
+      { proposalId: 1, vote: "yes", proposalStatus: "active" },
+    ]);
 
     const postInit = fetchFn.mock.calls.find(([, init]) => init?.method === "POST")![1]!;
     expect(JSON.parse(String(postInit.body))).toEqual({ vote: "yes", voter: VOTER });
@@ -367,17 +498,30 @@ describe("createHttpGovernanceProvider", () => {
 
 describe("exports", () => {
   it("is exported from src/integration/index.ts and src/index.ts", () => {
-    for (const name of ["getProposals", "voteOnProposal", "getVotingPower", "trackProposal", "configureGovernance", "createHttpGovernanceProvider"]) {
+    for (const name of [
+      "getProposals",
+      "voteOnProposal",
+      "getVotingPower",
+      "getUserVotingHistory",
+      "trackProposal",
+      "configureGovernance",
+      "createHttpGovernanceProvider",
+    ]) {
       expect(typeof (integration as Record<string, unknown>)[name]).toBe("function");
     }
     // Root barrel: checked statically because src/index.ts cannot currently be
     // loaded on main (it re-exports `unlinkWallet` & co. that #670 never
-    // implemented). #456 already owns `getVotingPower`, so #686's is aliased.
+    // implemented). Issue #788 removed the unrelated #456 stub module that
+    // used to own `getVotingPower`, forcing #686's own to be aliased as
+    // `getGovernanceVotingPower` — the root barrel now exports it unaliased.
     const rootSrc = readFileSync(fileURLToPath(new URL("../index.ts", import.meta.url)), "utf8");
-    const block = rootSrc.slice(rootSrc.indexOf("// ─── On-chain governance (#686)"));
-    const exportsBlock = block.slice(0, block.indexOf('} from "./integration/governance";'));
-    for (const name of ["getProposals", "voteOnProposal", "trackProposal", "getVotingPower as getGovernanceVotingPower"]) {
+    const governanceSectionStart = rootSrc.indexOf("// ─── On-chain governance");
+    const exportStart = rootSrc.indexOf("export {", governanceSectionStart);
+    const exportsBlock = rootSrc.slice(exportStart, rootSrc.indexOf('} from "./integration/governance";', exportStart));
+    for (const name of ["getProposals", "voteOnProposal", "getVotingPower", "getUserVotingHistory", "trackProposal"]) {
       expect(exportsBlock).toContain(name);
     }
+    expect(exportsBlock).not.toContain("getGovernanceVotingPower");
+    expect(rootSrc).not.toContain('from "./governance"');
   });
 });

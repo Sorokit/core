@@ -206,4 +206,52 @@ describe("wallet status tracker", () => {
     expect(getAdapterName(WalletType.FREIGHTER)).toBe("Freighter");
     expect(truncatePublicKey("short")).toBe("short");
   });
+
+  describe("batchUpdates", () => {
+    it("coalesces rapid state changes into one listener call per microtask flush", async () => {
+      const listener = vi.fn();
+      const tracker = new WalletStatusTracker({ batchUpdates: true });
+      tracker.subscribe(listener);
+
+      tracker.setError("first");
+      tracker.setDisconnected();
+      tracker.setError("last");
+
+      // No calls yet — flush is deferred to microtask
+      expect(listener).not.toHaveBeenCalled();
+
+      await Promise.resolve();
+
+      // Exactly one call, with the latest state
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener.mock.calls[0]![0].status).toBe("error");
+      expect(listener.mock.calls[0]![0].error).toBe("last");
+    });
+
+    it("without batchUpdates, each state change calls listeners synchronously", () => {
+      const listener = vi.fn();
+      const tracker = new WalletStatusTracker();
+      tracker.subscribe(listener);
+
+      tracker.setError("a");
+      tracker.setDisconnected();
+      tracker.setError("b");
+
+      expect(listener).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not emit after destroy even when a flush was pending", async () => {
+      const listener = vi.fn();
+      const tracker = new WalletStatusTracker({ batchUpdates: true });
+      tracker.subscribe(listener);
+
+      tracker.setError("will be destroyed");
+      tracker.destroy();
+
+      await Promise.resolve();
+
+      // destroy cleared _flushPending so the queued microtask finds no listeners
+      expect(listener).not.toHaveBeenCalled();
+    });
+  });
 });

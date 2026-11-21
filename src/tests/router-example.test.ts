@@ -13,6 +13,7 @@ import { Account, Keypair } from "@stellar/stellar-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SorokitErrorCode, ok, err } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import { clearReplayProtection } from "../transaction/submitTransaction";
 import { WalletType } from "../wallet/types";
 import type { SignTransactionInput, WalletAdapter } from "../wallet/types";
 import {
@@ -118,6 +119,7 @@ function createClient(): RouterSwapClient {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearReplayProtection();
   mockLoadAccount.mockResolvedValue(new Account(source, "1"));
   mockStrictSendPaths.mockReturnValue(pathsResponse([pathRecord()]));
   mockStrictReceivePaths.mockReturnValue(pathsResponse([pathRecord()]));

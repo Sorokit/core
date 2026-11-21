@@ -32,10 +32,92 @@ export interface ZeroKnowledgeVerifier {
   verify(context: ProofVerificationContext): Promise<boolean>;
 }
 
+export interface ZeroKnowledgeVerificationLimits {
+  /** Maximum encoded proof length, in bytes. */
+  maxProofSizeBytes: number;
+  /** Maximum combined number of public inputs and disclosed claims. */
+  maxCircuitComplexity: number;
+}
+
+export const DEFAULT_ZERO_KNOWLEDGE_VERIFICATION_LIMITS: Readonly<ZeroKnowledgeVerificationLimits> = {
+  maxProofSizeBytes: 1024 * 1024,
+  maxCircuitComplexity: 1_000,
+};
+
 export interface PrivateTransactionValidationResult {
   valid: boolean;
   reason?: string;
   statement: ProofStatement;
+}
+
+let verificationLimits: ZeroKnowledgeVerificationLimits = {
+  ...DEFAULT_ZERO_KNOWLEDGE_VERIFICATION_LIMITS,
+};
+
+/** Configure process-wide proof verification limits. */
+export function configureZeroKnowledgeVerificationLimits(
+  limits: Partial<ZeroKnowledgeVerificationLimits>,
+): void {
+  const nextLimits = { ...verificationLimits, ...limits };
+  for (const [name, value] of Object.entries(nextLimits)) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${name} must be a non-negative safe integer`);
+    }
+  }
+  verificationLimits = nextLimits;
+}
+
+function proofSizeBytes(proof: ProofBytes): number {
+  if (typeof proof !== "string") return proof.byteLength;
+
+  let size = 0;
+  for (let index = 0; index < proof.length; index += 1) {
+    const codeUnit = proof.charCodeAt(index);
+    if (codeUnit <= 0x7f) {
+      size += 1;
+    } else if (codeUnit <= 0x7ff) {
+      size += 2;
+    } else if (
+      codeUnit >= 0xd800 &&
+      codeUnit <= 0xdbff &&
+      index + 1 < proof.length &&
+      proof.charCodeAt(index + 1) >= 0xdc00 &&
+      proof.charCodeAt(index + 1) <= 0xdfff
+    ) {
+      size += 4;
+      index += 1;
+    } else {
+      size += 3;
+    }
+  }
+  return size;
+}
+
+function assertProofWithinLimits(envelope: ZeroKnowledgeProof): void {
+  const sizeBytes = proofSizeBytes(envelope.proof);
+  if (sizeBytes > verificationLimits.maxProofSizeBytes) {
+    throw new RangeError(
+      `Zero-knowledge proof size ${sizeBytes} bytes exceeds the configured limit of ${verificationLimits.maxProofSizeBytes} bytes`,
+    );
+  }
+
+  const complexityLimit = verificationLimits.maxCircuitComplexity;
+  let complexity = 0;
+  const countInputs = (inputs: Readonly<Record<string, string>>): void => {
+    for (const key in inputs) {
+      if (Object.prototype.hasOwnProperty.call(inputs, key)) {
+        complexity += 1;
+        if (complexity > complexityLimit) {
+          throw new RangeError(
+            `Zero-knowledge proof circuit complexity exceeds the configured limit of ${complexityLimit} (actual complexity is at least ${complexity})`,
+          );
+        }
+      }
+    }
+  };
+
+  countInputs(envelope.statement.publicInputs);
+  if (envelope.disclosure !== undefined) countInputs(envelope.disclosure.claims);
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -80,6 +162,7 @@ export async function verifyProof(
   envelope: ZeroKnowledgeProof,
   verifier: ZeroKnowledgeVerifier,
 ): Promise<PrivateTransactionValidationResult> {
+  assertProofWithinLimits(envelope);
   const context: ProofVerificationContext = envelope.disclosure === undefined
     ? { statement: envelope.statement, proof: envelope.proof }
     : { statement: envelope.statement, proof: envelope.proof, disclosure: envelope.disclosure };

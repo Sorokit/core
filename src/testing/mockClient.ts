@@ -17,6 +17,18 @@
  * const client = createMockClient({
  *   walletState: { connected: true, publicKey: "GABC...", walletType: WalletType.FREIGHTER },
  * });
+ *
+ * @example
+ * // Partial mocking: override a single method on a single namespace without
+ * // having to re-implement every other method on that namespace (or any
+ * // other namespace). Anything left out keeps its default happy-path stub.
+ * const client = createMockClient({
+ *   overrides: {
+ *     account: {
+ *       get: vi.fn().mockRejectedValue(new Error("boom")),
+ *     },
+ *   },
+ * });
  */
 
 import { createMockFunction } from "./mockAbstraction";
@@ -117,6 +129,21 @@ export const MOCK_CONTRACT_METHODS: ContractMethod[] = [
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
+/**
+ * Partial per-namespace overrides for {@link createMockClient}.
+ *
+ * Each namespace key is optional, and within a namespace each method is
+ * optional too — anything omitted keeps the factory's default happy-path
+ * stub. This lets a test mock exactly the one method it cares about
+ * (`overrides: { account: { get: vi.fn()... } }`) instead of having to
+ * reconstruct every method on every namespace.
+ */
+export type MockClientOverrides = {
+  [Namespace in keyof SorokitClient]?: SorokitClient[Namespace] extends object
+    ? Partial<SorokitClient[Namespace]>
+    : SorokitClient[Namespace];
+};
+
 export interface MockClientConfig {
   /** Override the default wallet state returned by wallet.emptyState() */
   walletState?: WalletState;
@@ -124,6 +151,34 @@ export interface MockClientConfig {
   networkConfig?: ResolvedNetworkConfig;
   /** Override the default account info */
   accountInfo?: AccountInfo;
+  /**
+   * Partial, per-method overrides applied on top of the generated defaults.
+   * Only the methods you provide are replaced; every other method on every
+   * namespace keeps its default stub. See the partial-mocking example above.
+   */
+  overrides?: MockClientOverrides;
+}
+
+/**
+ * Shallow-merge partial namespace overrides into the generated client.
+ * Each namespace object is merged independently so a caller can override a
+ * single method on a single namespace without touching its siblings.
+ */
+function applyOverrides(
+  client: SorokitClient,
+  overrides: MockClientOverrides | undefined,
+): SorokitClient {
+  if (!overrides) return client;
+
+  const merged = { ...client } as Record<string, unknown>;
+  for (const [namespace, namespaceOverrides] of Object.entries(overrides)) {
+    const current = merged[namespace];
+    merged[namespace] =
+      namespaceOverrides && typeof namespaceOverrides === "object" && !Array.isArray(namespaceOverrides)
+        ? { ...(current as object | undefined), ...namespaceOverrides }
+        : namespaceOverrides;
+  }
+  return merged as unknown as SorokitClient;
 }
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
@@ -139,7 +194,7 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
   const walletState = config?.walletState ?? MOCK_WALLET_STATE;
   const accountInfo = config?.accountInfo ?? MOCK_ACCOUNT_INFO;
 
-  return {
+  const client: SorokitClient = {
     version: "0.1.0",
     networkConfig,
     trustedIssuers: null,
@@ -216,6 +271,8 @@ export function createMockClient(config?: MockClientConfig): SorokitClient {
       getId: vi.fn().mockReturnValue(networkConfig.network),
     },
   } as unknown as SorokitClient;
+
+  return applyOverrides(client, config?.overrides);
 }
 
 /**

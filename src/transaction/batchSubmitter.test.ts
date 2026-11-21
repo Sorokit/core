@@ -291,6 +291,77 @@ describe("submitBatch — parallel mode", () => {
   });
 });
 
+describe("submitBatch — timing metadata (#839)", () => {
+  it("records submittedAtMs, confirmedAtMs, and attemptCount on a successful entry", async () => {
+    mockSubmitTransaction.mockResolvedValueOnce(ok(makeSuccessResult("hash_1")));
+
+    const before = Date.now();
+    const result = await submitBatch([XDR_1], TEST_CONFIG);
+    const after = Date.now();
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    const entry = result.data.transactions[0];
+    expect(entry.submittedAtMs).toBeGreaterThanOrEqual(before);
+    expect(entry.submittedAtMs).toBeLessThanOrEqual(after);
+    expect(entry.confirmedAtMs).toBeGreaterThanOrEqual(entry.submittedAtMs!);
+    expect(entry.confirmedAtMs).toBeLessThanOrEqual(after);
+    expect(entry.attemptCount).toBe(1);
+  });
+
+  it("records timing metadata on a failed entry too", async () => {
+    mockSubmitTransaction.mockResolvedValueOnce(
+      err(SorokitErrorCode.TX_SUBMIT_FAILED, "Horizon error"),
+    );
+
+    const result = await submitBatch([XDR_1], TEST_CONFIG);
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    const entry = result.data.transactions[0];
+    expect(entry.status).toBe("failed");
+    expect(typeof entry.submittedAtMs).toBe("number");
+    expect(typeof entry.confirmedAtMs).toBe("number");
+    expect(entry.attemptCount).toBe(1);
+  });
+
+  it("records independent timing per entry in sequential mode", async () => {
+    mockSubmitTransaction
+      .mockResolvedValueOnce(ok(makeSuccessResult("hash_1")))
+      .mockResolvedValueOnce(ok(makeSuccessResult("hash_2")));
+
+    const result = await submitBatch([XDR_1, XDR_2], TEST_CONFIG);
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    const [first, second] = result.data.transactions;
+    expect(first.attemptCount).toBe(1);
+    expect(second!.attemptCount).toBe(1);
+    expect(second!.submittedAtMs).toBeGreaterThanOrEqual(first!.submittedAtMs!);
+  });
+
+  it("records timing metadata per entry in parallel mode, including a rejected promise", async () => {
+    mockSubmitTransaction
+      .mockResolvedValueOnce(ok(makeSuccessResult("hash_1")))
+      .mockRejectedValueOnce(new Error("network blew up"));
+
+    const result = await submitBatch([XDR_1, XDR_2], {
+      ...TEST_CONFIG,
+      mode: "parallel",
+    });
+
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    const [first, second] = result.data.transactions;
+    expect(first!.attemptCount).toBe(1);
+    expect(typeof first!.confirmedAtMs).toBe("number");
+    expect(second!.status).toBe("failed");
+    expect(second!.attemptCount).toBe(1);
+    expect(typeof second!.submittedAtMs).toBe("number");
+    expect(typeof second!.confirmedAtMs).toBe("number");
+  });
+});
+
 describe("wasAtomicExecuted", () => {
   it("returns true when summary is all_success", () => {
     const result: BatchSubmissionResult = {
@@ -300,7 +371,7 @@ describe("wasAtomicExecuted", () => {
       failed: 0,
       transactions: [],
     };
-    expect(wasAtomicExecuted(result)).toBe(true);
+    expect(wasAtomicExecuted(result).data).toBe(true);
   });
 
   it("returns false when summary is partial_success", () => {
@@ -311,7 +382,7 @@ describe("wasAtomicExecuted", () => {
       failed: 1,
       transactions: [],
     };
-    expect(wasAtomicExecuted(result)).toBe(false);
+    expect(wasAtomicExecuted(result).data).toBe(false);
   });
 
   it("returns false when summary is all_failed", () => {
@@ -322,7 +393,7 @@ describe("wasAtomicExecuted", () => {
       failed: 2,
       transactions: [],
     };
-    expect(wasAtomicExecuted(result)).toBe(false);
+    expect(wasAtomicExecuted(result).data).toBe(false);
   });
 });
 
@@ -335,7 +406,7 @@ describe("suggestRetryStrategy", () => {
       failed: 0,
       transactions: [],
     };
-    expect(suggestRetryStrategy(result)).toBe("none");
+    expect(suggestRetryStrategy(result).data?.strategy).toBe("none");
   });
 
   it("returns 'retry_all' for all_failed", () => {
@@ -346,7 +417,7 @@ describe("suggestRetryStrategy", () => {
       failed: 2,
       transactions: [],
     };
-    expect(suggestRetryStrategy(result)).toBe("retry_all");
+    expect(suggestRetryStrategy(result).data?.strategy).toBe("retry_all");
   });
 
   it("returns 'retry_failed' for partial_success", () => {
@@ -357,7 +428,7 @@ describe("suggestRetryStrategy", () => {
       failed: 1,
       transactions: [],
     };
-    expect(suggestRetryStrategy(result)).toBe("retry_failed");
+    expect(suggestRetryStrategy(result).data?.strategy).toBe("retry_failed");
   });
 });
 
@@ -373,7 +444,7 @@ describe("generateRollbackInstructions", () => {
         { xdr: XDR_2, status: "success", hash: "hash_2" },
       ],
     };
-    expect(generateRollbackInstructions(result)).toEqual([]);
+    expect(generateRollbackInstructions(result).data).toEqual([]);
   });
 
   it("returns empty array when summary is all_failed", () => {
@@ -387,7 +458,7 @@ describe("generateRollbackInstructions", () => {
         { xdr: XDR_2, status: "failed", error: "Horizon error" },
       ],
     };
-    expect(generateRollbackInstructions(result)).toEqual([]);
+    expect(generateRollbackInstructions(result).data).toEqual([]);
   });
 
   it("returns one instruction per successful tx when summary is partial_success", () => {
@@ -402,7 +473,7 @@ describe("generateRollbackInstructions", () => {
         { xdr: XDR_3, status: "success", hash: "hash_3" },
       ],
     };
-    const instructions = generateRollbackInstructions(result);
+    const instructions = generateRollbackInstructions(result).data ?? [];
     expect(instructions).toHaveLength(2);
     expect(instructions[0].hash).toBe("hash_1");
     expect(instructions[0].xdr).toBe(XDR_1);
@@ -422,7 +493,7 @@ describe("generateRollbackInstructions", () => {
         { xdr: XDR_2, status: "failed", error: "Horizon error" },
       ],
     };
-    const instructions = generateRollbackInstructions(result);
+    const instructions = generateRollbackInstructions(result).data ?? [];
     expect(instructions.every((i) => i.xdr !== XDR_2)).toBe(true);
     expect(instructions).toHaveLength(1);
   });

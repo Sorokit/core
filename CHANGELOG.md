@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Single-offer query (#946): `getOffer(offerId)` (alias `getAccountOffer`) fetches one offer from Horizon by id and returns a typed `Offer` (`OfferInfo`) with seller, selling and buying assets, `price` and `amount`. Returns the new `OFFER_NOT_FOUND` error code when Horizon answers 404, `VALIDATION` for a malformed id (without making a request), and `ACCOUNT_FETCH_FAILED` otherwise. Exported from `sorokit-core/account` and the root. See `docs/recipes/07-offer-management.md`.
 - Lazy loading (#682): `sorokit-core/lazy` entry with `loadModule(name)`, `preloadModules`, `isModuleLoaded` and `getLoadedModules` over a registry of lazy-loadable modules (soroban, integration, governance, keyManagement, streaming, privacy, compliance). Its initial load is ~0.5 KiB gzip, versus 50.3 KiB when the same modules are imported eagerly. `src/lazy.ts` moved to `src/lazy/index.ts` with its existing exports unchanged. See `docs/lazy-loading.md`.
 - Governance (#686): `getProposals`, `getProposal`, `voteOnProposal`, `getVotingPower` and `trackProposal` in `src/integration/governance.ts`, with a pluggable `GovernanceProvider`, `createHttpGovernanceProvider` and `configureGovernance`. Available on `client.integration` and exported from `sorokit-core/integration` and the root (as `getGovernanceVotingPower`). See `docs/governance.md`.
 - Initial public release of sorokit-core

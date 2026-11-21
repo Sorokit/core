@@ -109,6 +109,10 @@ import {
   buildSetDataEntryTransaction,
   buildDeleteDataEntryTransaction,
 } from "../transaction/dataEntry";
+import type {
+  DataEntryValue,
+  DataEntryTransactionOptions,
+} from "../transaction/dataEntry";
 import { compose } from "../transaction/compose";
 import type { ComposeOptions } from "../transaction/compose";
 import { orchestrate } from "../transaction/atomicOrchestrator";
@@ -189,6 +193,7 @@ import type {
   ProposalStatus,
   ProposalTracker,
   TrackProposalOptions,
+  UserVoteRecord,
   VoteChoice,
   VoteReceipt,
   VotingPower,
@@ -205,6 +210,7 @@ import {
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { LogLevel, SorokitLogger } from "../shared/logger";
+import { checkStellarSdkVersionCompatibility } from "./sdkVersionCompatibility";
 import { wrapCache } from "../shared/cache";
 import type { MainnetSafetyOptions } from "../shared/mainnetSafety";
 import type { SorokitCache } from "../shared/cache";
@@ -275,6 +281,7 @@ import type { ContractEvent } from "../soroban/subscribeContractEvents";
 import type {
   AnchorAsset,
   AnchorRequestOptions,
+  GetAnchorInfoOptions,
   Sep10AuthOptions,
   Sep24InteractiveResult,
 } from "../integration/anchors";
@@ -318,6 +325,8 @@ export interface SorokitClientConfig {
   horizonUrl?: string;
   /** Override the default Soroban RPC URL */
   rpcUrl?: string;
+  /** Override the default network passphrase */
+  networkPassphrase?: string;
   /** Ordered Horizon endpoints: primary first, followed by backup endpoints. */
   horizonEndpoints?: string[];
   /** Ordered Soroban RPC endpoints: primary first, followed by backup endpoints. */
@@ -395,6 +404,17 @@ export interface SorokitClientConfig {
   accountStorageAdapter?: AccountStorageAdapter;
   /** Custom WalletAccountManager instance */
   accountManager?: WalletAccountManager;
+  /**
+   * The installed `@stellar/stellar-sdk` version, for a compatibility
+   * warning against the version this SDK was built against (#865). Omit to
+   * skip the check (the default — this SDK cannot reliably read the
+   * installed version itself; see `sdkVersionCompatibility.ts`'s doc
+   * comment for why). Obtain it from your own application's module
+   * resolution, e.g.
+   * `require("@stellar/stellar-sdk/package.json").version` in a plain
+   * Node/CJS entry point.
+   */
+  stellarSdkVersion?: string;
 }
 
 // ─── Client interface ─────────────────────────────────────────────────────────
@@ -426,6 +446,11 @@ export interface SorokitClient {
       options?: FetchStellarTomlOptions,
     ): Promise<SorokitResult<StellarToml>>;
     clearStellarTomlCache(domain?: string): Promise<void>;
+    getAnchorInfo(
+      homeDomain: string,
+      options?: GetAnchorInfoOptions,
+    ): Promise<SorokitResult<StellarToml>>;
+    clearAnchorCache(homeDomain?: string): Promise<void>;
     authenticateSep10(
       anchorUrl: string,
       options: Sep10AuthOptions,
@@ -555,6 +580,11 @@ export interface SorokitClient {
       publicKey: string,
       options?: GovernanceCallOptions,
     ): Promise<SorokitResult<VotingPower>>;
+    /** #785: a voter's own cast votes, filterable by proposal status. */
+    getUserVotingHistory(
+      publicKey: string,
+      options?: GovernanceCallOptions & { status?: "open" | "closed" | "all" },
+    ): Promise<SorokitResult<UserVoteRecord[]>>;
     trackProposal(
       proposalId: ProposalId,
       options?: TrackProposalOptions,
@@ -823,6 +853,32 @@ export interface SorokitClient {
       params: SetOptionsParams,
       timeoutMs?: number,
     ): Promise<SorokitResult<string>>;
+    buildSetDataEntry(
+      sourcePublicKey: string,
+      key: string,
+      value: DataEntryValue,
+      options?: DataEntryTransactionOptions,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<string>>;
+    setData(
+      sourcePublicKey: string,
+      key: string,
+      value: DataEntryValue,
+      options?: DataEntryTransactionOptions,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<string>>;
+    buildDeleteDataEntry(
+      sourcePublicKey: string,
+      key: string,
+      options?: DataEntryTransactionOptions,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<string>>;
+    deleteData(
+      sourcePublicKey: string,
+      key: string,
+      options?: DataEntryTransactionOptions,
+      timeoutMs?: number,
+    ): Promise<SorokitResult<string>>;
     /**
      * Start a fluent multi-operation transaction builder bound to this client's
      * network config. Call `.build()` on the returned builder for the XDR (#542).
@@ -1077,7 +1133,13 @@ export function validateClientConfig(
   }
 
   const validNetworks = ["mainnet", "testnet", "futurenet"];
-  if (!config.network || !validNetworks.includes(config.network)) {
+  if (!config.network) {
+    return err(
+      SorokitErrorCode.INVALID_NETWORK,
+      "Missing required config: network. Must be one of: mainnet, testnet, futurenet",
+    );
+  }
+  if (!validNetworks.includes(config.network)) {
     return err(
       SorokitErrorCode.INVALID_NETWORK,
       `Invalid network type: ${String(config.network)}. Must be one of: mainnet, testnet, futurenet`,
@@ -1101,6 +1163,18 @@ export function validateClientConfig(
       return err(
         SorokitErrorCode.INVALID_CONFIG,
         `Invalid rpcUrl: ${String(config.rpcUrl)}`,
+      );
+    }
+  }
+
+  if (config.networkPassphrase !== undefined) {
+    if (
+      typeof config.networkPassphrase !== "string" ||
+      config.networkPassphrase.trim().length === 0
+    ) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `Invalid networkPassphrase: ${String(config.networkPassphrase)}`,
       );
     }
   }
@@ -1299,8 +1373,49 @@ export function createSorokitClient(
 
   if (networkResult.status === "error") return networkResult;
 
-  const networkConfig = networkResult.data;
-  const { horizonUrl, rpcUrl, networkPassphrase } = networkConfig;
+  const baseNetworkConfig = networkResult.data;
+  const horizonUrl =
+    config.horizonEndpoints?.[0] ?? config.horizonUrl ?? baseNetworkConfig.horizonUrl;
+  const rpcUrl =
+    config.rpcEndpoints?.[0] ?? config.rpcUrl ?? baseNetworkConfig.rpcUrl;
+  const networkPassphrase =
+    config.networkPassphrase ?? baseNetworkConfig.networkPassphrase;
+
+  if (
+    !horizonUrl ||
+    typeof horizonUrl !== "string" ||
+    !isValidUrlString(horizonUrl)
+  ) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      `Invalid horizonUrl: ${String(horizonUrl)}`,
+    );
+  }
+
+  if (!rpcUrl || typeof rpcUrl !== "string" || !isValidUrlString(rpcUrl)) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      `Invalid rpcUrl: ${String(rpcUrl)}`,
+    );
+  }
+
+  if (
+    !networkPassphrase ||
+    typeof networkPassphrase !== "string" ||
+    networkPassphrase.trim().length === 0
+  ) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      `Invalid networkPassphrase: ${String(networkPassphrase)}`,
+    );
+  }
+
+  const networkConfig: ResolvedNetworkConfig = {
+    ...baseNetworkConfig,
+    horizonUrl,
+    rpcUrl,
+    networkPassphrase,
+  };
   if (config.horizonEndpoints) {
     configureEndpointFailover(
       config.horizonEndpoints[0]!,
@@ -1328,6 +1443,12 @@ export function createSorokitClient(
       ...(config.logPrefix !== undefined ? { prefix: config.logPrefix } : {}),
     });
   const logger = createTracedLogger(baseLogger, { traceId });
+
+  // #865: warn (never fail client creation) when the caller-supplied
+  // installed @stellar/stellar-sdk version diverges from what this SDK was
+  // built against. No-op when config.stellarSdkVersion is omitted.
+  checkStellarSdkVersionCompatibility(config.stellarSdkVersion, { logger });
+
   const safetyLogger = createTracedLogger(
     config.logger ??
       createLogger({
@@ -1478,6 +1599,13 @@ export function createSorokitClient(
         ),
       clearStellarTomlCache: async (domain) =>
         (await import("../integration/sep1Toml")).clearStellarTomlCache(domain),
+      getAnchorInfo: async (homeDomain, options) =>
+        (await import("../integration/anchors")).getAnchorInfo(
+          homeDomain,
+          options,
+        ),
+      clearAnchorCache: async (homeDomain) =>
+        (await import("../integration/anchors")).clearAnchorCache(homeDomain),
       authenticateSep10: async (anchorUrl, options) =>
         (await import("../integration/anchors")).authenticateSep10(
           anchorUrl,
@@ -1625,6 +1753,11 @@ export function createSorokitClient(
         ),
       getVotingPower: async (publicKey, options) =>
         (await import("../integration/governance")).getVotingPower(publicKey, {
+          network: networkConfig.network,
+          ...options,
+        }),
+      getUserVotingHistory: async (publicKey, options) =>
+        (await import("../integration/governance")).getUserVotingHistory(publicKey, {
           network: networkConfig.network,
           ...options,
         }),
@@ -2269,6 +2402,80 @@ export function createSorokitClient(
               ),
           ).then(applyTx),
         ),
+      buildSetDataEntry: (sourcePublicKey, key, value, options, timeoutMs) =>
+        guard("tx_build", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.buildSetDataEntry",
+              params: { sourcePublicKey, key },
+            },
+            () =>
+              buildSetDataEntryTransaction(
+                horizonUrl,
+                networkConfig,
+                sourcePublicKey,
+                key,
+                value,
+                options,
+              ),
+          ).then(applyTx),
+        ),
+      setData: (sourcePublicKey, key, value, options, timeoutMs) =>
+        guard("tx_build", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.setData",
+              params: { sourcePublicKey, key },
+            },
+            () =>
+              buildSetDataEntryTransaction(
+                horizonUrl,
+                networkConfig,
+                sourcePublicKey,
+                key,
+                value,
+                options,
+              ),
+          ).then(applyTx),
+        ),
+      buildDeleteDataEntry: (sourcePublicKey, key, options, timeoutMs) =>
+        guard("tx_build", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.buildDeleteDataEntry",
+              params: { sourcePublicKey, key },
+            },
+            () =>
+              buildDeleteDataEntryTransaction(
+                horizonUrl,
+                networkConfig,
+                sourcePublicKey,
+                key,
+                options,
+              ),
+          ).then(applyTx),
+        ),
+      deleteData: (sourcePublicKey, key, options, timeoutMs) =>
+        guard("tx_build", timeoutMs, () =>
+          withErrorHandling(
+            errorHandler,
+            {
+              functionName: "transaction.deleteData",
+              params: { sourcePublicKey, key },
+            },
+            () =>
+              buildDeleteDataEntryTransaction(
+                horizonUrl,
+                networkConfig,
+                sourcePublicKey,
+                key,
+                options,
+              ),
+          ).then(applyTx),
+        ),
       compose: (sourcePublicKey, options) => {
         logger.debug("transaction.compose", { sourcePublicKey });
         return compose(sourcePublicKey, networkConfig, options);
@@ -2476,7 +2683,7 @@ export function createSorokitClient(
                   ...(onUpgrade ? { onUpgrade } : {}),
                 },
               ),
-          ).then(applyTx) as any,
+          ).then(applyTx),
         ),
       simulate: (transactionXdr, timeoutMs) =>
         guard("soroban_simulate", timeoutMs, (signal) =>

@@ -144,6 +144,18 @@ describe("shared/logger", () => {
       expect((records[0]?.context?.nested as StructuredLogMeta).authToken).toBe("[redacted]");
     });
 
+    it("cleanup function removes the transport so subsequent logs are not delivered", () => {
+      const records: StructuredLogRecord[] = [];
+      const unregister = registerLogTransport({ write: (record) => records.push(record) });
+      const logger = createLogger({ logLevel: "info" });
+
+      logger.info("before.unregister");
+      unregister();
+      logger.info("after.unregister");
+
+      expect(records.map((r) => r.message)).toEqual(["before.unregister"]);
+    });
+
     it("supports per-module log levels and custom transports", () => {
       const records: StructuredLogRecord[] = [];
       const logger = createLogger({

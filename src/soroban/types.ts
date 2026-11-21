@@ -174,6 +174,8 @@ export interface SimulateTransactionResult {
   resourceUsage?: SorobanSimulationResourceUsage;
   /** Fee components derived from the RPC simulation response */
   feeBreakdown?: SorobanSimulationFeeBreakdown;
+  /** Warning message if RPC simulation response had missing or incomplete expected resource fields */
+  warning?: string;
 }
 
 export interface SorobanSimulationResourceUsage {
@@ -186,6 +188,12 @@ export interface SorobanSimulationResourceUsage {
     readOnly?: number;
     readWrite?: number;
   };
+  /** Missing expected fields detected during response validation */
+  missingFields?: string[];
+  /** Warning message describing missing expected fields */
+  warning?: string;
+  /** Validation error message when required resource fields are missing */
+  error?: string;
 }
 
 export interface SorobanSimulationFeeBreakdown {
@@ -250,6 +258,12 @@ export interface StreamContractEventsOptions {
   horizonUrl: string;
   intervalMs?: number;
   maxBackoffMs?: number;
+  /**
+   * Delay in milliseconds before the next poll when a successful fetch returns
+   * no new events. Defaults to `intervalMs`. Set to a shorter value (e.g. 100)
+   * to poll more aggressively during idle periods.
+   */
+  emptyPollDelayMs?: number;
   fetch?: typeof fetch;
   onEvent: (events: ContractEvent[]) => void;
   onError?: (err: Error, attempt: number) => void;

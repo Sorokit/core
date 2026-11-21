@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Networks } from "@stellar/stellar-sdk";
 import { SorokitErrorCode } from "../shared/response";
-import { submitTransaction } from "../transaction/submitTransaction";
+import { clearReplayProtection, submitTransaction } from "../transaction/submitTransaction";
 import { getTransactionStatus } from "../transaction/status";
 
 // ---------------------------------------------------------------------------
@@ -90,6 +90,7 @@ function makeHorizonError(status: number, message = "Horizon error") {
 describe("submitTransaction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearReplayProtection();
   });
 
   describe("successful submission", () => {

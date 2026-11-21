@@ -58,7 +58,8 @@ function entry(message: string, remediation?: string): ContractErrorInfo {
 
 /**
  * Standard mappings for the supported factory contracts.
- * Keyed by both symbolic name and stable numeric code (namespaced as "FACTORY_<code>").
+ * Keyed by symbolic name, by namespaced numeric code ("FACTORY_<code>"), and by
+ * bare numeric code — the bare form is unambiguous inside a single family map.
  */
 export const FACTORY_CONTRACT_ERRORS: ContractErrorMap = (() => {
   const byName: Record<string, ContractErrorInfo> = {
@@ -85,17 +86,18 @@ export const FACTORY_CONTRACT_ERRORS: ContractErrorMap = (() => {
   };
   const map: ContractErrorMap = {};
   for (const [name, info] of Object.entries(byName)) {
+    const code = FACTORY_ERROR_CODES[name as keyof typeof FACTORY_ERROR_CODES];
     map[name] = info;
-    map[
-      `FACTORY_${FACTORY_ERROR_CODES[name as keyof typeof FACTORY_ERROR_CODES]}`
-    ] = info;
+    map[`FACTORY_${code}`] = info;
+    map[String(code)] = info;
   }
   return map;
 })();
 
 /**
  * Standard mappings for the supported router contracts.
- * Keyed by both symbolic name and stable numeric code.
+ * Keyed by symbolic name, by namespaced numeric code ("ROUTER_<code>"), and by
+ * bare numeric code — the bare form is unambiguous inside a single family map.
  */
 export const ROUTER_CONTRACT_ERRORS: ContractErrorMap = (() => {
   const byName: Record<string, ContractErrorInfo> = {
@@ -134,29 +136,36 @@ export const ROUTER_CONTRACT_ERRORS: ContractErrorMap = (() => {
   };
   const map: ContractErrorMap = {};
   for (const [name, info] of Object.entries(byName)) {
+    const code = ROUTER_ERROR_CODES[name as keyof typeof ROUTER_ERROR_CODES];
     map[name] = info;
-    map[
-      `ROUTER_${ROUTER_ERROR_CODES[name as keyof typeof ROUTER_ERROR_CODES]}`
-    ] = info;
+    map[`ROUTER_${code}`] = info;
+    map[String(code)] = info;
   }
   return map;
 })();
 
+/** Matches keys that are purely numeric, e.g. "3". */
+const BARE_NUMERIC_KEY = /^\d+$/;
+
 /**
  * Combined default mapping used when no custom map is supplied.
  *
- * Factory and router contracts use namespaced numeric keys ("FACTORY_<code>",
- * "ROUTER_<code>") to avoid collisions. Symbolic names remain keyed as-is.
- * Numeric codes without a prefix (e.g. "1") will not match; callers expecting
- * raw numeric codes must use the contract-specific map (FACTORY_CONTRACT_ERRORS
- * or ROUTER_CONTRACT_ERRORS).
+ * Namespaced numeric keys ("FACTORY_<code>", "ROUTER_<code>") are used in the
+ * merged map because the factory and router families share the same numeric
+ * code space. Bare numeric keys are intentionally absent from the merged map:
+ * a bare code carries no family information, so resolving one here would
+ * silently guess a family (#726). Callers who know the contract family and
+ * need to decode bare numeric codes must pass FACTORY_CONTRACT_ERRORS or
+ * ROUTER_CONTRACT_ERRORS explicitly.
  *
- * (Disambiguation strategy: numeric key namespace prefixes. See #391.)
+ * (Disambiguation strategy: numeric key namespace prefixes. See #391, #726.)
  */
-export const DEFAULT_CONTRACT_ERROR_MAP: ContractErrorMap = {
-  ...FACTORY_CONTRACT_ERRORS,
-  ...ROUTER_CONTRACT_ERRORS,
-};
+export const DEFAULT_CONTRACT_ERROR_MAP: ContractErrorMap = Object.fromEntries(
+  Object.entries({
+    ...FACTORY_CONTRACT_ERRORS,
+    ...ROUTER_CONTRACT_ERRORS,
+  }).filter(([key]) => !BARE_NUMERIC_KEY.test(key)),
+);
 
 // ─── Generic code extraction ──────────────────────────────────────────────────
 

@@ -116,7 +116,7 @@ function resolveModule(meta?: StructuredLogMeta): string {
   return typeof moduleName === "string" && moduleName.length > 0 ? moduleName : "core";
 }
 
-function createTransportLogger(transports: LogTransport[]): SorokitLogger {
+function createTransportLogger(transports: () => LogTransport[]): SorokitLogger {
   const emit = (level: Exclude<LogLevel, "off">, message: string, meta?: StructuredLogMeta): void => {
     const sanitized = sanitizeLogMeta(meta);
     const record: StructuredLogRecord = {
@@ -126,7 +126,7 @@ function createTransportLogger(transports: LogTransport[]): SorokitLogger {
       message,
       ...(sanitized ? { context: sanitized } : {}),
     };
-    for (const transport of transports) {
+    for (const transport of transports()) {
       void transport.write(record);
     }
   };
@@ -181,13 +181,11 @@ function createLevelLogger(
 export function createLogger(options?: LoggerOptions): SorokitLogger {
   const level: LogLevel = options?.logLevel ?? (options?.debug ? "debug" : "off");
   if (level === "off") return createNoopLogger();
-  const transports = [
-    ...(options?.transports ?? []),
-    ...registeredTransports,
-  ];
-  const sink = options?.logger ?? createTransportLogger(
-    transports.length > 0 ? transports : [createConsoleTransport(options?.prefix)],
-  );
+  const explicitTransports = options?.transports ?? [];
+  const sink = options?.logger ?? createTransportLogger(() => {
+    const transports = [...explicitTransports, ...registeredTransports];
+    return transports.length > 0 ? transports : [createConsoleTransport(options?.prefix)];
+  });
   return createLevelLogger(level, sink, options?.moduleLevels);
 }
 

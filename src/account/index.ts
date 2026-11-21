@@ -1,4 +1,11 @@
-export { getAccount } from "./getAccount";
+export {
+  getAccount,
+  invalidateAccount,
+  invalidateAccountCache,
+  refreshAccountSequence,
+  clearAccountDeduplication,
+} from "./getAccount";
+export type { GetAccountOptions } from "./getAccount";
 export { getOffers, getTrades } from "./dexActivity";
 export type { DexActivityOptions, DexActivityResult, DexAsset, DexAssetAmount, OfferInfo, TradeInfo } from "./dexActivity";
 export { getAccountsBatch } from "./getAccountsBatch";
@@ -93,6 +100,24 @@ export { getPaymentHistory } from "./paymentHistory";
 export type { PaymentInfo, PaymentPage, PaymentHistoryOptions } from "./paymentHistory";
 export { getEffects } from "./getEffects";
 export type { EffectInfo, EffectsPage, GetEffectsOptions } from "./getEffects";
+export {
+  getAccountEffects,
+  getAccountOffer,
+  getAccountSigners,
+  getOffer,
+  getSignerThresholds,
+} from "./queries";
+export type {
+  Effect,
+  Offer,
+  EffectFilters,
+  Payment,
+  PaymentDirection,
+  PaymentFilters,
+  SignerData,
+  SignerEntry,
+  SignerThresholds,
+} from "./queries";
 export { getDataEntries } from "./dataEntries";
 export type { AccountDataEntries } from "./dataEntries";
 
@@ -225,3 +250,8 @@ export type {
   PortfolioUpdate,
   PortfolioUpdateCallback,
 } from "./portfolioDashboard";
+
+export { createAndFundAccount, FRIENDBOT_URLS } from "./fundingHelper";
+export type { FundingOptions } from "./fundingHelper";
+export { getAssetCreationSteps, prepareAssetForIssuing } from "./assetCreationHelper";
+export type { AssetCreationStep, AssetIssuingPreset } from "./assetCreationHelper";

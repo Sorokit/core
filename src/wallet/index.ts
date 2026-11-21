@@ -1,6 +1,7 @@
 export { getWalletCapabilities, WALLET_CAPABILITY_IDS } from "./capabilities";
 export { connectWallet } from "./connect";
 export { disconnectWallet } from "./disconnect";
+export { WalletConnectionManager } from "./connection";
 export { signTransaction } from "./signTransaction";
 export { signTransactionOffline } from "./signTransactionOffline";
 export { SigningRateLimiter } from "./signingRateLimiter";
@@ -76,11 +77,13 @@ export {
   getSigningHistory,
   exportSigningHistory,
   InMemorySigningHistoryStore,
+  DEFAULT_SIGNING_HISTORY_MAX_ENTRIES,
 } from "./signingHistory";
 export type {
   SigningRecord,
   SigningHistoryFilter,
   SigningHistoryStore,
+  InMemorySigningHistoryStoreOptions,
 } from "./signingHistory";
 export type {
   CreateSigningChallengeOptions,

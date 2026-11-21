@@ -22,6 +22,7 @@
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { sleep } from "../shared/utils";
+import type { SorokitLogger } from "../shared/logger";
 
 /**
  * Canonical payment lifecycle event types.
@@ -105,6 +106,10 @@ export interface PaymentNotificationInput {
    * from the event identity so duplicate deliveries share the same ID.
    */
   eventId?: string;
+  /**
+   * Optional callback invoked whenever a notification delivery fails.
+   */
+  onDeliveryFailure?: PaymentDeliveryFailureCallback | undefined;
 }
 
 /**
@@ -139,7 +144,14 @@ export interface PaymentNotificationChannel {
 }
 
 const webhookRegistry = new Map<string, PaymentWebhookRegistration>();
-const channelRegistry = new Set<PaymentNotificationChannel>();
+// WeakSet so a channel is eligible for garbage collection as soon as no
+// other reference to it remains, instead of being pinned alive forever by
+// this module-level registry (#842).
+const channelRegistry = new WeakSet<PaymentNotificationChannel>();
+// WeakSet has no iteration protocol, so channel delivery needs its own
+// enumerable list. Each entry is a WeakRef, letting GC reclaim subscribers
+// that are no longer referenced elsewhere; dead refs are pruned lazily.
+const channelRefs: WeakRef<PaymentNotificationChannel>[] = [];
 
 /** Registry key — one entry per (url, event) pair. */
 function registrationKey(
@@ -247,7 +259,10 @@ export function registerPaymentWebhook(
         "Notification channels must implement deliver(payload)",
       );
     }
-    channelRegistry.add(channel);
+    if (!channelRegistry.has(channel)) {
+      channelRegistry.add(channel);
+      channelRefs.push(new WeakRef(channel));
+    }
   }
 
   const registration: PaymentWebhookRegistration = {
@@ -306,7 +321,32 @@ export function listPaymentWebhooks(
 /** Clear all registered webhook subscriptions. */
 export function clearPaymentWebhooks(): void {
   webhookRegistry.clear();
-  channelRegistry.clear();
+  channelRefs.length = 0;
+}
+
+/**
+ * Returns the currently live (not yet garbage-collected) notification
+ * channels, pruning dead WeakRefs from the tracking list as it goes.
+ */
+function liveChannels(): PaymentNotificationChannel[] {
+  const live: PaymentNotificationChannel[] = [];
+  for (let i = channelRefs.length - 1; i >= 0; i--) {
+    const channel = channelRefs[i]!.deref();
+    if (channel === undefined) {
+      channelRefs.splice(i, 1);
+    } else {
+      live.push(channel);
+    }
+  }
+  return live;
+}
+
+/**
+ * Observability/test helper: number of notification channels still
+ * reachable (not yet garbage-collected).
+ */
+export function getRegisteredChannelCount(): number {
+  return liveChannels().length;
 }
 
 /**
@@ -393,20 +433,62 @@ async function sendPayloadWithRetry(
   );
 }
 
+/**
+ * Information describing a failed payment notification delivery.
+ */
+export interface PaymentDeliveryFailure {
+  /** Webhook URL or notification channel name where delivery failed. */
+  url: string;
+  /** The payment event type that failed delivery. */
+  event: PaymentNotificationEvent;
+  /** Error that caused delivery failure. */
+  error: unknown;
+  /** The webhook payload that failed to deliver. */
+  payload?: PaymentWebhookPayload | undefined;
+}
+
+/**
+ * Callback invoked when a payment notification delivery fails.
+ */
+export type PaymentDeliveryFailureCallback = (
+  failure: PaymentDeliveryFailure,
+) => void | Promise<void>;
+
+/**
+ * Options for dispatching payment notifications.
+ */
+export interface DispatchPaymentNotificationOptions {
+  /** Optional callback invoked for each delivery failure. */
+  onDeliveryFailure?: PaymentDeliveryFailureCallback | undefined;
+  /** Optional custom logger. Defaults to console.warn if not provided. */
+  logger?: SorokitLogger | undefined;
+}
+
+export type DispatchPaymentNotificationHandler =
+  | PaymentDeliveryFailureCallback
+  | DispatchPaymentNotificationOptions;
+
 /** Deliver a payload through any registered notification channels. */
 async function deliverToChannels(
   payload: PaymentWebhookPayload,
+  onChannelFailure?: (channelName: string, error: unknown) => void,
 ): Promise<SorokitResult<void>[]> {
   return Promise.all(
-    Array.from(channelRegistry).map(async (channel) => {
+    liveChannels().map(async (channel) => {
       try {
         const delivered = await channel.deliver(payload);
         if (delivered) return ok(undefined);
-        return err(
-          SorokitErrorCode.NETWORK_ERROR,
+        const error = new Error(
           `Notification channel '${channel.name}' rejected payload for event '${payload.event}'`,
         );
+        onChannelFailure?.(channel.name, error);
+        return err(
+          SorokitErrorCode.NETWORK_ERROR,
+          error.message,
+          error,
+        );
       } catch (error) {
+        onChannelFailure?.(channel.name, error);
         return err(
           SorokitErrorCode.NETWORK_ERROR,
           `Notification channel '${channel.name}' failed for event '${payload.event}': ${error instanceof Error ? error.message : String(error)}`,
@@ -424,14 +506,71 @@ async function deliverToChannels(
  * Deliveries run concurrently and are reported independently so one failing
  * endpoint cannot mask another.
  *
- * @param event - The payment event that occurred.
- * @param input - Payment identity (transactionId, account, optional eventId).
+ * @param event   - The payment event that occurred.
+ * @param input   - Payment identity (transactionId, account, optional eventId, optional onDeliveryFailure).
+ * @param options - Optional delivery failure callback or options object.
  * @returns One result per delivery target (ok or error).
  */
 export async function triggerPaymentNotifications(
   event: PaymentNotificationEvent,
   input: PaymentNotificationInput,
+  options?: DispatchPaymentNotificationHandler,
 ): Promise<SorokitResult<void>[]> {
+  let failureCallback: PaymentDeliveryFailureCallback | undefined;
+  let customLogger: SorokitLogger | undefined;
+
+  if (typeof options === "function") {
+    failureCallback = options;
+  } else if (options && typeof options === "object") {
+    failureCallback = options.onDeliveryFailure;
+    customLogger = options.logger;
+  }
+
+  if (!failureCallback && input?.onDeliveryFailure) {
+    failureCallback = input.onDeliveryFailure;
+  }
+
+  const notifyFailure = (
+    url: string,
+    error: unknown,
+    payload?: PaymentWebhookPayload,
+  ) => {
+    const failure: PaymentDeliveryFailure = {
+      url,
+      event,
+      error,
+      ...(payload !== undefined ? { payload } : {}),
+    };
+
+    if (failureCallback) {
+      try {
+        const maybePromise = failureCallback(failure);
+        if (maybePromise && typeof (maybePromise as Promise<void>).catch === "function") {
+          (maybePromise as Promise<void>).catch(() => {});
+        }
+      } catch {
+        // Callback errors must never surface into caller
+      }
+    }
+
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const logMessage = `Payment notification delivery failed for event '${String(event)}' to '${url}': ${errorMsg}`;
+    const logMeta = {
+      url,
+      event,
+      error,
+      transactionId: input?.transactionId,
+      account: input?.account,
+      eventId: payload?.eventId,
+    };
+
+    if (customLogger) {
+      customLogger.warn(logMessage, logMeta);
+    } else {
+      console.warn(`[sorokit] ${logMessage}`, logMeta);
+    }
+  };
+
   if (!isPaymentNotificationEvent(event)) {
     return [
       err(
@@ -457,32 +596,47 @@ export async function triggerPaymentNotifications(
 
   const registrations = listPaymentWebhooks(event);
   const webhookResults = await Promise.all(
-    registrations.map((registration) => sendPayloadWithRetry(registration, payload)),
+    registrations.map(async (registration) => {
+      const result = await sendPayloadWithRetry(registration, payload);
+      if (result.status === "error") {
+        const error = result.error.cause ?? new Error(result.error.message);
+        notifyFailure(registration.url, error, payload);
+      }
+      return result;
+    }),
   );
-  const channelResults = await deliverToChannels(payload);
+  const channelResults = await deliverToChannels(payload, (channelName, error) => {
+    notifyFailure(channelName, error, payload);
+  });
   return [...webhookResults, ...channelResults];
 }
 
 /**
- * Fire-and-forget dispatch of a payment notification.
+ * Fire-and-forget dispatch of a payment notification with error tracking.
  *
  * Never throws, never rejects, and never blocks transaction processing while
- * subscribers are being notified. Individual delivery failures are reported by
- * {@link triggerPaymentNotifications} and intentionally swallowed here.
+ * subscribers are being notified. Delivery failures are surfaced via an optional
+ * `onDeliveryFailure` callback or logged at warn level with the webhook URL,
+ * event type, and error.
  *
- * @param event - The payment event that occurred.
- * @param input - Payment identity (transactionId, account, optional eventId).
+ * @param event   - The payment event that occurred.
+ * @param input   - Payment identity (transactionId, account, optional eventId, optional onDeliveryFailure).
+ * @param options - Optional failure callback or options object with callback/logger.
  */
 export function dispatchPaymentNotification(
   event: PaymentNotificationEvent,
   input: PaymentNotificationInput,
-): void {
+  options?: DispatchPaymentNotificationHandler,
+): Promise<void> {
   try {
-    void triggerPaymentNotifications(event, input).catch(() => {
-      // Swallow: notification delivery must never surface into the
-      // transaction/payment processing flow.
-    });
+    return triggerPaymentNotifications(event, input, options)
+      .then(() => undefined)
+      .catch(() => {
+        // Swallow: notification delivery must never surface into the
+        // transaction/payment processing flow.
+      });
   } catch {
     // Defensive: even synchronous failures must not propagate.
+    return Promise.resolve();
   }
 }

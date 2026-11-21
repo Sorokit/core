@@ -22,6 +22,62 @@ export const STELLAR_MAX_AMOUNT = "922337203685.4775807";
 export const STELLAR_MIN_ASSET_CODE_LEN = 1;
 export const STELLAR_MAX_ASSET_CODE_LEN = 12;
 
+export const SOROBAN_MAX_METHOD_NAME_LEN = 32;
+
+/**
+ * Reserved keywords in Soroban / Rust smart contracts that cannot be used as contract entrypoints.
+ * Per the Soroban Specification and Rust language reference.
+ */
+export const SOROBAN_RESERVED_KEYWORDS: ReadonlySet<string> = new Set([
+  // Rust keywords
+  "as", "break", "const", "continue", "crate", "else", "enum", "extern",
+  "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod",
+  "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct",
+  "super", "trait", "true", "type", "unsafe", "use", "where", "while",
+  "async", "await", "dyn",
+  // Rust reserved for future use
+  "abstract", "become", "box", "do", "final", "macro", "override", "priv",
+  "typeof", "unsized", "virtual", "yield", "try",
+  // Soroban internal/reserved entrypoints
+  "__constructor",
+]);
+
+/**
+ * Valid Soroban scalar types per the Soroban Environment Specification (ScSpecTypeDef / ScVal / CAP-0046).
+ */
+export const SOROBAN_SCALAR_TYPES: ReadonlySet<string> = new Set([
+  "u32", "i32",
+  "u64", "i64",
+  "u128", "i128",
+  "u256", "i256",
+  "bool",
+  "void", "()", "unit",
+  "string",
+  "symbol",
+  "bytes", "bytes32",
+  "address",
+]);
+
+/**
+ * Valid Soroban container / composite types per the Soroban Specification.
+ */
+export const SOROBAN_CONTAINER_TYPES: ReadonlySet<string> = new Set([
+  "vec",
+  "map",
+  "tuple",
+  "option",
+  "result",
+]);
+
+/**
+ * Special / dynamic Soroban types.
+ */
+export const SOROBAN_SPECIAL_TYPES: ReadonlySet<string> = new Set([
+  "val",
+  "custom",
+  "error",
+]);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type StellarAddressType =
@@ -56,11 +112,35 @@ export interface UrlValidationData {
   search: string;
 }
 
+export interface ContractMethodParamSpec {
+  name?: string;
+  type: string | Record<string, unknown>;
+}
+
+export interface ContractMethodSpecInput {
+  name: string;
+  inputs?: Array<ContractMethodParamSpec | string>;
+  parameters?: Array<ContractMethodParamSpec | string>;
+  params?: Array<ContractMethodParamSpec | string>;
+  args?: Array<ContractMethodParamSpec | string>;
+  returnType?: string | Record<string, unknown> | null;
+  returns?: string | Record<string, unknown> | null;
+  return_type?: string | Record<string, unknown> | null;
+}
+
+export interface ContractMethodValidationData {
+  value: unknown;
+  name: string;
+  inputs: Array<{ name: string; type: string }>;
+  returnType: string | null;
+}
+
 export type ValidationData =
   | AddressValidationData
   | AmountValidationData
   | AssetCodeValidationData
-  | UrlValidationData;
+  | UrlValidationData
+  | ContractMethodValidationData;
 
 export interface AmountValidationOptions {
   maxDecimals?: number;
@@ -474,4 +554,341 @@ export function sanitizeInput(
   }
 
   return text;
+}
+
+// ─── Soroban Contract Method Validation (#769) ────────────────────────────────
+
+/**
+ * Parse a potentially generic Soroban type string (e.g. "vec<u32>", "map<string, i64>").
+ * Returns null if the syntax is malformed or brackets are unbalanced.
+ */
+function parseGenericType(typeStr: string): { base: string; params: string[] } | null {
+  const match = typeStr.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:<(.+)>)?$/);
+  if (!match) return null;
+  const base = match[1]!.toLowerCase();
+  const inner = match[2];
+  if (!inner) return { base, params: [] };
+
+  const params: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (let i = 0; i < inner.length; i++) {
+    const char = inner[i];
+    if (char === "<") depth++;
+    else if (char === ">") depth--;
+    else if (char === "," && depth === 0) {
+      if (!current.trim()) return null; // empty parameter like "vec<,>"
+      params.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (depth !== 0) return null; // unbalanced brackets
+  if (!current.trim()) return null; // trailing empty parameter
+  params.push(current.trim());
+  return { base, params };
+}
+
+/**
+ * Validate a Soroban type against the Soroban Environment Specification (ScSpecTypeDef / ScVal / CAP-0046).
+ */
+export function validateSorobanType(typeInput: unknown, fieldName: string): SorokitResult<string> {
+  if (typeInput === null || typeInput === undefined) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Type for ${fieldName} is missing or undefined. Per the Soroban specification (ScSpecTypeDef / CAP-0046), a valid scalar or container type is required.`,
+    );
+  }
+
+  let typeStr: string;
+  if (typeof typeInput === "string") {
+    typeStr = typeInput.trim();
+  } else if (typeof typeInput === "object" && typeInput !== null && "type" in typeInput) {
+    const inner = (typeInput as { type: unknown }).type;
+    if (typeof inner !== "string") {
+      return err(
+        SorokitErrorCode.VALIDATION,
+        `Type for ${fieldName} must be a string. Per the Soroban specification, valid types include: u32, i64, string, bool, bytes, address, vec, map.`,
+      );
+    }
+    typeStr = inner.trim();
+  } else {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Type for ${fieldName} must be a string or type descriptor. Per the Soroban specification, valid types include: u32, i64, string, bool, bytes, address, vec, map.`,
+    );
+  }
+
+  if (typeStr.length === 0) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Type for ${fieldName} cannot be empty. Per the Soroban specification (ScSpecTypeDef / CAP-0046), valid scalar types include: u32, i32, u64, i64, u128, i128, u256, i256, bool, void, string, symbol, bytes, address.`,
+    );
+  }
+
+  // Handle void / unit notations
+  if (typeStr === "()" || typeStr.toLowerCase() === "void" || typeStr.toLowerCase() === "unit") {
+    return ok("void");
+  }
+
+  const parsed = parseGenericType(typeStr);
+  if (!parsed) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Malformed Soroban type "${typeStr}" for ${fieldName}: invalid or unbalanced generic syntax. Per the Soroban type specification (ScSpecTypeDef / CAP-0046), types must follow canonical identifier or container<T> syntax.`,
+    );
+  }
+
+  const { base, params } = parsed;
+
+  // Check fixed-size byte array patterns like bytes32, bytes_32, bytes16, bytes64
+  const isBytesN = /^bytes_?(\d+)$/i.exec(base);
+  const isValidBytesN = isBytesN && Number(isBytesN[1]) >= 1 && Number(isBytesN[1]) <= 64;
+
+  if (params.length === 0) {
+    const isValidScalar = SOROBAN_SCALAR_TYPES.has(base) || isValidBytesN;
+    const isValidContainer = SOROBAN_CONTAINER_TYPES.has(base);
+    const isValidSpecial = SOROBAN_SPECIAL_TYPES.has(base);
+
+    if (["vec", "map", "option", "result"].includes(base)) {
+      return err(
+        SorokitErrorCode.VALIDATION,
+        `Container type "${base}" requires type arguments. Per the Soroban specification (ScSpecTypeDef), use ${base}<...> with the required argument count.`,
+      );
+    }
+
+    if (isValidScalar || isValidContainer || isValidSpecial) {
+      return ok(typeStr);
+    }
+
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Invalid Soroban type "${typeStr}" for ${fieldName}. Per the Soroban type specification (ScSpecTypeDef / ScVal / CAP-0046), valid scalar types include: u32, i32, u64, i64, u128, i128, u256, i256, bool, void, string, symbol, bytes, address, and container types: vec, map, tuple, option, result.`,
+    );
+  }
+
+  // If params are present, verify container legality and arity
+  if (SOROBAN_SCALAR_TYPES.has(base) || isValidBytesN) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Scalar type "${base}" cannot have generic type parameters in "${typeStr}". Per the Soroban type specification (ScSpecTypeDef / CAP-0046), only container types (vec, map, tuple, option, result) accept type arguments.`,
+    );
+  }
+
+  if (!SOROBAN_CONTAINER_TYPES.has(base)) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Unknown container type "${base}" in "${typeStr}". Per the Soroban type specification (ScSpecTypeDef / CAP-0046), valid container types are: vec, map, tuple, option, result.`,
+    );
+  }
+
+  if (base === "option" && params.length !== 1) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Option type requires exactly 1 type argument, received ${params.length} in "${typeStr}". Per the Soroban specification (ScSpecTypeDef), syntax is option<T>.`,
+    );
+  }
+
+  if (base === "vec" && params.length !== 1) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Vector type requires exactly 1 type argument, received ${params.length} in "${typeStr}". Per the Soroban specification (ScSpecTypeDef), syntax is vec<T>.`,
+    );
+  }
+
+  if (base === "map" && params.length !== 2) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Map type requires exactly 2 type arguments (key and value), received ${params.length} in "${typeStr}". Per the Soroban specification (ScSpecTypeDef), syntax is map<Key, Value>.`,
+    );
+  }
+
+  if (base === "result" && (params.length < 1 || params.length > 2)) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Result type requires 1 or 2 type arguments, received ${params.length} in "${typeStr}". Per the Soroban specification (ScSpecTypeDef), syntax is result<Ok, Err>.`,
+    );
+  }
+
+  // Recursively validate each inner parameter
+  for (let i = 0; i < params.length; i++) {
+    const innerResult = validateSorobanType(params[i], `${fieldName} <${base} arg ${i + 1}>`);
+    if (innerResult.status === "error") return innerResult;
+  }
+
+  return ok(typeStr);
+}
+
+/**
+ * Validate a Soroban contract method identifier name.
+ */
+function validateMethodName(rawName: unknown): SorokitResult<string> {
+  if (typeof rawName !== "string") {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      "Method name must be a string. Per the Soroban method specification (CAP-0046 / ScSymbol), method names must be valid ASCII string identifiers.",
+    );
+  }
+
+  const name = rawName;
+  if (name.length === 0) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      "Method name cannot be empty. Per the Soroban method specification (CAP-0046 / ScSymbol), method names must be between 1 and 32 characters.",
+    );
+  }
+
+  if (name.length > SOROBAN_MAX_METHOD_NAME_LEN) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Method name "${name}" exceeds the maximum Soroban symbol limit of ${SOROBAN_MAX_METHOD_NAME_LEN} characters (actual: ${name.length}). Per the Soroban specification (CAP-0046 / ScSymbol), method names must be at most 32 bytes.`,
+    );
+  }
+
+  if (/^[0-9]/.test(name)) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Method name "${name}" is invalid because it starts with a digit. Per the Soroban method specification (CAP-0046 / ScSymbol), method identifiers must begin with an ASCII letter or underscore.`,
+    );
+  }
+
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Method name "${name}" contains invalid characters. Per the Soroban method specification (CAP-0046 / ScSymbol), method identifiers may only contain alphanumeric characters and underscores.`,
+    );
+  }
+
+  if (SOROBAN_RESERVED_KEYWORDS.has(name.toLowerCase()) || SOROBAN_RESERVED_KEYWORDS.has(name)) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Method name "${name}" is a reserved keyword in Soroban / Rust smart contracts. Per the Soroban specification, reserved keywords cannot be used as contract entrypoint identifiers.`,
+    );
+  }
+
+  return ok(name);
+}
+
+/**
+ * Validate a Soroban contract method specification.
+ *
+ * Verifies that:
+ * 1. The method object is well-formed with a valid name.
+ * 2. The method name follows Soroban identifier naming rules (non-alphanumeric, leading digits, and reserved keywords rejected).
+ * 3. All input/parameter types are valid Soroban scalar or container types (u32, i64, string, vec, map, etc.).
+ * 4. Return type (if specified) is a valid Soroban type or void.
+ *
+ * @param method - The contract method specification object.
+ * @returns ok(ContractMethodValidationData) when valid, err(SorokitErrorCode.VALIDATION) otherwise.
+ */
+export function validateContractMethodSpec(
+  method: unknown,
+): SorokitResult<ContractMethodValidationData> {
+  if (typeof method !== "object" || method === null || Array.isArray(method)) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      "Contract method specification must be an object. Per the Soroban specification, methods require a valid name, inputs array, and returnType.",
+    );
+  }
+
+  const rawMethod = method as Record<string, unknown>;
+  const nameResult = validateMethodName(rawMethod.name);
+  if (nameResult.status === "error") return nameResult;
+  const cleanName = nameResult.data;
+
+  // Extract inputs / parameters / params / args
+  const rawInputs = rawMethod.inputs ?? rawMethod.parameters ?? rawMethod.params ?? rawMethod.args;
+  let validatedInputs: Array<{ name: string; type: string }> = [];
+
+  if (rawInputs !== undefined && rawInputs !== null) {
+    if (!Array.isArray(rawInputs)) {
+      return err(
+        SorokitErrorCode.VALIDATION,
+        `Method inputs/parameters for "${cleanName}" must be an array. Per the Soroban method specification, inputs are defined as an ordered list of typed parameters.`,
+      );
+    }
+
+    validatedInputs = [];
+    for (let i = 0; i < rawInputs.length; i++) {
+      const entry = rawInputs[i];
+      let paramName = `arg${i}`;
+      let paramTypeInput: unknown;
+
+      if (typeof entry === "string") {
+        paramTypeInput = entry;
+      } else if (typeof entry === "object" && entry !== null) {
+        const obj = entry as Record<string, unknown>;
+        if (typeof obj.name === "string" && obj.name.trim().length > 0) {
+          paramName = obj.name.trim();
+          if (/^[0-9]/.test(paramName) || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(paramName)) {
+            return err(
+              SorokitErrorCode.VALIDATION,
+              `Parameter name "${paramName}" at index ${i} of method "${cleanName}" is invalid. Per the Soroban specification, parameter identifiers must start with a letter or underscore and contain only alphanumeric characters and underscores.`,
+            );
+          }
+        }
+        paramTypeInput = obj.type;
+      } else {
+        return err(
+          SorokitErrorCode.VALIDATION,
+          `Parameter at index ${i} of method "${cleanName}" must be a type string or parameter descriptor object.`,
+        );
+      }
+
+      const typeResult = validateSorobanType(paramTypeInput, `parameter "${paramName}" (index ${i}) of method "${cleanName}"`);
+      if (typeResult.status === "error") return typeResult;
+      validatedInputs.push({ name: paramName, type: typeResult.data });
+    }
+  }
+
+  // Validate return type
+  let validatedReturnType: string | null = null;
+  const returnTypeVal = rawMethod.returnType ?? rawMethod.returns ?? rawMethod.return_type;
+  if (returnTypeVal !== undefined && returnTypeVal !== null) {
+    let retStr: unknown;
+    if (typeof returnTypeVal === "string") {
+      retStr = returnTypeVal;
+    } else if (typeof returnTypeVal === "object" && "type" in returnTypeVal) {
+      retStr = (returnTypeVal as { type: unknown }).type;
+    } else {
+      return err(
+        SorokitErrorCode.VALIDATION,
+        `Return type of method "${cleanName}" must be a type string or type descriptor object.`,
+      );
+    }
+    if (
+      retStr === null ||
+      retStr === undefined ||
+      retStr === "()" ||
+      String(retStr).toLowerCase() === "void" ||
+      String(retStr).toLowerCase() === "unit"
+    ) {
+      validatedReturnType = null;
+    } else {
+      if (typeof retStr !== "string") {
+        return err(
+          SorokitErrorCode.VALIDATION,
+          `Return type of method "${cleanName}" must be a string.`,
+        );
+      }
+      const retCheck = validateSorobanType(retStr, `returnType of method "${cleanName}"`);
+      if (retCheck.status === "error") return retCheck;
+      validatedReturnType = retCheck.data === "void" ? null : retCheck.data;
+    }
+  }
+
+  return ok({
+    value: method,
+    name: cleanName,
+    inputs: validatedInputs,
+    returnType: validatedReturnType,
+  });
+}
+
+/**
+ * Convenience helper returning boolean validity for a Soroban contract method specification.
+ */
+export function isValidContractMethodSpec(method: unknown): boolean {
+  return validateContractMethodSpec(method).status === "ok";
 }

@@ -60,6 +60,23 @@ function buildFlowUrl(baseUrl: URL, endpoint: string): URL {
   return new URL(endpoint, baseUrl.toString());
 }
 
+/**
+ * Validates that a withdrawal amount string is a positive, finite number
+ * before it ever reaches the network (issue #783). `options.amount` is a
+ * plain string — this SDK does not parse it until the anchor does — so
+ * `0`, `-100`, `"NaN"`, or any other non-numeric input previously reached
+ * the anchor unchecked, wasting a round-trip on an error the SDK could
+ * have caught locally.
+ */
+function validateWithdrawalAmount(amount: string | undefined): string | null {
+  if (amount === undefined) return null; // amount is optional; absence is not invalid.
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return `Withdrawal amount must be a positive finite number, received "${amount}".`;
+  }
+  return null;
+}
+
 export async function initiateDeposit(
   serverUrl: string,
   asset: Sep6FlowAsset,
@@ -101,6 +118,10 @@ export async function initiateWithdraw(
 ): Promise<SorokitResult<Record<string, unknown>>> {
   if (!asset?.code?.trim()) {
     return err(SorokitErrorCode.VALIDATION, "An asset code is required for withdrawal initiation.");
+  }
+  const amountError = validateWithdrawalAmount(options.amount);
+  if (amountError) {
+    return err(SorokitErrorCode.VALIDATION, amountError);
   }
   try {
     const base = normalizeServerUrl(serverUrl);

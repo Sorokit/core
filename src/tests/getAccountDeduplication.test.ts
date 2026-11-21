@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getAccount } from "../account/getAccount";
+import { Networks, TransactionBuilder } from "@stellar/stellar-sdk";
+import {
+  getAccount,
+  invalidateAccount,
+  clearAccountDeduplication,
+  refreshAccountSequence,
+} from "../account/getAccount";
 import { getAccountsBatch } from "../account/getAccountsBatch";
+import { submitTransaction } from "../transaction/submitTransaction";
 import { clearInflightRequests, getInflightRequestCount } from "../shared/utils";
 import { SorokitErrorCode } from "../shared/response";
 import * as serverFactory from "../shared/serverFactory";
@@ -24,6 +31,7 @@ describe("account fetching with concurrent request deduplication (#390)", () => 
 
   beforeEach(() => {
     clearInflightRequests();
+    clearAccountDeduplication();
     vi.restoreAllMocks();
   });
 
@@ -210,5 +218,184 @@ describe("account fetching with concurrent request deduplication (#390)", () => 
       expect((batchResult.data[3] as any).data.sequence).toBe("12345");
       expect((batchResult.data[4] as any).data.sequence).toBe("67890");
     }
+  });
+
+  describe("sequence-aware deduplication and mutation invalidation (#752)", () => {
+    it("reflects the incremented sequence on next fetch after account mutation invalidation", async () => {
+      let currentSeq = "100";
+      const mockLoadAccount = vi.fn().mockImplementation(async () => {
+        return {
+          sequence: currentSeq,
+          subentry_count: 1,
+          balances: [{ asset_type: "native", balance: "100.0000000" }],
+        };
+      });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        loadAccount: mockLoadAccount,
+      } as any);
+
+      // Rapid concurrent fetches before mutation get the exact same sequence (deduplicated)
+      const [res1, res2] = await Promise.all([
+        getAccount(horizonUrl, publicKeyA),
+        getAccount(horizonUrl, publicKeyA),
+      ]);
+
+      expect(mockLoadAccount).toHaveBeenCalledTimes(1);
+      expect(res1.status).toBe("ok");
+      expect(res2.status).toBe("ok");
+      if (res1.status === "ok" && res2.status === "ok") {
+        expect(res1.data.sequence).toBe("100");
+        expect(res2.data.sequence).toBe("100");
+      }
+
+      // Simulate a transaction submission/mutation: sequence increments on ledger
+      currentSeq = "101";
+      invalidateAccount(publicKeyA, horizonUrl);
+
+      // Next fetch reflects the incremented sequence, not cached old value
+      const res3 = await getAccount(horizonUrl, publicKeyA);
+      expect(mockLoadAccount).toHaveBeenCalledTimes(2);
+      expect(res3.status).toBe("ok");
+      if (res3.status === "ok") {
+        expect(res3.data.sequence).toBe("101");
+      }
+    });
+
+    it("evicts in-flight requests when mutation occurs concurrently with fetches", async () => {
+      let callCount = 0;
+      const mockLoadAccount = vi.fn().mockImplementation(async () => {
+        callCount++;
+        const seq = callCount === 1 ? "100" : "101";
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return {
+          sequence: seq,
+          subentry_count: 1,
+          balances: [{ asset_type: "native", balance: "100.0000000" }],
+        };
+      });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        loadAccount: mockLoadAccount,
+      } as any);
+
+      // Start first fetch (which takes 30ms)
+      const fetch1Promise = getAccount(horizonUrl, publicKeyA);
+
+      // While fetch1 is in-flight, a mutation occurs and invalidates the account
+      invalidateAccount(publicKeyA, horizonUrl);
+
+      // Second fetch starts after mutation
+      const fetch2Promise = getAccount(horizonUrl, publicKeyA);
+
+      const [res1, res2] = await Promise.all([fetch1Promise, fetch2Promise]);
+
+      expect(mockLoadAccount).toHaveBeenCalledTimes(2);
+      expect(res1.status).toBe("ok");
+      expect(res2.status).toBe("ok");
+      if (res1.status === "ok" && res2.status === "ok") {
+        expect(res1.data.sequence).toBe("100");
+        expect(res2.data.sequence).toBe("101");
+      }
+    });
+
+    it("differentiates deduplication keys when explicit sequence / expectedSequence is provided", async () => {
+      const mockLoadAccount = vi.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return mockAccountA;
+      });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        loadAccount: mockLoadAccount,
+      } as any);
+
+      // Rapid concurrent calls expecting different sequences do not share the deduplication key
+      const [resSeq1, resSeq2] = await Promise.all([
+        getAccount(horizonUrl, publicKeyA, { sequence: "100" }),
+        getAccount(horizonUrl, publicKeyA, { sequence: "101" }),
+      ]);
+
+      expect(mockLoadAccount).toHaveBeenCalledTimes(2);
+      expect(resSeq1.status).toBe("ok");
+      expect(resSeq2.status).toBe("ok");
+    });
+
+    it("bypasses deduplication and forces fresh fetch when forceRefresh is true", async () => {
+      let currentSeq = "200";
+      const mockLoadAccount = vi.fn().mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return {
+          sequence: currentSeq,
+          subentry_count: 1,
+          balances: [{ asset_type: "native", balance: "100.0000000" }],
+        };
+      });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        loadAccount: mockLoadAccount,
+      } as any);
+
+      const p1 = getAccount(horizonUrl, publicKeyA);
+      currentSeq = "201";
+      const p2 = getAccount(horizonUrl, publicKeyA, { forceRefresh: true });
+
+      const [res1, res2] = await Promise.all([p1, p2]);
+
+      expect(mockLoadAccount).toHaveBeenCalledTimes(2);
+      expect(res1.status).toBe("ok");
+      expect(res2.status).toBe("ok");
+      if (res2.status === "ok") {
+        expect(res2.data.sequence).toBe("201");
+      }
+    });
+
+    it("automatically invalidates account sequence when submitTransaction succeeds", async () => {
+      const TESTNET_XDR =
+        "AAAAAgAAAAArg6xVmhrfK8Kf1L0wCEKReWNmDUacUNz/RAwldACowwAAAGQAAAAAAAAAAQAAAAEAAAAAAAAAAAAAAABqO6RQAAAAAAAAAAEAAAAAAAAACQAAAAAAAAABdACowwAAAEBh9aFJaCgi8jCtB4tqReRPYyywWPIWl6v1+92iXCdqsKGvoxRafpQiAIdvHr6+Jw2Ybd4Vs89XDO0nDVtwip4K";
+
+      let currentSeq = "1000";
+      const mockLoadAccount = vi.fn().mockImplementation(async () => {
+        return {
+          sequence: currentSeq,
+          subentry_count: 1,
+          balances: [{ asset_type: "native", balance: "500.0000000" }],
+        };
+      });
+
+      const mockSubmitTransaction = vi.fn().mockResolvedValue({
+        hash: "deadbeef",
+        ledger: 1234,
+        envelope_xdr: TESTNET_XDR,
+        result_xdr: "",
+      });
+
+      vi.spyOn(serverFactory, "createHorizonServer").mockReturnValue({
+        loadAccount: mockLoadAccount,
+        submitTransaction: mockSubmitTransaction,
+      } as any);
+
+      const tx = TransactionBuilder.fromXDR(TESTNET_XDR, Networks.TESTNET);
+      const sourceKey = tx.source;
+
+      // 1. Fetch account initially
+      const initial = await getAccount(horizonUrl, sourceKey);
+      expect(initial.status).toBe("ok");
+      if (initial.status === "ok") {
+        expect(initial.data.sequence).toBe("1000");
+      }
+
+      // 2. Submit transaction consuming sequence
+      currentSeq = "1001";
+      const submitRes = await submitTransaction(horizonUrl, Networks.TESTNET, TESTNET_XDR);
+      expect(submitRes.status).toBe("ok");
+
+      // 3. Next fetch reflects the incremented sequence
+      const refreshed = await getAccount(horizonUrl, sourceKey);
+      expect(refreshed.status).toBe("ok");
+      if (refreshed.status === "ok") {
+        expect(refreshed.data.sequence).toBe("1001");
+      }
+      expect(mockLoadAccount).toHaveBeenCalledTimes(2);
+    });
   });
 });

@@ -15,7 +15,11 @@ import { executeContract } from "../soroban/executeContract";
 import { prepareContractCall } from "../soroban/prepareCall";
 import { readContract } from "../soroban/readContract";
 import { simulateContractSafe } from "../soroban/simulateContractSafe";
-import { simulateTransaction } from "../soroban/simulateTransaction";
+import {
+  simulateTransaction,
+  extractResourceUsage,
+  validateResourceUsageResponse,
+} from "../soroban/simulateTransaction";
 import { createContractStateTracker } from "../soroban/contractStateTracker";
 import {
   decodeAbiValue,
@@ -553,7 +557,10 @@ describe("soroban contract metadata", () => {
     expect(result.status).toBe("error");
     if (result.status === "error") {
       expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_READ_FAILED);
-      expect(result.error.message).toContain("expects 1 argument");
+      // #843: message now names the specific missing parameter.
+      expect(result.error.message).toContain("missing required parameter");
+      expect(result.error.message).toContain("to");
+      expect(result.error.message).toContain("Expected 1 argument");
     }
   });
 });
@@ -972,6 +979,128 @@ describe("queryContractEvents", () => {
     );
 
     expect(result).toEqual([]);
+  });
+});
+
+describe("prepareContractCall — missing required parameter validation (#843)", () => {
+  beforeEach(() => {
+    mockGetLedgerEntries.mockReset();
+    resetRpcSimulationMocks();
+  });
+
+  it("rejects a call with zero args when neither cachedMetadata nor contractAbi is provided, by auto-discovering the contract's methods", async () => {
+    // methodSpec() declares "hello" with exactly one required input ("to").
+    mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "hello",
+        // No args, no cachedMetadata, no contractAbi — the gap #843 describes.
+        publicKey: Keypair.random().publicKey(),
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
+      expect(result.error.message).toContain("missing required parameter");
+      expect(result.error.message).toContain("to");
+    }
+  });
+
+  it("names every missing parameter when more than one is omitted", async () => {
+    mockContractLedgerEntries(
+      contractSpecWasm([
+        xdr.ScSpecEntry.scSpecEntryFunctionV0(
+          new xdr.ScSpecFunctionV0({
+            doc: "",
+            name: "transfer",
+            inputs: [
+              new xdr.ScSpecFunctionInputV0({
+                doc: "",
+                name: "from",
+                type: xdr.ScSpecTypeDef.scSpecTypeAddress(),
+              }),
+              new xdr.ScSpecFunctionInputV0({
+                doc: "",
+                name: "to",
+                type: xdr.ScSpecTypeDef.scSpecTypeAddress(),
+              }),
+              new xdr.ScSpecFunctionInputV0({
+                doc: "",
+                name: "amount",
+                type: xdr.ScSpecTypeDef.scSpecTypeI128(),
+              }),
+            ],
+            outputs: [],
+          }),
+        ),
+      ]),
+    );
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "transfer",
+        args: [arg], // only one of three required args supplied
+        publicKey: Keypair.random().publicKey(),
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.message).toContain("to, amount");
+    }
+  });
+
+  it("succeeds when all required parameters are supplied, using auto-discovered metadata", async () => {
+    mockContractLedgerEntries(contractSpecWasm([methodSpec()]));
+
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "hello",
+        // methodSpec()'s "to" input is typed symbol, matching this arg's type.
+        args: [xdr.ScVal.scvSymbol("alice")],
+        publicKey: Keypair.random().publicKey(),
+      },
+    );
+
+    expect(result.status).toBe("ok");
+  });
+
+  it("still validates argument count when cachedMetadata is explicitly provided (pre-existing behavior, unchanged)", async () => {
+    const result = await prepareContractCall(
+      networkConfig.rpcUrl,
+      networkConfig,
+      networkConfig.horizonUrl,
+      {
+        contractId: contractId(),
+        method: "hello",
+        publicKey: Keypair.random().publicKey(),
+        cachedMetadata: [
+          { name: "hello", inputs: [{ name: "to", type: "symbol" }], returnType: "string" },
+        ],
+      },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.message).toContain("missing required parameter");
+      expect(result.error.message).toContain("to");
+    }
+    // cachedMetadata was supplied, so auto-discovery must not have run.
+    expect(mockGetLedgerEntries).not.toHaveBeenCalled();
   });
 });
 
@@ -2453,6 +2582,308 @@ describe("simulateTransaction resource details", () => {
   });
 });
 
+// ─── #746 RPC response shape validation in extractResourceUsage ──────────────
+
+describe("#746 RPC response shape validation in extractResourceUsage", () => {
+  beforeEach(() => {
+    resetRpcSimulationMocks();
+  });
+
+  it("extracts resource usage without warning when response has complete transactionData", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const simResult = {
+      transactionData: {
+        resources: () => ({
+          instructions: () => 50000,
+          readBytes: () => 128,
+          writeBytes: () => 64,
+          footprint: () => ({
+            readOnly: () => ["ro"],
+            readWrite: () => ["rw"],
+          }),
+        }),
+      },
+    };
+
+    const usage = extractResourceUsage(simResult);
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(usage.instructions).toBe("50000");
+    expect(usage.readBytes).toBe(128);
+    expect(usage.writeBytes).toBe(64);
+    expect(usage.readLedgerEntries).toBe(1);
+    expect(usage.writeLedgerEntries).toBe(1);
+    expect(usage.missingFields).toBeUndefined();
+    expect(usage.warning).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  it("extracts resource usage without warning when response has complete cost object", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const simResult = {
+      cost: {
+        cpuInsns: "75000",
+        memBytes: 256,
+      },
+    };
+
+    const usage = extractResourceUsage(simResult);
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(usage.instructions).toBe("75000");
+    expect(usage.writeBytes).toBe(256);
+    expect(usage.missingFields).toBeUndefined();
+    expect(usage.warning).toBeUndefined();
+    warnSpy.mockRestore();
+  });
+
+  it("logs a warning when cost.cpuInsns is missing and does not coerce to zero", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const simResult = {
+      cost: {
+        memBytes: 128,
+      },
+    };
+
+    const usage = extractResourceUsage(simResult);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("cost.cpuInsns"),
+    );
+    expect(usage.instructions).toBeUndefined();
+    expect(usage.instructions).not.toBe("0");
+    expect(usage.writeBytes).toBe(128);
+    expect(usage.missingFields).toContain("cost.cpuInsns");
+    expect(usage.warning).toBeDefined();
+    warnSpy.mockRestore();
+  });
+
+  it("logs a warning when cost.memBytes is missing and does not coerce to zero", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const simResult = {
+      cost: {
+        cpuInsns: 10000,
+      },
+    };
+
+    const usage = extractResourceUsage(simResult);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("cost.memBytes"),
+    );
+    expect(usage.writeBytes).toBeUndefined();
+    expect(usage.writeBytes).not.toBe(0);
+    expect(usage.instructions).toBe("10000");
+    expect(usage.missingFields).toContain("cost.memBytes");
+    warnSpy.mockRestore();
+  });
+
+  it("logs a warning when cost object is completely empty", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const simResult = {
+      cost: {},
+    };
+
+    const usage = extractResourceUsage(simResult);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("cost.cpuInsns"),
+    );
+    expect(usage.instructions).toBeUndefined();
+    expect(usage.writeBytes).toBeUndefined();
+    expect(usage.missingFields).toEqual(["cost.cpuInsns", "cost.memBytes"]);
+    warnSpy.mockRestore();
+  });
+
+  it("logs a warning when both cost and transactionData are missing", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const simResult = {
+      minResourceFee: "100",
+    };
+
+    const usage = extractResourceUsage(simResult);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("cost, transactionData"),
+    );
+    expect(usage.instructions).toBeUndefined();
+    expect(usage.writeBytes).toBeUndefined();
+    expect(usage.missingFields).toEqual(["cost", "transactionData"]);
+    warnSpy.mockRestore();
+  });
+
+  it("logs a warning when transactionData is present but missing resources", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const simResult = {
+      transactionData: {},
+    };
+
+    const usage = extractResourceUsage(simResult);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("transactionData.resources"),
+    );
+    expect(usage.missingFields).toContain("transactionData.resources");
+    warnSpy.mockRestore();
+  });
+
+  it("logs a warning when transactionData resources is missing instructions and writeBytes", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const simResult = {
+      transactionData: {
+        resources: () => ({
+          readBytes: () => 512,
+        }),
+      },
+    };
+
+    const usage = extractResourceUsage(simResult);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("instructions"),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("writeBytes"),
+    );
+    expect(usage.readBytes).toBe(512);
+    expect(usage.instructions).toBeUndefined();
+    expect(usage.writeBytes).toBeUndefined();
+    expect(usage.missingFields).toEqual(["instructions", "writeBytes"]);
+    warnSpy.mockRestore();
+  });
+
+  it("throws a validation error when strict option is enabled for incomplete response", () => {
+    const simResult = {
+      cost: {
+        memBytes: 100,
+      },
+    };
+
+    expect(() =>
+      extractResourceUsage(simResult, { strict: true }),
+    ).toThrowError(/missing required resource fields.*cost\.cpuInsns/);
+  });
+
+  it("delegates warning to custom logger when provided", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const customWarn = vi.fn();
+    const simResult = { cost: {} };
+
+    extractResourceUsage(simResult, {
+      logger: { warn: customWarn },
+    });
+
+    expect(customWarn).toHaveBeenCalledOnce();
+    expect(customWarn).toHaveBeenCalledWith(
+      expect.stringContaining("cost.cpuInsns"),
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("validateResourceUsageResponse reports validity and missing fields correctly", () => {
+    expect(validateResourceUsageResponse(null).valid).toBe(false);
+    expect(validateResourceUsageResponse({}).valid).toBe(false);
+    expect(validateResourceUsageResponse({ cost: {} }).valid).toBe(false);
+    expect(
+      validateResourceUsageResponse({
+        cost: { cpuInsns: 100, memBytes: 50 },
+      }).valid,
+    ).toBe(true);
+    expect(
+      validateResourceUsageResponse({
+        cost: { cpuInsns: 0, memBytes: 0 },
+      }).valid,
+    ).toBe(true);
+  });
+
+  it("simulateTransaction emits warning and does not synthesize zero values on incomplete RPC response", async () => {
+    const actualSdk = await vi.importActual<
+      typeof import("@stellar/stellar-sdk")
+    >("@stellar/stellar-sdk");
+    const contract = new actualSdk.Contract(
+      actualSdk.StrKey.encodeContract(Buffer.alloc(32)),
+    );
+    const sourceAccount = new actualSdk.Account(
+      actualSdk.Keypair.random().publicKey(),
+      "1",
+    );
+    const transactionXdr = new actualSdk.TransactionBuilder(sourceAccount, {
+      fee: actualSdk.BASE_FEE,
+      networkPassphrase: actualSdk.Networks.TESTNET,
+    })
+      .addOperation(contract.call("hello", actualSdk.xdr.ScVal.scvSymbol("world")))
+      .setTimeout(100)
+      .build()
+      .toXDR();
+
+    mockSimulateTransaction.mockResolvedValueOnce({
+      minResourceFee: "1000",
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await simulateTransaction(
+      networkConfig.rpcUrl,
+      actualSdk.Networks.TESTNET,
+      transactionXdr,
+    );
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.success).toBe(true);
+      expect(result.data.resourceUsage?.instructions).toBeUndefined();
+      expect(result.data.resourceUsage?.instructions).not.toBe("0");
+      expect(result.data.resourceUsage?.writeBytes).toBeUndefined();
+      expect(result.data.resourceUsage?.writeBytes).not.toBe(0);
+      expect(result.data.resourceUsage?.missingFields).toEqual([
+        "cost",
+        "transactionData",
+      ]);
+      expect(result.data.warning).toBeDefined();
+    }
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
+
+  it("simulateTransaction fails when strictResourceValidation is set and response is incomplete", async () => {
+    const actualSdk = await vi.importActual<
+      typeof import("@stellar/stellar-sdk")
+    >("@stellar/stellar-sdk");
+    const contract = new actualSdk.Contract(
+      actualSdk.StrKey.encodeContract(Buffer.alloc(32)),
+    );
+    const sourceAccount = new actualSdk.Account(
+      actualSdk.Keypair.random().publicKey(),
+      "1",
+    );
+    const transactionXdr = new actualSdk.TransactionBuilder(sourceAccount, {
+      fee: actualSdk.BASE_FEE,
+      networkPassphrase: actualSdk.Networks.TESTNET,
+    })
+      .addOperation(contract.call("hello", actualSdk.xdr.ScVal.scvSymbol("world")))
+      .setTimeout(100)
+      .build()
+      .toXDR();
+
+    mockSimulateTransaction.mockResolvedValueOnce({
+      minResourceFee: "1000",
+      cost: {},
+    });
+
+    const result = await simulateTransaction(
+      networkConfig.rpcUrl,
+      actualSdk.Networks.TESTNET,
+      transactionXdr,
+      { strictResourceValidation: true },
+    );
+
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.code).toBe(SorokitErrorCode.TX_SIMULATE_FAILED);
+      expect(result.error.message).toContain("cost.cpuInsns");
+    }
+  });
+});
+
 // ─── #90 XDR validation in prepareContractCall ───────────────────────────────
 
 describe("prepareContractCall XDR validation (#90)", () => {
@@ -3202,7 +3633,10 @@ describe("contract method visibility and authorization (#383)", () => {
     expect(result.status).toBe("error");
     if (result.status === "error") {
       expect(result.error.code).toBe(SorokitErrorCode.CONTRACT_PREPARE_FAILED);
-      expect(result.error.message).toContain("expects 1 argument");
+      // #843: message now names the specific missing parameter.
+      expect(result.error.message).toContain("missing required parameter");
+      expect(result.error.message).toContain("amount");
+      expect(result.error.message).toContain("Expected 1 argument");
     }
     expect(mockSimulateTransaction).not.toHaveBeenCalled();
   });

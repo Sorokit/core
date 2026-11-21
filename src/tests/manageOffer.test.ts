@@ -374,6 +374,50 @@ describe("buildManageOfferTransaction (#550)", () => {
       }
     });
 
+    it("warns instead of erroring when selling and buying are the same asset and allowSameAsset is true", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const result = await buildManageOfferTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        TRADER,
+        {
+          sellingAssetCode: "XLM",
+          buyingAssetCode: "XLM",
+          amount: "100",
+          price: "1",
+          allowSameAsset: true,
+        },
+      );
+
+      expect(result.status).toBe("ok");
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0][0]).toContain("can never fill");
+
+      warnSpy.mockRestore();
+    });
+
+    it("still returns error for same-asset offers when allowSameAsset is false", async () => {
+      const result = await buildManageOfferTransaction(
+        networkConfig.horizonUrl,
+        networkConfig,
+        TRADER,
+        {
+          sellingAssetCode: "XLM",
+          buyingAssetCode: "XLM",
+          amount: "100",
+          price: "1",
+          allowSameAsset: false,
+        },
+      );
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error.code).toBe(SorokitErrorCode.TX_BUILD_FAILED);
+        expect(result.error.message).toContain("must be different");
+      }
+    });
+
     it("returns error when the selling issuer is not in the trusted list", async () => {
       const untrustedIssuer =
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";

@@ -5,6 +5,7 @@ import {
   resolveFederatedAddress,
 } from "../integration/federationResolver";
 import {
+  clearAnchorCache,
   getSep6TransactionStatus,
   authenticateSep10,
   initiateSep24Interactive,
@@ -24,6 +25,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   clearFederationAddressCache();
+  clearAnchorCache();
 });
 
 describe("federation resolution", () => {

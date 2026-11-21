@@ -28,7 +28,12 @@ class FakeHostError extends Error {
 describe("decodeContractError (#391)", () => {
   describe("mapped errors", () => {
     it("decodes numeric HostError codes for router contracts", () => {
-      const decoded = decodeContractError(new FakeHostError(["Contract", 3]));
+      // Numeric decoding requires the family map: a bare code is ambiguous
+      // across contract families and is absent from the default map (#726/#804).
+      const decoded = decodeContractError(
+        new FakeHostError(["Contract", 3]),
+        ROUTER_CONTRACT_ERRORS,
+      );
 
       expect(decoded.decoded).toBe(true);
       expect(decoded.code).toBe("3");
@@ -48,7 +53,8 @@ describe("decodeContractError (#391)", () => {
 
     it("extracts embedded #N codes from arbitrary messages", () => {
       const failure = new Error("invoke failed with Error(Contract, #7)");
-      const decoded = decodeContractError(failure);
+      // Family map required so the embedded bare code resolves to the router family.
+      const decoded = decodeContractError(failure, ROUTER_CONTRACT_ERRORS);
 
       expect(decoded.decoded).toBe(true);
       expect(decoded.code).toBe("7");
@@ -56,8 +62,8 @@ describe("decodeContractError (#391)", () => {
     });
 
     it("decodes factory errors including remediation guidance", () => {
-      // Factory and router contracts share numeric code spaces, so precise
-      // factory decoding uses the family map explicitly.
+      // Factory and router contracts share numeric code spaces, so bare numeric
+      // codes live only in the family maps and are absent from the default map.
       const decoded = decodeContractError(
         FACTORY_ERROR_CODES.PAIR_ALREADY_EXISTS,
         FACTORY_CONTRACT_ERRORS,
@@ -68,8 +74,18 @@ describe("decodeContractError (#391)", () => {
       expect(decoded.remediation).toContain("existing pair");
     });
 
-    it("resolves ambiguous numeric codes to router entries in the default map", () => {
-      const decoded = decodeContractError(ROUTER_ERROR_CODES.ROUTER_SLIPPAGE_EXCEEDED);
+    it("fails closed for unqualified numeric codes in the default map", () => {
+      const decoded = decodeContractError(new FakeHostError(["Contract", 3]));
+
+      expect(decoded.decoded).toBe(false);
+      expect(decoded.code).toBe("3");
+    });
+
+    it("decodes numeric codes when the caller supplies the family map", () => {
+      const decoded = decodeContractError(
+        ROUTER_ERROR_CODES.ROUTER_SLIPPAGE_EXCEEDED,
+        ROUTER_CONTRACT_ERRORS,
+      );
 
       expect(decoded.decoded).toBe(true);
       expect(decoded.message).toContain("slippage");
@@ -100,6 +116,20 @@ describe("decodeContractError (#391)", () => {
 
       // Default map combines both.
       expect(DEFAULT_CONTRACT_ERROR_MAP.EXPIRED_DEADLINE).toBeDefined();
+      expect(
+        DEFAULT_CONTRACT_ERROR_MAP[
+          `ROUTER_${ROUTER_ERROR_CODES.ROUTER_INSUFFICIENT_LIQUIDITY}`
+        ],
+      ).toBeDefined();
+
+      // Merged map keeps no bare numeric keys, so unqualified codes fail closed.
+      expect(DEFAULT_CONTRACT_ERROR_MAP["3"]).toBeUndefined();
+      expect(DEFAULT_CONTRACT_ERROR_MAP["1"]).toBeUndefined();
+      expect(
+        Object.keys(DEFAULT_CONTRACT_ERROR_MAP).filter((key) =>
+          /^\d+$/.test(key),
+        ),
+      ).toEqual([]);
     });
   });
 

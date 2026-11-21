@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createSorokitClient } from "../../client/createSorokitClient";
 import { SorokitErrorCode } from "../../shared/response";
+import { clearReplayProtection } from "../../transaction/submitTransaction";
 
 // ─── Hoisted mocks ────────────────────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ function makeHorizonAccount() {
 
 describe("integration: buildPayment → sign → submit", () => {
   beforeEach(() => {
+    clearReplayProtection();
     mockLoadAccount.mockReset();
     mockSubmitTransaction.mockReset();
     mockTransactionCall.mockReset();

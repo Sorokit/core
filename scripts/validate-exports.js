@@ -103,7 +103,7 @@ for (const name of expectedMainExports) {
   }
 }
 
-const sharedModule = require(path.resolve(__dirname, '../dist/shared/index.js'));
+const sharedModule = require(path.resolve(__dirname, '../dist/shared/public.js'));
 for (const name of [
   'checkMainnetSafety', 'extractTransactionTotalXlm', 'isMainnetNetwork',
   'DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM', 'MAINNET_NETWORK_PASSPHRASE',
@@ -112,6 +112,10 @@ for (const name of [
     console.error(`Missing shared export: ${name}`);
     failed = true;
   }
+}
+if (sharedModule.createSmartCache !== undefined || sharedModule.registerAsset !== undefined) {
+  console.error('Internal shared utilities leaked from the stable shared entrypoint');
+  failed = true;
 }
 if (mainModule.SorokitErrorCode.MAINNET_SAFETY_LIMIT !== 'MAINNET_SAFETY_LIMIT') {
   console.error('Missing Mainnet safety error code');

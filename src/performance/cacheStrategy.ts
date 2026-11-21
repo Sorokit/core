@@ -57,8 +57,10 @@ export interface CacheStats {
   hitRate: number;
   /** Number of values currently stored (including any not-yet-expired warmed entries). */
   size: number;
-  /** Estimated memory footprint of all cached values, in bytes. */
+  /** Estimated serialized size of all cached values, in bytes. */
   memoryUsageBytes: number;
+  /** Number of entries removed to enforce a configured size limit. */
+  evictions: number;
   /** Total number of entries written via `.get()` or `.warmCache()`. */
   sets: number;
   /** Total number of entries removed via `.invalidate()`, `.clear()`, TTL expiry, or event invalidation. */
@@ -69,6 +71,14 @@ export interface CacheStats {
 
 /** A function that produces a fresh value for a given cache key. */
 export type CacheFetcher<T> = (key: string) => Promise<T>;
+
+/** Optional capacity limits for a cache instance. */
+export interface CacheOptions {
+  /** Maximum number of entries. Set to `0` to disable storage. */
+  maxEntries?: number;
+  /** Maximum estimated serialized value size in bytes. Set to `0` to disable storage. */
+  maxSizeBytes?: number;
+}
 
 interface CacheEntry<T> {
   value: T;
@@ -89,11 +99,27 @@ export class CacheBuilder<T> {
   private readonly pendingWarmKeys = new Set<string>();
   private readonly inFlight = new Map<string, Promise<SorokitResult<CachedData<T>>>>();
 
+  private readonly maxEntries: number | undefined;
+  private readonly maxSizeBytes: number | undefined;
   private ttlMs: number | null = null;
   private hits = 0;
   private misses = 0;
   private sets = 0;
   private invalidations = 0;
+  private evictions = 0;
+
+  constructor(options: CacheOptions = {}) {
+    if (options.maxEntries !== undefined &&
+      (!Number.isInteger(options.maxEntries) || options.maxEntries < 0)) {
+      throw new Error("maxEntries must be a non-negative integer");
+    }
+    if (options.maxSizeBytes !== undefined &&
+      (!Number.isInteger(options.maxSizeBytes) || options.maxSizeBytes < 0)) {
+      throw new Error("maxSizeBytes must be a non-negative integer");
+    }
+    this.maxEntries = options.maxEntries;
+    this.maxSizeBytes = options.maxSizeBytes;
+  }
 
   /**
    * Sets the default time-to-live applied to every entry written after this
@@ -184,6 +210,7 @@ export class CacheBuilder<T> {
     if (!entry) return ok(null);
 
     const expired = entry.expiresAt !== null && Date.now() > entry.expiresAt;
+    this.touch(key, entry);
     return ok({
       value: entry.value,
       cachedAt: entry.cachedAt,
@@ -207,6 +234,7 @@ export class CacheBuilder<T> {
     if (this.isFresh(key)) {
       this.hits++;
       const entry = this.store.get(key)!;
+      this.touch(key, entry);
       return ok({
         value: entry.value,
         cachedAt: entry.cachedAt,
@@ -251,6 +279,7 @@ export class CacheBuilder<T> {
       hitRate: totalRequests > 0 ? this.hits / totalRequests : 0,
       size: this.store.size,
       memoryUsageBytes: this.estimateMemoryUsage(),
+      evictions: this.evictions,
       sets: this.sets,
       invalidations: this.invalidations,
       pendingWarmKeys: this.pendingWarmKeys.size,
@@ -289,11 +318,38 @@ export class CacheBuilder<T> {
 
     const cachedAt = Date.now();
     const expiresAt = this.ttlMs !== null ? cachedAt + this.ttlMs : null;
-    this.store.set(key, { value, cachedAt, expiresAt });
     this.pendingWarmKeys.delete(key);
-    this.sets++;
+    const sizeBytes = estimateByteSize(value);
+    if (this.maxSizeBytes === undefined || sizeBytes <= this.maxSizeBytes) {
+      this.store.delete(key);
+      this.store.set(key, { value, cachedAt, expiresAt });
+      this.evictToLimits();
+      this.sets++;
+    }
 
     return ok({ value, cachedAt, expiresAt, stale: false });
+  }
+
+  private touch(key: string, entry: CacheEntry<T>): void {
+    this.store.delete(key);
+    this.store.set(key, entry);
+  }
+
+  private evictToLimits(): void {
+    let memoryUsageBytes = this.maxSizeBytes === undefined ? 0 : this.estimateMemoryUsage();
+    while (
+      (this.maxEntries !== undefined && this.store.size > this.maxEntries) ||
+      (this.maxSizeBytes !== undefined && memoryUsageBytes > this.maxSizeBytes)
+    ) {
+      const oldestKey = this.store.keys().next().value;
+      if (oldestKey === undefined) return;
+      const oldestEntry = this.store.get(oldestKey);
+      if (oldestEntry && this.maxSizeBytes !== undefined) {
+        memoryUsageBytes -= estimateByteSize(oldestEntry.value);
+      }
+      this.store.delete(oldestKey);
+      this.evictions++;
+    }
   }
 
   private estimateMemoryUsage(): number {
@@ -312,8 +368,8 @@ export class CacheBuilder<T> {
  * const cache = createCache<number>().ttl(60_000);
  * const result = await cache.get("answer", async () => 42);
  */
-export function createCache<T = unknown>(): CacheBuilder<T> {
-  return new CacheBuilder<T>();
+export function createCache<T = unknown>(options: CacheOptions = {}): CacheBuilder<T> {
+  return new CacheBuilder<T>(options);
 }
 
 // ─── Internal utilities ─────────────────────────────────────────────────────

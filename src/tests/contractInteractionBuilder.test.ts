@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ContractInteractionBuilder } from "../soroban/contractInteractionBuilder";
+import { ContractInteractionBuilder, createContractInteractionBuilder } from "../soroban/contractInteractionBuilder";
 import type { ContractMethod } from "../soroban/types";
 
 const MOCK_METHODS: ContractMethod[] = [
@@ -259,5 +259,36 @@ describe("ContractInteractionBuilder", () => {
       expect(result.data.arguments[1].placeholder).toBe("G... or C...");
       expect(result.data.arguments[2].placeholder).toBe("0");
     }
+  });
+});
+
+describe("createContractInteractionBuilder (#759)", () => {
+  it("returns a ContractInteractionBuilder instance", () => {
+    const builder = createContractInteractionBuilder({ rpcUrl: "https://rpc.test" });
+    expect(builder).toBeInstanceOf(ContractInteractionBuilder);
+  });
+
+  it("initial state has no contract ID and no methods", () => {
+    const builder = createContractInteractionBuilder({ rpcUrl: "https://rpc.test" });
+    expect(builder.state.contractId).toBeNull();
+    expect(builder.state.methods).toEqual([]);
+    expect(builder.state.loading).toBe(false);
+  });
+
+  it("accepts an optional contractId in config", () => {
+    const builder = createContractInteractionBuilder({
+      rpcUrl: "https://rpc.test",
+      contractId: "CDLZJ7ZJ7VZX5QFXQT4Q6J7ZJ7VZX5QFXQT4Q6J7ZJ7VZX5Q",
+    });
+    expect(builder.state.contractId).toBeTruthy();
+  });
+
+  it("state transitions via setContractId are observable", () => {
+    const builder = createContractInteractionBuilder({ rpcUrl: "https://rpc.test" });
+    const listener = vi.fn();
+    const unsub = builder.subscribe(listener);
+    builder.setContractId("CDLZJ7ZJ7VZX5QFXQT4Q6J7ZJ7VZX5QFXQT4Q6J7ZJ7VZX5Q");
+    expect(listener).toHaveBeenCalledOnce();
+    unsub();
   });
 });

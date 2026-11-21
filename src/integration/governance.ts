@@ -89,6 +89,16 @@ export interface VotingPower {
   power: bigint;
 }
 
+/** One proposal a voter has cast a vote on (issue #785). */
+export interface UserVoteRecord {
+  proposalId: ProposalId;
+  vote: VoteChoice;
+  /** The proposal's status at the time it was fetched, not at the time the vote was cast. */
+  proposalStatus: ProposalStatus;
+  /** Hash of the vote transaction, when the source reports one. */
+  txHash?: string;
+}
+
 /** Transport/signing adapter for a governance system. */
 export interface GovernanceProvider {
   listProposals(network: GovernanceNetwork): Promise<unknown>;
@@ -100,6 +110,14 @@ export interface GovernanceProvider {
     voter?: string;
   }): Promise<unknown>;
   getVotingPower(network: GovernanceNetwork, publicKey: string): Promise<unknown>;
+  /**
+   * A voter's own cast votes on `network` (issue #785). Optional: a
+   * provider that has no way to answer this (e.g. it only exposes
+   * aggregate tallies, never per-voter records) simply omits it, and
+   * {@link getUserVotingHistory} reports `INVALID_CONFIG` rather than
+   * calling a method that was never there.
+   */
+  getVoterHistory?(network: GovernanceNetwork, publicKey: string): Promise<unknown>;
 }
 
 export interface GovernanceCallOptions {
@@ -346,6 +364,78 @@ export async function getVotingPower(
   }
 }
 
+/** Validates and normalises one voter-history entry returned by a provider. */
+function normalizeUserVoteRecord(raw: unknown): UserVoteRecord {
+  if (!raw || typeof raw !== "object") throw new GovernanceDataError("vote history entry must be an object");
+  const r = raw as Record<string, unknown>;
+  if (!isProposalId(r.proposalId)) throw new GovernanceDataError("vote history entry.proposalId is missing or invalid");
+  const vote = typeof r.vote === "string" ? r.vote.trim().toLowerCase() : "";
+  if (!(VOTES as readonly string[]).includes(vote)) {
+    throw new GovernanceDataError(`vote history entry for proposal ${String(r.proposalId)} has unknown vote "${String(r.vote)}"`);
+  }
+  const proposalStatus = typeof r.proposalStatus === "string" ? r.proposalStatus.toLowerCase() : "";
+  if (!(PROPOSAL_STATUSES as readonly string[]).includes(proposalStatus)) {
+    throw new GovernanceDataError(`vote history entry for proposal ${String(r.proposalId)} has unknown proposalStatus "${String(r.proposalStatus)}"`);
+  }
+  const record: UserVoteRecord = {
+    proposalId: r.proposalId,
+    vote: vote as VoteChoice,
+    proposalStatus: proposalStatus as ProposalStatus,
+  };
+  if (typeof r.txHash === "string" && r.txHash) record.txHash = r.txHash;
+  return record;
+}
+
+/**
+ * A voter's own cast votes on the configured governance system (issue
+ * #785), so a dApp can display a user's voting activity without
+ * independently tracking which proposals they voted on and how.
+ *
+ * Queries on-chain/provider data only — this never stores a vote itself;
+ * {@link voteOnProposal} is still what casts one. Requires a provider that
+ * implements the optional {@link GovernanceProvider.getVoterHistory}
+ * method; a provider that does not reports `INVALID_CONFIG` rather than
+ * silently returning an empty history that could be mistaken for "this
+ * voter has never voted."
+ *
+ * @param publicKey - The voter's Stellar public key.
+ * @param options.status - Filter by proposal status: `"open"` (not yet
+ *   terminal, i.e. not in {@link TERMINAL_PROPOSAL_STATUSES}), `"closed"`
+ *   (terminal), or `"all"` (default).
+ */
+export async function getUserVotingHistory(
+  publicKey: string,
+  options: GovernanceCallOptions & { status?: "open" | "closed" | "all" } = {},
+): Promise<SorokitResult<UserVoteRecord[]>> {
+  if (typeof publicKey !== "string" || !StrKey.isValidEd25519PublicKey(publicKey)) {
+    return err(SorokitErrorCode.INVALID_ADDRESS, "publicKey must be a valid Stellar public key (G...)");
+  }
+  const wanted = options.status ?? "all";
+  if (wanted !== "all" && wanted !== "open" && wanted !== "closed") {
+    return err(SorokitErrorCode.VALIDATION, `Unknown voting history status filter "${String(wanted)}"`);
+  }
+  const ctx = resolve(options);
+  if (!ctx.ok) return ctx.error;
+  const { provider, network } = ctx;
+  if (!provider.getVoterHistory) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "The configured governance provider does not support querying voter history",
+    );
+  }
+  try {
+    const raw = await provider.getVoterHistory(network, publicKey);
+    const list = Array.isArray(raw) ? raw : (raw as { votes?: unknown })?.votes;
+    if (!Array.isArray(list)) throw new GovernanceDataError("voter history must be an array");
+    const records = list.map(normalizeUserVoteRecord);
+    if (wanted === "all") return ok(records);
+    const isClosed = (r: UserVoteRecord) => TERMINAL_PROPOSAL_STATUSES.includes(r.proposalStatus);
+    return ok(records.filter((r) => (wanted === "closed" ? isClosed(r) : !isClosed(r))));
+  } catch (error) {
+    return fail(error, SorokitErrorCode.NETWORK_ERROR, "fetch voter history");
+  }
+}
+
 // ─── Tracking ────────────────────────────────────────────────────────────────
 
 export interface TrackProposalOptions extends GovernanceCallOptions {
@@ -465,8 +555,10 @@ export interface HttpGovernanceProviderOptions {
  * | GET    | `/proposals/{id}`            | `Proposal` (404 → not found) |
  * | POST   | `/proposals/{id}/votes`      | body `{ vote, voter? }` → `{ txHash }` |
  * | GET    | `/voting-power/{publicKey}`  | `{ power }` (integer or integer string) |
+ * | GET    | `/votes/{publicKey}`         | `UserVote[]` or `{ votes: UserVote[] }` (issue #785) |
  *
  * `Proposal` = `{ id, title, status, description?, endsAt?, tally?: { yes, no, abstain } }`.
+ * `UserVote` = `{ proposalId, vote, proposalStatus, txHash? }`.
  * Path segments are URL-encoded; requests time out after `timeoutMs` (10 s).
  */
 export function createHttpGovernanceProvider(options: HttpGovernanceProviderOptions): GovernanceProvider {
@@ -508,5 +600,6 @@ export function createHttpGovernanceProvider(options: HttpGovernanceProviderOpti
         body: JSON.stringify({ vote, voter }),
       }),
     getVotingPower: (network, publicKey) => request(`${base(network)}/voting-power/${seg(publicKey)}`),
+    getVoterHistory: (network, publicKey) => request(`${base(network)}/votes/${seg(publicKey)}`),
   };
 }

@@ -201,6 +201,42 @@ describe("streamContractEventsRealTime", () => {
 
     sub.stop();
   });
+
+  it("emptyPollDelayMs is used as next-tick delay when poll returns no new events", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(makeResponse([]));
+    const onEvent = vi.fn();
+    const delays: number[] = [];
+
+    const origSetTimeout = globalThis.setTimeout;
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation((fn: TimerHandler, delay?: number, ...args: unknown[]) => {
+        if (typeof delay === "number" && delay > 0) {
+          delays.push(delay);
+        }
+        return origSetTimeout(fn as any, delay, ...args);
+      });
+
+    const sub = streamContractEventsRealTime("CTEST", undefined, {
+      horizonUrl: "https://horizon.example.com",
+      intervalMs: 1500,
+      emptyPollDelayMs: 200,
+      fetch: fetchMock,
+      onEvent,
+    });
+
+    // Initial schedule uses intervalMs (1500ms); after empty poll schedules emptyPollDelayMs (200ms)
+    await vi.advanceTimersByTimeAsync(1600);
+    await vi.advanceTimersByTimeAsync(300);
+
+    sub.stop();
+    setTimeoutSpy.mockRestore();
+
+    // First delay is the initial 1500ms schedule; second should be 200ms (emptyPollDelayMs)
+    expect(delays[0]).toBe(1500);
+    expect(delays[1]).toBe(200);
+    expect(onEvent).not.toHaveBeenCalled();
+  });
 });
 
 // ─── decodeContractEvent ─────────────────────────────────────────────────────
