@@ -2229,3 +2229,29 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+// ─── Infrastructure operation metrics (#922) ─────────────────────────────────
+export {
+  recordOperationDuration as recordInfraOperationDuration,
+  recordError,
+  getMetrics as getInfraMetrics,
+  resetMetrics as resetInfraMetrics,
+} from "./infrastructure/metrics";
+export type {
+  InfrastructureDurationRecord,
+  InfrastructureErrorRecord,
+  InfrastructureOperationStats,
+  InfrastructureMetricsSnapshot,
+} from "./infrastructure/metrics";
+
+// ─── Albedo web wallet session adapter (#923) ─────────────────────────────────
+export {
+  connectAlbedo,
+  AlbedoSession,
+} from "./wallet/adapters/albedoAdapter";
+export type {
+  AlbedoIntentProvider,
+  AlbedoConnectOptions,
+  AlbedoSignedTx,
+  AlbedoSignedMessage,
+} from "./wallet/adapters/albedoAdapter";

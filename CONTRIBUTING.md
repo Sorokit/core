@@ -316,3 +316,16 @@ By contributing, you agree that your contributions are licensed under the MIT li
 ---
 
 Thank you for contributing to `sorokit-core`. Happy coding!
+
+
+## Testnet Integration Tests (`@integration`)
+
+Integration tests live in `tests/integration/` and verify key workflows across Stellar Testnet (Friendbot account funding, payments, DEX offer creation/cancellation, and Soroban contract deployment/invocation):
+
+```bash
+# Run integration tests with deterministic Testnet fixtures (default in CI)
+npx vitest run tests/integration/
+
+# Run integration tests against live Stellar Testnet endpoints
+RUN_TESTNET_INTEGRATION=true npx vitest run tests/integration/
+```
