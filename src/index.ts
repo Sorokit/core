@@ -267,6 +267,8 @@ export { RateLimitRuleType } from "./wallet/throttlingTypes";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
+export { createRetryPolicy, createHttpClient, parseCacheControlMaxAge } from "./network";
+export type { RetryPolicy, RetryPolicyOptions, HttpClient, HttpClientOptions } from "./network";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type {
@@ -945,6 +947,8 @@ export {
   serializeCustomType,
 } from "./soroban/contractEncoding";
 export { validateContractData } from "./soroban";
+export { createDeploymentTracker, trackDeployment, estimateResources } from "./soroban";
+export type { DeploymentProgress, DeploymentStage, DeploymentTracker, ResourceEstimate, ResourceCalculatorOptions } from "./soroban";
 export {
   classifySorobanRpcError,
   extractRpcErrorMessage,

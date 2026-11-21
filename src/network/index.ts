@@ -175,6 +175,10 @@ export async function checkNetworkHealth(
 export { CongestionMonitor, createCongestionMonitor } from "./congestionMonitor";
 export { ConnectionPool, createConnectionPool } from "./connectionPool";
 export type { ConnectionPoolConfig, ConnectionPoolStats } from "./connectionPool";
+export { createRetryPolicy } from "./retryPolicy";
+export type { RetryPolicy, RetryPolicyOptions } from "./retryPolicy";
+export { createHttpClient, parseCacheControlMaxAge } from "./httpClient";
+export type { HttpClient, HttpClientOptions } from "./httpClient";
 export type {
   CongestionSample,
   CongestionMonitorOptions,
