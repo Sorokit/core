@@ -288,6 +288,15 @@ export {
   createConnectionPool,
   streamAccountUpdates,
   streamPayments,
+  getLiquidityPools,
+  getLiquidityPoolByAssets,
+} from "./network";
+export type {
+  LiquidityPool,
+  LiquidityPoolAsset,
+  LiquidityPoolByAssetsOptions,
+  LiquidityPoolFilters,
+  LiquidityPoolReserve,
 } from "./network";
 export type {
   AdaptiveRateLimiterOptions,
@@ -464,6 +473,14 @@ export {
   createIdMemo,
   createReturnMemo,
   createTextMemo,
+  buildTextMemo,
+  buildIdMemo,
+  buildHashMemo,
+  MEMO_TEXT_MAX_BYTES,
+  MEMO_HASH_BYTES,
+  MEMO_ID_MAX,
+  estimateFeeByOperationCount,
+  DEFAULT_BASE_RATE_STROOPS,
   DEFAULT_VALIDATION_RULES,
   validateTransactionXdr,
   USDC_MAINNET_ISSUER,
@@ -476,7 +493,7 @@ export {
   usdtAsset,
   eurcAsset,
 } from "./transaction";
-export type { SorokitMemo } from "./transaction";
+export type { SorokitMemo, BuiltMemo, EstimatedFee } from "./transaction";
 export type {
   TransactionValidationFinding,
   TransactionValidationReport,

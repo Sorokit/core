@@ -126,6 +126,20 @@ export type { ReplayProtectionStats } from "./submitTransaction";
 export { getTransactionStatus } from "./status";
 export { estimateFee } from "./estimateFee";
 export {
+  estimateFeeByOperationCount,
+  DEFAULT_BASE_RATE_STROOPS,
+} from "./feeEstimation";
+export type { EstimatedFee } from "./feeEstimation";
+export {
+  buildTextMemo,
+  buildIdMemo,
+  buildHashMemo,
+  MEMO_TEXT_MAX_BYTES,
+  MEMO_HASH_BYTES,
+  MEMO_ID_MAX,
+} from "./memoBuilder";
+export type { BuiltMemo } from "./memoBuilder";
+export {
   analyzeTransactionCosts,
   summarizeTransactionCosts,
   forecastTransactionCosts,

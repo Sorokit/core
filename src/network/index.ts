@@ -29,6 +29,15 @@ export { NETWORK_DEFAULTS } from "./config";
 export { getNetwork } from "./getNetwork";
 export { setNetwork } from "./setNetwork";
 
+export { getLiquidityPools, getLiquidityPoolByAssets } from "./queries";
+export type {
+  LiquidityPool,
+  LiquidityPoolAsset,
+  LiquidityPoolByAssetsOptions,
+  LiquidityPoolFilters,
+  LiquidityPoolReserve,
+} from "./queries";
+
 export { NetworkSwitcher } from "./networkSwitcher";
 export type { CustomNetwork, NetworkOption, NetworkInfo, NetworkStatus, NetworkSwitchListener, NetworkStatusListener, NetworkSwitchUnsubscribe, NetworkSwitcherConfig } from "./networkSwitcher";
 
