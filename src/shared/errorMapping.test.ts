@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapHorizonError } from "./errorMapping";
+import { mapHorizonError, mapRpcError } from "./errorMapping";
 import { SorokitErrorCode } from "./response";
 
 describe("mapHorizonError", () => {
@@ -85,5 +85,125 @@ describe("mapHorizonError", () => {
     };
     const result = mapHorizonError(400, body);
     expect(result.message).toBe("Some detail text.");
+  });
+});
+
+describe("mapRpcError", () => {
+  // ── Standard JSON-RPC codes ────────────────────────────────────────────────
+
+  it("maps -32700 (Parse error) to INVALID_TRANSACTION", () => {
+    const error = { code: -32700, message: "Parse error" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.INVALID_TRANSACTION);
+  });
+
+  it("maps -32600 (Invalid Request) to INVALID_TRANSACTION", () => {
+    const error = { code: -32600, message: "Invalid Request" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.INVALID_TRANSACTION);
+  });
+
+  it("maps -32601 (Method not found) to INVALID_TRANSACTION", () => {
+    const error = { code: -32601, message: "Method not found" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.INVALID_TRANSACTION);
+  });
+
+  it("maps -32602 (Invalid params) to INVALID_TRANSACTION", () => {
+    const error = { code: -32602, message: "Invalid params" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.INVALID_TRANSACTION);
+  });
+
+  it("maps -32603 (Internal error) to NETWORK_ERROR", () => {
+    const error = { code: -32603, message: "Internal error" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.NETWORK_ERROR);
+  });
+
+  // ── Soroban server error range (-32000 to -32099) ─────────────────────────
+
+  it("maps a Soroban server error with contract invocation message to CONTRACT_INVOKE_FAILED", () => {
+    const error = { code: -32000, message: "contract invocation failed" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.CONTRACT_INVOKE_FAILED);
+  });
+
+  it("maps a Soroban server error with tx submit message to TX_SUBMIT_FAILED", () => {
+    const error = { code: -32001, message: "tx submit failed" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.TX_SUBMIT_FAILED);
+  });
+
+  it("maps an unrecognised Soroban server error code to SERVICE_UNAVAILABLE", () => {
+    const error = { code: -32050, message: "some unknown soroban error" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.SERVICE_UNAVAILABLE);
+  });
+
+  it("maps the boundary code -32099 to SERVICE_UNAVAILABLE when message is unrecognised", () => {
+    const error = { code: -32099, message: "unrecognised" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.SERVICE_UNAVAILABLE);
+  });
+
+  // ── Unknown code fallback ──────────────────────────────────────────────────
+
+  it("maps an unknown positive code to NETWORK_ERROR", () => {
+    const error = { code: 999, message: "Unknown" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.NETWORK_ERROR);
+  });
+
+  it("maps a code outside the standard ranges to NETWORK_ERROR", () => {
+    const error = { code: -100, message: "Some error" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.NETWORK_ERROR);
+  });
+
+  it("maps an error without a code to NETWORK_ERROR", () => {
+    const error = { message: "No code here" };
+    const result = mapRpcError(error);
+    expect(result.code).toBe(SorokitErrorCode.NETWORK_ERROR);
+  });
+
+  // ── Message extraction ─────────────────────────────────────────────────────
+
+  it("extracts message from error.message when present", () => {
+    const error = { code: -32602, message: "Invalid parameter: amount" };
+    const result = mapRpcError(error);
+    expect(result.message).toBe("Invalid parameter: amount");
+  });
+
+  it("falls back to String(error) when error.message is absent", () => {
+    const error = { code: -32602 };
+    const result = mapRpcError(error);
+    expect(result.message).toBe(String(error));
+  });
+
+  it("uses String(error) for a plain string error", () => {
+    const result = mapRpcError("RPC failure");
+    expect(result.message).toBe("RPC failure");
+    expect(result.code).toBe(SorokitErrorCode.NETWORK_ERROR);
+  });
+
+  it("uses String(error) for null", () => {
+    const result = mapRpcError(null);
+    expect(result.message).toBe("null");
+    expect(result.code).toBe(SorokitErrorCode.NETWORK_ERROR);
+  });
+
+  // ── originalError preserved ────────────────────────────────────────────────
+
+  it("preserves originalError as-is", () => {
+    const error = { code: -32603, message: "Internal error", data: { detail: "heap overflow" } };
+    const result = mapRpcError(error);
+    expect(result.originalError).toBe(error);
+  });
+
+  it("preserves originalError for a plain Error instance", () => {
+    const error = new Error("network issue");
+    const result = mapRpcError(error);
+    expect(result.originalError).toBe(error);
   });
 });

@@ -18,6 +18,7 @@ import { validateContractAbi } from "./validateContractAbi";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { validatePublicKey } from "../shared/validation";
 import { mapSorobanRpcResult } from "./rpcErrorMapper";
+import { mapRpcError } from "../shared/errorMapping";
 
 /**
  * Read (simulate) a Soroban contract view function — no signing required.
@@ -153,7 +154,12 @@ export async function readContract(
 
       return ok(result);
     } catch (cause) {
-      return mapSorobanRpcResult<ContractCallResult>(cause);
+      const mapped = mapRpcError(cause);
+      return err(
+        mapped.code,
+        mapped.message,
+        mapped.originalError,
+      ) as SorokitResult<ContractCallResult>;
     }
   };
 

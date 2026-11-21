@@ -1,5 +1,99 @@
 import { SorokitErrorCode } from "./response";
 
+// ─── JSON-RPC 2.0 error codes (RFC: https://www.jsonrpc.org/specification) ───
+// Standard codes
+const RPC_PARSE_ERROR = -32700;
+const RPC_INVALID_REQUEST = -32600;
+const RPC_METHOD_NOT_FOUND = -32601;
+const RPC_INVALID_PARAMS = -32602;
+const RPC_INTERNAL_ERROR = -32603;
+// Soroban server-defined error range (-32000 to -32099)
+const RPC_SERVER_ERROR_MIN = -32099;
+const RPC_SERVER_ERROR_MAX = -32000;
+
+/**
+ * Map a Soroban RPC error (JSON-RPC 2.0) to a `SorokitErrorCode` and extract
+ * a human-readable message.
+ *
+ * JSON-RPC errors have a numeric `code`, a `message` string, and an optional
+ * `data` field. This function inspects `error.code` and applies the following
+ * mapping:
+ *
+ * | JSON-RPC code        | SorokitErrorCode          |
+ * |----------------------|---------------------------|
+ * | -32700 (Parse error) | INVALID_TRANSACTION       |
+ * | -32600 (Invalid req) | INVALID_TRANSACTION       |
+ * | -32601 (Method n/f)  | INVALID_TRANSACTION       |
+ * | -32602 (Invalid par) | INVALID_TRANSACTION       |
+ * | -32603 (Internal)    | NETWORK_ERROR             |
+ * | -32000…-32099        | CONTRACT_INVOKE_FAILED or |
+ * |                      | TX_SUBMIT_FAILED for known|
+ * |                      | codes; SERVICE_UNAVAILABLE|
+ * |                      | for unrecognised ones     |
+ * | anything else        | NETWORK_ERROR             |
+ *
+ * @param error - The raw error value from an RPC call (may be any type).
+ * @returns `{ code, message, originalError }` — `message` is taken from
+ *   `error.message` when present, otherwise from `String(error)`.
+ */
+export function mapRpcError(error: unknown): {
+  code: SorokitErrorCode;
+  message: string;
+  originalError: unknown;
+} {
+  // Extract message
+  let message: string;
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    "message" in (error as object) &&
+    typeof (error as Record<string, unknown>)["message"] === "string"
+  ) {
+    message = (error as Record<string, unknown>)["message"] as string;
+  } else {
+    message = String(error);
+  }
+
+  // Extract numeric RPC error code
+  let rpcCode: number | undefined;
+  if (error !== null && typeof error === "object") {
+    const e = error as Record<string, unknown>;
+    if (typeof e["code"] === "number") {
+      rpcCode = e["code"] as number;
+    }
+  }
+
+  let code: SorokitErrorCode;
+
+  if (rpcCode === undefined) {
+    code = SorokitErrorCode.NETWORK_ERROR;
+  } else if (
+    rpcCode === RPC_PARSE_ERROR ||
+    rpcCode === RPC_INVALID_REQUEST ||
+    rpcCode === RPC_METHOD_NOT_FOUND ||
+    rpcCode === RPC_INVALID_PARAMS
+  ) {
+    code = SorokitErrorCode.INVALID_TRANSACTION;
+  } else if (rpcCode === RPC_INTERNAL_ERROR) {
+    code = SorokitErrorCode.NETWORK_ERROR;
+  } else if (rpcCode >= RPC_SERVER_ERROR_MIN && rpcCode <= RPC_SERVER_ERROR_MAX) {
+    // Soroban server-defined errors (-32000 to -32099)
+    // Inspect message for known Soroban-specific error patterns
+    const lowerMsg = message.toLowerCase();
+    if (/contract.*invok|invok.*contract|contract.*fail/.test(lowerMsg)) {
+      code = SorokitErrorCode.CONTRACT_INVOKE_FAILED;
+    } else if (/tx.*submit|submit.*tx|transaction.*submit|submit.*fail/.test(lowerMsg)) {
+      code = SorokitErrorCode.TX_SUBMIT_FAILED;
+    } else {
+      code = SorokitErrorCode.SERVICE_UNAVAILABLE;
+    }
+  } else {
+    code = SorokitErrorCode.NETWORK_ERROR;
+  }
+
+  return { code, message, originalError: error };
+}
+
 /**
  * Extract a human-readable message from a Horizon error response body.
  *

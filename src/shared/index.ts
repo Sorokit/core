@@ -68,3 +68,6 @@ export * from "./smartCache";
 // ─── Horizon error mapping (#913) ────────────────────────────────────────────
 export { mapHorizonError } from "./errorMapping";
 
+// ─── RPC error mapping (#914) ────────────────────────────────────────────────
+export { mapRpcError } from "./errorMapping";
+
