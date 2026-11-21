@@ -892,3 +892,10 @@ await client.soroban.execute(signedXdr, undefined, undefined, {
   bypassMainnetSafety: true,
 });
 ```
+
+### Multi-sig coordinator, funding, asset setup and debug helpers
+
+- `initializeSignatureCollection(xdr, passphrase, threshold)`, `addCollectedSignature(id, publicKey, base64Sig)` and `finalizeTransaction(id)` collect and merge signatures. `threshold` is the number of distinct signers required; it counts signatures, not on-chain weights, so set it to match the account's thresholds. Collections are held in memory.
+- `createAndFundAccount(horizonUrl, publicKey, initialBalance, { network, friendbotUrl })` funds through Friendbot (`https://friendbot.stellar.org` on testnet, `https://friendbot-futurenet.stellar.org` on futurenet). Other networks need `friendbotUrl`. Friendbot sets the amount; `initialBalance` is a minimum check.
+- `getAssetCreationSteps(issuerKey)` and `prepareAssetForIssuing(code, issuerKey, flags)` guide issuance. The issuer must be a funded account you control; use a separate distributor account. Minting is out of scope.
+- `createOperationDebugger(logger, operation)` writes debug entries tagged `[operationId]` with `operation` and `operationId` metadata. The logger adds the timestamp and redacts secret and signature keys. Enable it with `logLevel: "debug"` or `debug: true`.

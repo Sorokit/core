@@ -789,3 +789,10 @@ export type {
   StateChange,
   PreviewSummaryLine,
 } from "./simulationPreview";
+
+export {
+  initializeSignatureCollection,
+  addSignature as addCollectedSignature,
+  finalizeTransaction,
+} from "./multiSigCoordinator";
+export type { SignatureCollectionProgress } from "./multiSigCoordinator";
