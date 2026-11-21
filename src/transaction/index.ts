@@ -796,3 +796,14 @@ export {
   finalizeTransaction,
 } from "./multiSigCoordinator";
 export type { SignatureCollectionProgress } from "./multiSigCoordinator";
+
+// ─── Transaction confirmation polling (#973) ──────────────────────────────────
+export {
+  waitForTransaction,
+  DEFAULT_POLL_TIMEOUT_MS,
+  DEFAULT_POLL_INTERVAL_MS,
+} from "./polling";
+export type { WaitForTransactionOptions } from "./polling";
+
+// ─── Transaction sponsorship builder (#974) ───────────────────────────────────
+export { sponsorTransaction, sponsorOperation } from "./sponsorshipBuilder";

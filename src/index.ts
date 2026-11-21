@@ -2277,3 +2277,25 @@ export { getAssetCreationSteps, prepareAssetForIssuing } from "./account/assetCr
 export type { AssetCreationStep, AssetIssuingPreset } from "./account/assetCreationHelper";
 export { createOperationDebugger } from "./shared/operationDebug";
 export type { OperationDebugger } from "./shared/operationDebug";
+
+// ─── Request deduplication (#971) ─────────────────────────────────────────────
+export {
+  RequestDeduplicator,
+  createDeduplicator,
+  buildRequestKey,
+} from "./network";
+export type { DeduplicationStats } from "./network";
+
+// ─── Event-invalidated cache (#972) ───────────────────────────────────────────
+export { EventSmartCache, createEventSmartCache } from "./performance/smartCache";
+export type { EventCacheStats } from "./performance/smartCache";
+
+// ─── Transaction polling (#973) & sponsorship builder (#974) ──────────────────
+export {
+  waitForTransaction,
+  DEFAULT_POLL_TIMEOUT_MS,
+  DEFAULT_POLL_INTERVAL_MS,
+  sponsorTransaction,
+  sponsorOperation,
+} from "./transaction";
+export type { WaitForTransactionOptions } from "./transaction";
