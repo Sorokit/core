@@ -2229,3 +2229,17 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+// ─── Infrastructure operation metrics (#922) ─────────────────────────────────
+export {
+  recordOperationDuration as recordInfraOperationDuration,
+  recordError,
+  getMetrics as getInfraMetrics,
+  resetMetrics as resetInfraMetrics,
+} from "./infrastructure/metrics";
+export type {
+  InfrastructureDurationRecord,
+  InfrastructureErrorRecord,
+  InfrastructureOperationStats,
+  InfrastructureMetricsSnapshot,
+} from "./infrastructure/metrics";
