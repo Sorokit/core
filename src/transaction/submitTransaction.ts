@@ -16,7 +16,8 @@ import type { SorokitCache } from "../shared/cache";
 import { DEFAULT_TX_CACHE_TTL_MS } from "../shared/constants";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
-import { mapHorizonError } from "../shared/horizonErrorMapper";
+import { mapHorizonErrorLegacy } from "../shared/horizonErrorMapper";
+import { mapHorizonError } from "../shared/errorMapping";
 import { traceTransactionSubmit, type TelemetrySpan } from "../performance/telemetry";
 
 // Shared circuit breaker registry for Horizon operations
@@ -301,10 +302,19 @@ async function submitTransactionImpl(
     span?.setStatus("ok");
     return ok(result);
   } catch (cause) {
-    const mapped = mapHorizonError(cause, {
+    const mapped = mapHorizonErrorLegacy(cause, {
       resource: "transaction",
       fallbackCode: SorokitErrorCode.TX_SUBMIT_FAILED,
     });
+    // Use the new structured mapper for the message when status/body are available.
+    const responseBody = cause !== null && typeof cause === "object"
+      ? (cause as Record<string, unknown>)["response"] as Record<string, unknown> | undefined
+      : undefined;
+    const responseStatus = typeof responseBody?.["status"] === "number" ? responseBody["status"] as number : undefined;
+    const responseData = responseStatus !== undefined ? responseBody?.["data"] : undefined;
+    const structuredMessage = responseStatus !== undefined
+      ? mapHorizonError(responseStatus, responseData).message
+      : undefined;
     span?.recordError(cause);
     if (txHash) {
       // A Horizon timeout leaves the transaction outcome unknown (it may
@@ -320,7 +330,7 @@ async function submitTransactionImpl(
       mapped.code,
       mapped.code === SorokitErrorCode.TX_SUBMIT_FAILED
         ? describeSubmissionFailure(cause)
-        : mapped.message,
+        : structuredMessage ?? mapped.message,
       cause,
       undefined,
       mapped.recovery ? { recovery: mapped.recovery } : undefined,

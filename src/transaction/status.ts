@@ -5,7 +5,8 @@ import { isNotFoundError, toMessage } from "../shared";
 import type { TransactionResult } from "./types";
 import type { SorokitCache } from "../shared/cache";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
-import { mapHorizonError } from "../shared/horizonErrorMapper";
+import { mapHorizonErrorLegacy } from "../shared/horizonErrorMapper";
+import { mapHorizonError } from "../shared/errorMapping";
 
 /**
  * Fetch the current status of a submitted transaction by its hash.
@@ -65,17 +66,26 @@ export async function getTransactionStatus(
 
     return ok(result);
   } catch (cause) {
-    const mapped = mapHorizonError(cause, {
+    const mapped = mapHorizonErrorLegacy(cause, {
       resource: "transaction",
       fallbackCode: isNotFoundError(cause)
         ? SorokitErrorCode.TX_NOT_FOUND
         : SorokitErrorCode.TX_FETCH_FAILED,
     });
+    // Use the new structured mapper for the message when status/body are available.
+    const responseBody = cause !== null && typeof cause === "object"
+      ? (cause as Record<string, unknown>)["response"] as Record<string, unknown> | undefined
+      : undefined;
+    const responseStatus = typeof responseBody?.["status"] === "number" ? responseBody["status"] as number : undefined;
+    const responseData = responseStatus !== undefined ? responseBody?.["data"] : undefined;
+    const structuredMessage = responseStatus !== undefined
+      ? mapHorizonError(responseStatus, responseData).message
+      : undefined;
     return err(
       mapped.code,
       mapped.code === SorokitErrorCode.TX_NOT_FOUND
         ? `Transaction not found: ${hash}`
-        : mapped.message || `Failed to fetch transaction status: ${toMessage(cause)}`,
+        : (structuredMessage ?? mapped.message) || `Failed to fetch transaction status: ${toMessage(cause)}`,
       cause,
       undefined,
       mapped.recovery ? { recovery: mapped.recovery } : undefined,

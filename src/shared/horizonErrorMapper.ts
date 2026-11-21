@@ -35,7 +35,7 @@ function resourceNotFoundCode(resource: HorizonErrorResource): SorokitErrorCode 
 }
 
 /** Convert a Horizon SDK/HTTP exception into a stable SorokitError. */
-export function mapHorizonError(
+export function mapHorizonErrorLegacy(
   error: unknown,
   options: HorizonErrorMappingOptions = {},
 ): SorokitError {
@@ -75,7 +75,7 @@ export function horizonErrorResult<T>(
   error: unknown,
   options: HorizonErrorMappingOptions = {},
 ): SorokitResult<T> {
-  const mapped = mapHorizonError(error, options);
+  const mapped = mapHorizonErrorLegacy(error, options);
   return err(
     mapped.code,
     mapped.message,

@@ -7,7 +7,8 @@ import { traceAccountFetch } from "../performance/telemetry";
 import type { AccountInfo, AssetBalance } from "./types";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { CircuitBreakerRegistry } from "../network/circuitBreaker";
-import { mapHorizonError } from "../shared/horizonErrorMapper";
+import { mapHorizonErrorLegacy } from "../shared/horizonErrorMapper";
+import { mapHorizonError } from "../shared/errorMapping";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -109,17 +110,26 @@ export function getAccount(
         balances,
       });
     } catch (cause) {
-      const mapped = mapHorizonError(cause, {
+      const mapped = mapHorizonErrorLegacy(cause, {
         resource: "account",
         fallbackCode: isNotFoundError(cause)
           ? SorokitErrorCode.ACCOUNT_NOT_FOUND
           : SorokitErrorCode.ACCOUNT_FETCH_FAILED,
       });
+      // Use the new structured mapper for the message when status/body are available.
+      const responseBody = cause !== null && typeof cause === "object"
+        ? (cause as Record<string, unknown>)["response"] as Record<string, unknown> | undefined
+        : undefined;
+      const responseStatus = typeof responseBody?.["status"] === "number" ? responseBody["status"] as number : undefined;
+      const responseData = responseStatus !== undefined ? responseBody?.["data"] : undefined;
+      const structuredMessage = responseStatus !== undefined
+        ? mapHorizonError(responseStatus, responseData).message
+        : undefined;
       return err(
         mapped.code,
         mapped.code === SorokitErrorCode.ACCOUNT_NOT_FOUND
           ? `Account not found: ${publicKey}`
-          : mapped.message || `Failed to fetch account: ${toMessage(cause)}`,
+          : (structuredMessage ?? mapped.message) || `Failed to fetch account: ${toMessage(cause)}`,
         cause,
         undefined,
         mapped.recovery ? { recovery: mapped.recovery } : undefined,

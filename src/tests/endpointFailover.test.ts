@@ -3,7 +3,7 @@ import {
   createFailoverFetch,
   EndpointPool,
 } from "../network/endpointFailover";
-import { mapHorizonError } from "../shared/horizonErrorMapper";
+import { mapHorizonErrorLegacy } from "../shared/horizonErrorMapper";
 import { SorokitErrorCode } from "../shared/response";
 
 describe("endpoint failover", () => {
@@ -25,11 +25,11 @@ describe("endpoint failover", () => {
   });
 
   it("maps common Horizon response classes to stable SDK codes", () => {
-    expect(mapHorizonError({ status: 400, message: "tx_bad_auth" }).code)
+    expect(mapHorizonErrorLegacy({ status: 400, message: "tx_bad_auth" }).code)
       .toBe(SorokitErrorCode.INVALID_TRANSACTION);
-    expect(mapHorizonError({ status: 404 }, { resource: "account" }).code)
+    expect(mapHorizonErrorLegacy({ status: 404 }, { resource: "account" }).code)
       .toBe(SorokitErrorCode.ACCOUNT_NOT_FOUND);
-    expect(mapHorizonError({ status: 500 }).code)
+    expect(mapHorizonErrorLegacy({ status: 500 }).code)
       .toBe(SorokitErrorCode.SERVICE_UNAVAILABLE);
   });
 });
