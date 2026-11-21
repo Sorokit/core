@@ -43,10 +43,7 @@ export async function getSacBalance(
   // Validate network passphrase
   const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
   if (networkResult.status === "error") {
-    return err(
-      SorokitErrorCode.VALIDATION,
-      networkResult.error.message,
-    );
+    return networkResult;
   }
 
   // Validate contract ID
@@ -143,6 +140,12 @@ export async function buildSacTransfer(
   to: string,
   amount: string,
 ): Promise<SorokitResult<PreparedContractCall>> {
+  // Validate network passphrase
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") {
+    return networkResult;
+  }
+
   // Validate contract ID
   if (!isValidContractId(contractId)) {
     return err(
@@ -230,6 +233,12 @@ export async function buildSacApprove(
   spender: string,
   amount: string,
 ): Promise<SorokitResult<PreparedContractCall>> {
+  // Validate network passphrase
+  const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
+  if (networkResult.status === "error") {
+    return networkResult;
+  }
+
   // Validate contract ID
   if (!isValidContractId(contractId)) {
     return err(

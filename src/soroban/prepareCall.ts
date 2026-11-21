@@ -60,10 +60,7 @@ export async function prepareContractCall(
 ): Promise<SorokitResult<PreparedContractCall>> {
   const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
   if (networkResult.status === "error") {
-    return err(
-      SorokitErrorCode.CONTRACT_PREPARE_FAILED,
-      networkResult.error.message,
-    );
+    return networkResult;
   }
 
   if (!isValidContractId(params.contractId)) {

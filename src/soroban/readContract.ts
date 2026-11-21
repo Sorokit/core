@@ -60,10 +60,7 @@ export async function readContract(
   // ── Input validation (before any network call or side effect) ──────────────
   const networkResult = validateNetworkPassphrase(networkConfig.networkPassphrase);
   if (networkResult.status === "error") {
-    return err(
-      SorokitErrorCode.CONTRACT_READ_FAILED,
-      networkResult.error.message,
-    );
+    return networkResult;
   }
 
   const pkResult = validatePublicKey(params.publicKey);
