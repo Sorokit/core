@@ -143,8 +143,18 @@ export {
   DEFAULT_SESSION_TTL_MS,
   encryptSessionPayload,
   decryptSessionPayload,
+  ConnectionStateMachine,
+  createConnectionStateMachine,
+  InvalidStateTransitionError,
+  VALID_CONNECTION_TRANSITIONS,
 } from "./wallet";
 export type {
+  ConnectionState,
+  ConnectionStateContext,
+  ConnectionStateChangeEvent,
+  ConnectionStateListener,
+  ConnectionStateUnsubscribe,
+  ConnectionStateMachineOptions,
   CreateSigningChallengeOptions,
   EnvelopeSignatureInput,
   MergeSignaturesResult,

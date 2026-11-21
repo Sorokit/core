@@ -2,6 +2,20 @@ export { getWalletCapabilities, WALLET_CAPABILITY_IDS } from "./capabilities";
 export { connectWallet } from "./connect";
 export { disconnectWallet } from "./disconnect";
 export { WalletConnectionManager } from "./connection";
+export {
+  ConnectionStateMachine,
+  createConnectionStateMachine,
+  InvalidStateTransitionError,
+  VALID_CONNECTION_TRANSITIONS,
+} from "./connectionStateMachine";
+export type {
+  ConnectionState,
+  ConnectionStateContext,
+  ConnectionStateChangeEvent,
+  ConnectionStateListener,
+  ConnectionStateUnsubscribe,
+  ConnectionStateMachineOptions,
+} from "./connectionStateMachine";
 export { signTransaction } from "./signTransaction";
 export { signTransactionOffline } from "./signTransactionOffline";
 export { SigningRateLimiter } from "./signingRateLimiter";
