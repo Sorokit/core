@@ -102,11 +102,14 @@ export { getEffects } from "./getEffects";
 export type { EffectInfo, EffectsPage, GetEffectsOptions } from "./getEffects";
 export {
   getAccountEffects,
+  getAccountOffer,
   getAccountSigners,
+  getOffer,
   getSignerThresholds,
 } from "./queries";
 export type {
   Effect,
+  Offer,
   EffectFilters,
   Payment,
   PaymentDirection,

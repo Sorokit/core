@@ -2,7 +2,7 @@ import { Asset } from "@stellar/stellar-sdk";
 import { createHorizonServer } from "../shared/serverFactory";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
-import { toMessage } from "../shared";
+import { isNotFoundError, toMessage } from "../shared";
 import { validatePublicKey } from "../shared/validation";
 
 export type DexAsset = Asset | { code: string; issuer?: string };
@@ -131,6 +131,32 @@ export async function getOffers(horizonUrl: string, publicKey: string, options: 
     return ok({ records: result.records.map(mapOffer), nextCursor: result.nextCursor, hasMore: result.hasMore });
   } catch (cause) {
     return err(SorokitErrorCode.ACCOUNT_FETCH_FAILED, `Failed to fetch offers: ${toMessage(cause)}`, cause);
+  }
+}
+
+/**
+ * Fetch a single offer from Horizon by its id.
+ *
+ * `offerId` is Horizon's offer id: a positive integer, given as a digit string or a safe integer
+ * number. Returns `OFFER_NOT_FOUND` when Horizon answers 404 (the offer never existed, or was
+ * fully filled or cancelled), `VALIDATION` for a malformed id (no request is made), and
+ * `ACCOUNT_FETCH_FAILED` for any other failure. In the result, `price` is the price of one unit
+ * of the selling asset in the buying asset and `amount` is how much of the selling asset is
+ * still on offer.
+ */
+export async function getOfferById(horizonUrl: string, offerId: string | number): Promise<SorokitResult<OfferInfo>> {
+  const id = typeof offerId === "number" ? (Number.isSafeInteger(offerId) ? String(offerId) : "") : String(offerId).trim();
+  if (!/^[1-9]\d*$/.test(id)) {
+    return err(SorokitErrorCode.VALIDATION, `Invalid offer id: ${String(offerId)}. Expected a positive integer.`);
+  }
+  try {
+    const record = await createHorizonServer(horizonUrl).offers().offer(id).call();
+    return ok(mapOffer(record));
+  } catch (cause) {
+    if (isNotFoundError(cause)) {
+      return err(SorokitErrorCode.OFFER_NOT_FOUND, `Offer not found: ${id}`, cause);
+    }
+    return err(SorokitErrorCode.ACCOUNT_FETCH_FAILED, `Failed to fetch offer ${id}: ${toMessage(cause)}`, cause);
   }
 }
 
