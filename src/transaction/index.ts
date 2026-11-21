@@ -789,5 +789,10 @@ export type {
   StateChange,
   PreviewSummaryLine,
 } from "./simulationPreview";
-export { replayTransaction, verifyTransaction } from "./historyReplayer";
-export type { ExpectedTransactionResult } from "./historyReplayer";
+
+export {
+  initializeSignatureCollection,
+  addSignature as addCollectedSignature,
+  finalizeTransaction,
+} from "./multiSigCoordinator";
+export type { SignatureCollectionProgress } from "./multiSigCoordinator";

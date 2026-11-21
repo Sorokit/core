@@ -2263,18 +2263,17 @@ export type {
   RateLimiterQueueStats,
   RateLimitResponseMeta,
 } from "./network/rateLimiter";
+
+// ─── Issues #979, #981, #983, #984 ────────────────────────────────────────────
 export {
-  getContractData,
-  getContractStorage,
-  parseABI,
-  buildABI,
-  generateInterface,
-} from "./soroban/index";
-export type {
-  ContractDurability,
-  ParsedABI,
-  ParsedAbiMethod,
-  ParsedAbiArg,
-} from "./soroban/index";
-export { replayTransaction, verifyTransaction } from "./transaction/index";
-export type { ExpectedTransactionResult } from "./transaction/index";
+  initializeSignatureCollection,
+  addSignature as addCollectedSignature,
+  finalizeTransaction,
+} from "./transaction/multiSigCoordinator";
+export type { SignatureCollectionProgress } from "./transaction/multiSigCoordinator";
+export { createAndFundAccount, FRIENDBOT_URLS } from "./account/fundingHelper";
+export type { FundingOptions } from "./account/fundingHelper";
+export { getAssetCreationSteps, prepareAssetForIssuing } from "./account/assetCreationHelper";
+export type { AssetCreationStep, AssetIssuingPreset } from "./account/assetCreationHelper";
+export { createOperationDebugger } from "./shared/operationDebug";
+export type { OperationDebugger } from "./shared/operationDebug";
