@@ -249,6 +249,8 @@ export type {
   TransactionBuilder,
   TransactionOperation,
 } from "./transactionBuilder";
+export { createTransactionBuilderSchema, validateTransactionBuilder, validateTransactionOperations } from "./builderValidation";
+export type { TransactionBuilderFieldRule, TransactionBuilderSchema, TransactionBuilderValidationIssue } from "./builderValidation";
 export type {
   TransactionResult,
   TransactionStatus,
