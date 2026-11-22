@@ -796,3 +796,28 @@ export type {
   WalletAccountChangedEvent,
   WalletNetworkChangedEvent,
 } from "./eventEmitter";
+
+// ─── Wallet State Manager & Version Check (#1005, #1006) ─────────────────────
+export {
+  saveWalletState,
+  loadWalletState,
+  clearWalletState,
+  WalletStateManager,
+  createWalletStateManager,
+  DEFAULT_STATE_KEY,
+} from "./stateManager";
+export type {
+  WalletConnectionState,
+  StateManagerOptions,
+} from "./stateManager";
+
+export {
+  checkWalletVersion,
+  compareSemver,
+  MINIMUM_WALLET_VERSIONS,
+  WALLET_UPGRADE_URLS,
+} from "./versionCheck";
+export type {
+  VersionInfo,
+  WalletVersionTarget,
+} from "./versionCheck";
