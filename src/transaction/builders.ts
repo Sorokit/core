@@ -12,7 +12,7 @@ import type { Account, Asset, Transaction } from "@stellar/stellar-sdk";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { toMessage } from "../shared";
-import { validatePublicKey } from "../shared/validation";
+import { validatePublicKey, validateStellarAddress } from "../shared/validation";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import {
   resolveAssetInput,
@@ -50,6 +50,11 @@ export function buildSetOptions(context: FluentBuilderContext): SetOptionsBuilde
 /** Create a chainable manage offer builder (issue #905). */
 export function buildManageOffer(context: FluentBuilderContext): ManageOfferBuilder {
   return new ManageOfferBuilder(context);
+}
+
+/** Create a chainable payment builder (issue #932). */
+export function buildPayment(context: FluentBuilderContext): PaymentBuilder {
+  return new PaymentBuilder(context);
 }
 
 type SetOptionsOperation = NonNullable<
@@ -417,4 +422,294 @@ function resolveOfferAsset(
     );
   }
   return result;
+}
+
+/**
+ * Chainable builder for payment operations with muxed address and path payment support (issue #932).
+ *
+ * Supports:
+ * - Regular payments (Operation.payment)
+ * - Payments to muxed addresses (M-prefixed)
+ * - Path payments with intermediate assets (Operation.pathPaymentStrictSend or pathPaymentStrictReceive)
+ *
+ * @example
+ * ```ts
+ * // Regular payment
+ * const tx = await buildPayment(context)
+ *   .destination("GDEST...")
+ *   .amount("100")
+ *   .asset("USDC", "GISSUER...")
+ *   .build();
+ *
+ * // Path payment with intermediate assets
+ * const tx = await buildPayment(context)
+ *   .destination("GDEST...")
+ *   .sendAmount("100")
+ *   .sendAsset("USDC", "GISSUER...")
+ *   .destAsset("EURC", "GISSUER2...")
+ *   .path(["XLM"], ["BTC", "GBTCISSUER..."])
+ *   .build();
+ * ```
+ */
+export class PaymentBuilder {
+  private destinationValue: string | undefined;
+  private amountValue: string | undefined;
+  private sendAmountValue: string | undefined;
+  private destAmountValue: string | undefined;
+  private assetValue: BuilderAssetInput | undefined;
+  private sendAssetValue: BuilderAssetInput | undefined;
+  private destAssetValue: BuilderAssetInput | undefined;
+  private pathValue: BuilderAssetInput[] | undefined;
+  private modeValue: "strict-send" | "strict-receive" | undefined;
+
+  constructor(private readonly context: FluentBuilderContext) {}
+
+  /**
+   * Set destination address. Accepts both regular (G...) and muxed (M...) addresses.
+   */
+  destination(address: string): this {
+    this.destinationValue = address;
+    return this;
+  }
+
+  /**
+   * Set payment amount for simple payments.
+   * Use sendAmount() or destAmount() for path payments instead.
+   */
+  amount(amount: string | number): this {
+    this.amountValue = String(amount);
+    return this;
+  }
+
+  /**
+   * Set the exact amount to send (strict-send path payment).
+   * Mutually exclusive with destAmount().
+   */
+  sendAmount(amount: string | number): this {
+    this.sendAmountValue = String(amount);
+    this.modeValue = "strict-send";
+    return this;
+  }
+
+  /**
+   * Set the exact amount destination receives (strict-receive path payment).
+   * Mutually exclusive with sendAmount().
+   */
+  destAmount(amount: string | number): this {
+    this.destAmountValue = String(amount);
+    this.modeValue = "strict-receive";
+    return this;
+  }
+
+  /**
+   * Set asset for simple payment.
+   * Provide an Asset instance, or an asset code with optional issuer.
+   * Defaults to XLM (native) if not called.
+   */
+  asset(asset: Asset | string, issuer?: string): this {
+    this.assetValue = toAssetInput(asset, issuer);
+    return this;
+  }
+
+  /**
+   * Set the sending asset for path payments.
+   * Provide an Asset instance, or an asset code with optional issuer.
+   */
+  sendAsset(asset: Asset | string, issuer?: string): this {
+    this.sendAssetValue = toAssetInput(asset, issuer);
+    return this;
+  }
+
+  /**
+   * Set the destination asset for path payments.
+   * Provide an Asset instance, or an asset code with optional issuer.
+   */
+  destAsset(asset: Asset | string, issuer?: string): this {
+    this.destAssetValue = toAssetInput(asset, issuer);
+    return this;
+  }
+
+  /**
+   * Set intermediate assets for path payment.
+   *
+   * Each path asset can be:
+   * - An Asset instance: .path(assetInstance1, assetInstance2)
+   * - A code string for XLM: .path("XLM")
+   * - A code and issuer: .path(["USDC", "GISSUER..."], ["EURC", "GISSUER2..."])
+   *
+   * @example
+   * .path("XLM") // Single intermediate asset
+   * .path(["USDC", "GISSUER..."], ["EURC", "GISSUER2..."]) // Multiple
+   */
+  path(...assets: Array<Asset | string | [string, string]>): this {
+    this.pathValue = assets.map((asset) => {
+      if (Array.isArray(asset)) {
+        return toAssetInput(asset[0], asset[1]);
+      }
+      return toAssetInput(asset, undefined);
+    });
+    return this;
+  }
+
+  async build(): Promise<SorokitResult<Transaction>> {
+    // Validate destination
+    if (this.destinationValue === undefined) {
+      return err(SorokitErrorCode.TX_BUILD_FAILED, "Payment destination is required");
+    }
+    const destResult = validateStellarAddress(this.destinationValue);
+    if (destResult.status === "error") return destResult;
+
+    // Determine payment mode: simple payment or path payment
+    const isPathPayment = 
+      this.sendAmountValue !== undefined ||
+      this.destAmountValue !== undefined ||
+      this.sendAssetValue !== undefined ||
+      this.destAssetValue !== undefined ||
+      this.pathValue !== undefined;
+
+    if (isPathPayment) {
+      return this.buildPathPayment();
+    } else {
+      return this.buildSimplePayment();
+    }
+  }
+
+  private async buildSimplePayment(): Promise<SorokitResult<Transaction>> {
+    // Validate amount
+    if (this.amountValue === undefined) {
+      return err(SorokitErrorCode.TX_BUILD_FAILED, "Payment amount is required");
+    }
+    const amountResult = validateOfferAmount(this.amountValue);
+    if (amountResult.status === "error") return amountResult;
+
+    // Resolve asset (defaults to native XLM)
+    let asset: Asset;
+    if (this.assetValue === undefined) {
+      asset = Asset.native();
+    } else {
+      const assetResult = resolveOfferAsset(this.assetValue, "asset");
+      if (assetResult.status === "error") return assetResult;
+      asset = assetResult.data;
+    }
+
+    // Build payment operation
+    let operation: ReturnType<typeof Operation.payment>;
+    try {
+      operation = Operation.payment({
+        destination: this.destinationValue!,
+        asset,
+        amount: this.amountValue,
+      });
+    } catch (cause) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        `Failed to build payment operation: ${toMessage(cause)}`,
+        cause,
+      );
+    }
+
+    const accountResult = await resolveBuilderAccount(this.context);
+    if (accountResult.status === "error") return accountResult;
+    return buildTransaction(accountResult.data, this.context, [operation]);
+  }
+
+  private async buildPathPayment(): Promise<SorokitResult<Transaction>> {
+    // Validate mode and amounts
+    if (this.modeValue === undefined) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        "Path payment mode is required: use sendAmount() for strict-send or destAmount() for strict-receive",
+      );
+    }
+
+    if (this.sendAmountValue !== undefined && this.destAmountValue !== undefined) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        "Cannot specify both sendAmount and destAmount: use one for strict-send or strict-receive mode",
+      );
+    }
+
+    const amount = this.sendAmountValue ?? this.destAmountValue;
+    if (amount === undefined) {
+      return err(SorokitErrorCode.TX_BUILD_FAILED, "Path payment amount is required");
+    }
+    const amountResult = validateOfferAmount(amount);
+    if (amountResult.status === "error") return amountResult;
+
+    // Resolve send asset (defaults to native XLM)
+    let sendAsset: Asset;
+    if (this.sendAssetValue === undefined) {
+      sendAsset = Asset.native();
+    } else {
+      const result = resolveOfferAsset(this.sendAssetValue, "sendAsset");
+      if (result.status === "error") return result;
+      sendAsset = result.data;
+    }
+
+    // Resolve dest asset (defaults to native XLM)
+    let destAsset: Asset;
+    if (this.destAssetValue === undefined) {
+      destAsset = Asset.native();
+    } else {
+      const result = resolveOfferAsset(this.destAssetValue, "destAsset");
+      if (result.status === "error") return result;
+      destAsset = result.data;
+    }
+
+    // Validate path assets
+    const pathAssets: Asset[] = [];
+    if (this.pathValue !== undefined) {
+      if (this.pathValue.length === 0) {
+        return err(
+          SorokitErrorCode.TX_BUILD_FAILED,
+          "Path must contain at least one intermediate asset when specified",
+        );
+      }
+      if (this.pathValue.length > 5) {
+        return err(
+          SorokitErrorCode.TX_BUILD_FAILED,
+          "Path cannot contain more than 5 intermediate assets",
+        );
+      }
+      for (let i = 0; i < this.pathValue.length; i++) {
+        const result = resolveOfferAsset(this.pathValue[i], `path asset ${i + 1}`);
+        if (result.status === "error") return result;
+        pathAssets.push(result.data);
+      }
+    }
+
+    // Build path payment operation
+    let operation: ReturnType<typeof Operation.pathPaymentStrictSend | typeof Operation.pathPaymentStrictReceive>;
+    try {
+      if (this.modeValue === "strict-send") {
+        operation = Operation.pathPaymentStrictSend({
+          sendAsset,
+          sendAmount: amount,
+          destination: this.destinationValue!,
+          destAsset,
+          destMin: "0.0000001", // Minimum destination amount (will be improved with slippage parameter)
+          path: pathAssets,
+        });
+      } else {
+        operation = Operation.pathPaymentStrictReceive({
+          sendAsset,
+          sendMax: "922337203685.4775807", // Maximum send amount (will be improved with slippage parameter)
+          destination: this.destinationValue!,
+          destAsset,
+          destAmount: amount,
+          path: pathAssets,
+        });
+      }
+    } catch (cause) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        `Failed to build path payment operation: ${toMessage(cause)}`,
+        cause,
+      );
+    }
+
+    const accountResult = await resolveBuilderAccount(this.context);
+    if (accountResult.status === "error") return accountResult;
+    return buildTransaction(accountResult.data, this.context, [operation]);
+  }
 }

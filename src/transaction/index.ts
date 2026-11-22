@@ -98,8 +98,10 @@ export { buildSetOptionsTransaction } from "./setOptions";
 export {
   buildManageOffer,
   buildSetOptions,
+  buildPayment,
   ManageOfferBuilder,
   SetOptionsBuilder,
+  PaymentBuilder,
 } from "./builders";
 export type {
   FluentBuilderContext,

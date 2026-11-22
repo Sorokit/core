@@ -136,22 +136,38 @@ export function validateStellarAddress(addr: string): SorokitResult<string> {
   if (typeof addr !== "string" || addr.length === 0) {
     return err(
       SorokitErrorCode.INVALID_ADDRESS,
-      `address — address is empty or not a string. Fix: Provide a 56-character G-prefixed Stellar public key (e.g. "GABC...XYZ").`,
+      `address — address is empty or not a string. Fix: Provide a 56-character G-prefixed Stellar public key (e.g. "GABC...XYZ") or a muxed address (M...).`,
     );
   }
 
-  if (!addr.startsWith("G")) {
+  // Support both regular (G-prefixed) and muxed (M-prefixed) addresses
+  if (!addr.startsWith("G") && !addr.startsWith("M")) {
     return err(
       SorokitErrorCode.INVALID_ADDRESS,
-      `address — "${addr}" does not start with "G". Fix: Stellar public keys must begin with the letter G. Check that you have not supplied a secret key (S...) or contract ID (C...) by mistake.`,
+      `address — "${addr}" does not start with "G" or "M". Fix: Stellar addresses must begin with G (regular) or M (muxed). Check that you have not supplied a secret key (S...) or contract ID (C...) by mistake.`,
     );
   }
 
-  if (!StrKey.isValidEd25519PublicKey(addr)) {
-    return err(
-      SorokitErrorCode.INVALID_ADDRESS,
-      `address — "${addr}" is not a valid Stellar address. Fix: Ensure the address is a 56-character Base32 string starting with G and contains no typos. Use Keypair.random().publicKey() to generate a valid example.`,
-    );
+  // Validate regular address
+  if (addr.startsWith("G")) {
+    if (!StrKey.isValidEd25519PublicKey(addr)) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        `address — "${addr}" is not a valid Stellar address. Fix: Ensure the address is a 56-character Base32 string starting with G and contains no typos. Use Keypair.random().publicKey() to generate a valid example.`,
+      );
+    }
+    return ok(addr);
+  }
+
+  // Validate muxed address
+  if (addr.startsWith("M")) {
+    if (!StrKey.isValidMed25519PublicKey(addr)) {
+      return err(
+        SorokitErrorCode.INVALID_ADDRESS,
+        `address — "${addr}" is not a valid muxed Stellar address. Fix: Ensure the address is a valid Base32 string starting with M and contains no typos.`,
+      );
+    }
+    return ok(addr);
   }
 
   return ok(addr);

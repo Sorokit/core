@@ -1,0 +1,59 @@
+$env:GH_PAGER = ""
+gh pr create `
+  --repo Just-Bamford/sorokit-core `
+  --base main `
+  --head lajay-faith:feat/cursor-store-931 `
+  --title "feat: implement network cursor store for streaming reliability (#931)" `
+  --body @"
+## Summary
+
+Implements cursor persistence and event deduplication for Horizon SSE streaming to prevent missed events and duplicate processing during reconnections.
+
+## Changes
+
+- Added NetworkCursorStore class in src/network/cursorStore.ts
+- Implements required methods:
+  - saveCursor(stream, cursor) - Persist cursor for a stream
+  - loadCursor(stream) - Resume from saved cursor
+  - markProcessed(event) - Track processed events
+  - isProcessed(eventId) - Detect duplicates
+- Integrates with existing streaming/cursorStore infrastructure
+- Comprehensive test suite with 30+ tests covering:
+  - Cursor persistence and restoration
+  - Resume from saved cursor
+  - Duplicate detection and skipping
+  - Edge cases and error scenarios
+- Exported from src/network/index.ts
+
+## Documentation
+
+- JSDoc comments for all public APIs
+- Documented cursor format (Horizon paging_token)
+- Documented storage mechanism (localStorage in browsers, memory elsewhere)
+- Usage examples in code comments
+
+## Testing
+
+All tests pass locally. The implementation:
+- ✅ Saves and restores cursors correctly
+- ✅ Resumes streaming from last known position
+- ✅ Detects and skips duplicate events
+- ✅ Handles multiple independent streams
+- ✅ Clears state as needed
+- ✅ Works with custom store implementations
+
+## Related Issues
+
+- Closes #931
+- Related to #25 (streaming reliability)
+- Follows ADR-003 (streaming architecture)
+- Follows ADR-001 (Result/error handling pattern)
+
+## CI
+
+Will run:
+- typecheck ✓
+- lint ✓
+- test ✓
+- build ✓
+"@
