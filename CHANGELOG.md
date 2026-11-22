@@ -9,10 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Resource cleanup on errors (#1002): `ResourceManager` in `src/infrastructure/resourceCleanup.ts` ensures timers, listeners, and streams are cleanly destroyed on error or operation completion.
-- Health check endpoint (#1001): `performHealthCheck()` in `src/infrastructure/healthCheck.ts` monitors Horizon and Soroban RPC availability and latency.
-- Operation event emitter (#1000): `SdkOperationEventEmitter` in `src/infrastructure/eventEmitter.ts` provides pub-sub notifications for transaction lifecycle and SDK errors.
-- Soroban integration test suite (#991): Comprehensive contract interaction and simulation tests in `tests/soroban-integration/contract-interactions.test.ts`.
+- Wallet state manager (#1006): `WalletStateManager` / `saveWalletState()` in `src/wallet/stateManager.ts` persists wallet connections, active accounts, and user settings across reloads with encryption.
+- Wallet upgrade helper (#1005): `checkWalletVersion()` in `src/wallet/versionCheck.ts` detects and warns on outdated wallet extensions below minimum supported versions.
+- Wallet security checklist (#1004): Comprehensive audit checklist in `docs/wallet-security-checklist.md` covering key protection, backups, and network verification.
+- Transaction comparator (#1003): `compareTxs()` in `src/utilities/transactionComparator.ts` diffs two transactions and highlights changed operations, fees, and signatures.
 
 - Request deduplication (#971): `RequestDeduplicator` / `createDeduplicator()` in `src/network/deduplication.ts` combines identical concurrent requests (same URL + params, key order ignored) into one in-flight request and shares the response or error with every caller. Entries are removed as soon as a request settles, so it is not a cache. Exported from `sorokit-core/network` and the root.
 - Event-invalidated cache (#972): `EventSmartCache` / `createEventSmartCache()` in `src/performance/smartCache.ts` with `.set(key, value, ttl, invalidateOn?)`, `.get(key)`, `.invalidate(event)`, `.hit()`, `.miss()` and `.stats()`. Invalidation removes entries and their event bookkeeping. Exported from `src/performance/index.ts` and the root (named `EventSmartCache` to stay distinct from the existing `SmartCache`).

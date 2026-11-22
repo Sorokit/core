@@ -267,6 +267,8 @@ export { RateLimitRuleType } from "./wallet/throttlingTypes";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
+export { createConcurrencyLimiter } from "./network/concurrencyLimiter";
+export type { ConcurrencyLimiter } from "./network/concurrencyLimiter";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type {
@@ -294,6 +296,8 @@ export type {
   RateLimitState,
   RateLimitedResponse,
 } from "./network";
+export { createConnectionStateMachine } from "./wallet/connectionStateMachine";
+export type { WalletConnectionState, WalletConnectionEvent, WalletConnectionStateChange, WalletConnectionStateMachine } from "./wallet/connectionStateMachine";
 export {
   MemoryCursorStore,
   LocalStorageCursorStore,
@@ -476,6 +480,8 @@ export {
   usdtAsset,
   eurcAsset,
 } from "./transaction";
+export { createTransactionBuilderSchema, validateTransactionBuilder, validateTransactionOperations } from "./transaction/builderValidation";
+export type { TransactionBuilderFieldRule, TransactionBuilderSchema, TransactionBuilderValidationIssue } from "./transaction/builderValidation";
 export type { SorokitMemo } from "./transaction";
 export type {
   TransactionValidationFinding,
@@ -945,6 +951,8 @@ export {
   serializeCustomType,
 } from "./soroban/contractEncoding";
 export { validateContractData } from "./soroban";
+export { createInvocationLogger } from "./soroban/invocationLogger";
+export type { InvocationLogger, InvocationLoggerOptions, InvocationLogEntry, InvocationStatus } from "./soroban/invocationLogger";
 export {
   classifySorobanRpcError,
   extractRpcErrorMessage,
@@ -2300,31 +2308,32 @@ export {
 } from "./transaction";
 export type { WaitForTransactionOptions } from "./transaction";
 
-// ─── Resource Cleanup, Health Check, & Operation Event Emitter (#1000, #1001, #1002) ─
+// ─── Wallet State Manager & Version Check (#1005, #1006) ─────────────────────
 export {
-  ResourceManager,
-  withResourceCleanup,
-  cleanupOnError,
-  createResourceManager,
-  performHealthCheck,
-  DEFAULT_HORIZON_URL,
-  DEFAULT_SOROBAN_RPC_URL,
-  DEFAULT_HEALTH_TIMEOUT_MS,
-  SdkOperationEventEmitter,
-  createSdkEventEmitter,
-  sdkEventEmitter,
-} from "./infrastructure";
+  saveWalletState,
+  loadWalletState,
+  clearWalletState,
+  WalletStateManager,
+  createWalletStateManager,
+  DEFAULT_STATE_KEY,
+  checkWalletVersion,
+  compareSemver,
+  MINIMUM_WALLET_VERSIONS,
+  WALLET_UPGRADE_URLS,
+} from "./wallet";
 export type {
-  ResourceItem,
-  CleanupTask,
-  HealthStatus,
-  EndpointHealth,
-  HealthCheckOptions,
-  TxSubmittedPayload,
-  TxConfirmedPayload,
-  TxFailedPayload,
-  AccountFetchedPayload,
-  SdkErrorPayload,
-  SdkEventMap,
-  SdkEventListener,
-} from "./infrastructure";
+  WalletConnectionState,
+  StateManagerOptions,
+  VersionInfo,
+  WalletVersionTarget,
+} from "./wallet";
+
+// ─── Transaction Comparator (#1003) ──────────────────────────────────────────
+export {
+  compareTxs,
+} from "./utilities/transactionComparator";
+export type {
+  ComparisonResult,
+  OperationDiff as TransactionDiffItem,
+  TransactionSummary,
+} from "./utilities/transactionComparator";
