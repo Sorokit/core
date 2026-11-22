@@ -2299,3 +2299,33 @@ export {
   sponsorOperation,
 } from "./transaction";
 export type { WaitForTransactionOptions } from "./transaction";
+
+// ─── Wallet State Manager & Version Check (#1005, #1006) ─────────────────────
+export {
+  saveWalletState,
+  loadWalletState,
+  clearWalletState,
+  WalletStateManager,
+  createWalletStateManager,
+  DEFAULT_STATE_KEY,
+  checkWalletVersion,
+  compareSemver,
+  MINIMUM_WALLET_VERSIONS,
+  WALLET_UPGRADE_URLS,
+} from "./wallet";
+export type {
+  WalletConnectionState,
+  StateManagerOptions,
+  VersionInfo,
+  WalletVersionTarget,
+} from "./wallet";
+
+// ─── Transaction Comparator (#1003) ──────────────────────────────────────────
+export {
+  compareTxs,
+} from "./utilities/transactionComparator";
+export type {
+  ComparisonResult,
+  OperationDiff as TransactionDiffItem,
+  TransactionSummary,
+} from "./utilities/transactionComparator";
