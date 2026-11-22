@@ -786,6 +786,13 @@ export {
   createWalletEventEmitter,
   toConnectedEvent,
 } from "./eventEmitter";
+export { createConnectionStateMachine } from "./connectionStateMachine";
+export type {
+  WalletConnectionState,
+  WalletConnectionEvent,
+  WalletConnectionStateChange,
+  WalletConnectionStateMachine,
+} from "./connectionStateMachine";
 export type {
   WalletEventMap,
   WalletEventName,

@@ -267,6 +267,8 @@ export { RateLimitRuleType } from "./wallet/throttlingTypes";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
+export { createConcurrencyLimiter } from "./network/concurrencyLimiter";
+export type { ConcurrencyLimiter } from "./network/concurrencyLimiter";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type {
@@ -294,6 +296,8 @@ export type {
   RateLimitState,
   RateLimitedResponse,
 } from "./network";
+export { createConnectionStateMachine } from "./wallet/connectionStateMachine";
+export type { WalletConnectionState, WalletConnectionEvent, WalletConnectionStateChange, WalletConnectionStateMachine } from "./wallet/connectionStateMachine";
 export {
   MemoryCursorStore,
   LocalStorageCursorStore,
@@ -476,6 +480,8 @@ export {
   usdtAsset,
   eurcAsset,
 } from "./transaction";
+export { createTransactionBuilderSchema, validateTransactionBuilder, validateTransactionOperations } from "./transaction/builderValidation";
+export type { TransactionBuilderFieldRule, TransactionBuilderSchema, TransactionBuilderValidationIssue } from "./transaction/builderValidation";
 export type { SorokitMemo } from "./transaction";
 export type {
   TransactionValidationFinding,
@@ -945,6 +951,8 @@ export {
   serializeCustomType,
 } from "./soroban/contractEncoding";
 export { validateContractData } from "./soroban";
+export { createInvocationLogger } from "./soroban/invocationLogger";
+export type { InvocationLogger, InvocationLoggerOptions, InvocationLogEntry, InvocationStatus } from "./soroban/invocationLogger";
 export {
   classifySorobanRpcError,
   extractRpcErrorMessage,

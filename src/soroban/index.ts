@@ -590,6 +590,8 @@ export type {
   ContractAuditFilter,
   ContractAuditStatus,
 } from "./contractAuditTrail";
+export { createInvocationLogger } from "./invocationLogger";
+export type { InvocationLogger, InvocationLoggerOptions, InvocationLogEntry, InvocationStatus } from "./invocationLogger";
 
 // ─── Contract upgrade detection ───────────────────────────────────────────────
 export { detectContractUpgrade } from "./upgradeDetection";
