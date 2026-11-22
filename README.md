@@ -909,3 +909,10 @@ await client.soroban.execute(signedXdr, undefined, undefined, {
 ## Transaction Utilities (#1003)
 
 - **Transaction Comparator**: Diff two transactions before and after optimization (`compareTxs`) showing operation differences, fee adjustments, and memo changes.
+
+## Protocol & Event Streaming Utilities (#917, #924, #968, #990)
+
+- **XDR Protocol Versioning**: Validate XDR envelopes against node protocol versions to prevent deserialization failures (`validateXdrVersion`, `detectXdrProtocolVersion`).
+- **Rabet Wallet Adapter Helpers**: Standalone connection and transaction signing helpers for Rabet browser extension (`connectRabet`, `getRabetAccount`, `signRabetTransaction`).
+- **SDK Version Check Utility**: Check installed SDK version against the npm registry with caching (`checkSdkVersion`).
+- **Contract Event Streaming**: Real-time event streaming and topic filtering for Soroban smart contracts (`ContractEventStream`, `createContractEventStream`).

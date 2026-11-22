@@ -2337,3 +2337,46 @@ export type {
   OperationDiff as TransactionDiffItem,
   TransactionSummary,
 } from "./utilities/transactionComparator";
+
+// ─── XDR Versioning & Protocol Validation (#917) ──────────────────────────────
+export {
+  validateXdrVersion,
+  detectXdrProtocolVersion,
+  CURRENT_STELLAR_PROTOCOL,
+  MINIMUM_RECOMMENDED_PROTOCOL,
+} from "./shared/xdrValidation";
+export type {
+  XdrValidationResult,
+  XdrValidationOptions,
+} from "./shared/xdrValidation";
+
+// ─── Rabet Wallet Adapter Helpers (#924) ──────────────────────────────────────
+export {
+  connectRabet,
+  getRabetAccount,
+  signRabetTransaction,
+} from "./wallet";
+export type {
+  RabetConnectionResult,
+  RabetSignedTxResult,
+} from "./wallet";
+
+// ─── SDK Version Check Utility (#968) ─────────────────────────────────────────
+export {
+  checkSdkVersion,
+  clearSdkVersionCache,
+  CURRENT_SDK_VERSION,
+} from "./utilities/versionCheck";
+export type {
+  SdkVersionInfo,
+  SdkVersionCheckOptions,
+} from "./utilities/versionCheck";
+
+// ─── Contract Event Stream (#990) ─────────────────────────────────────────────
+export {
+  ContractEventStream,
+  createContractEventStream,
+} from "./soroban";
+export type {
+  ContractEventStreamOptions,
+} from "./soroban";

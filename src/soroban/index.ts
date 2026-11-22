@@ -604,3 +604,12 @@ export type { ContractDurability } from "./stateQueries";
 export { parseABI, buildABI } from "./abiParser";
 export type { ParsedABI, ParsedAbiMethod, ParsedAbiArg } from "./abiParser";
 export { generateInterface } from "./interfaceGenerator";
+
+// ─── Contract Event Stream (#990) ─────────────────────────────────────────────
+export {
+  ContractEventStream,
+  createContractEventStream,
+} from "./eventStreaming";
+export type {
+  ContractEventStreamOptions,
+} from "./eventStreaming";

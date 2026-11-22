@@ -828,3 +828,14 @@ export type {
   VersionInfo,
   WalletVersionTarget,
 } from "./versionCheck";
+
+// ─── Rabet Wallet Adapter Standalone Helpers (#924) ───────────────────────────
+export {
+  connectRabet,
+  getRabetAccount,
+  signRabetTransaction,
+} from "./adapters/rabetAdapter";
+export type {
+  RabetConnectionResult,
+  RabetSignedTxResult,
+} from "./adapters/rabetAdapter";

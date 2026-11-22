@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- XDR versioning support (#917): `validateXdrVersion()` in `src/shared/xdrValidation.ts` detects protocol versions and warns on mismatches.
+- Rabet wallet adapter helpers (#924): `connectRabet()`, `getRabetAccount()`, and `signRabetTransaction()` in `src/wallet/adapters/rabetAdapter.ts`.
+- SDK version check utility (#968): `checkSdkVersion()` in `src/utilities/versionCheck.ts` warns when a newer version is published on npm.
+- Contract event streaming (#990): `ContractEventStream` in `src/soroban/eventStreaming.ts` streams events with topic and ledger filters.
+
 - Wallet state manager (#1006): `WalletStateManager` / `saveWalletState()` in `src/wallet/stateManager.ts` persists wallet connections, active accounts, and user settings across reloads with encryption.
 - Wallet upgrade helper (#1005): `checkWalletVersion()` in `src/wallet/versionCheck.ts` detects and warns on outdated wallet extensions below minimum supported versions.
 - Wallet security checklist (#1004): Comprehensive audit checklist in `docs/wallet-security-checklist.md` covering key protection, backups, and network verification.
