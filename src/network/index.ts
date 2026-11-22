@@ -244,3 +244,13 @@ export {
   buildRequestKey,
 } from "./deduplication";
 export type { DeduplicationStats } from "./deduplication";
+
+// ─── Network Cursor Store for Streaming (#931) ────────────────────────────────
+export {
+  NetworkCursorStore,
+  createNetworkCursorStore,
+} from "./cursorStore";
+export type {
+  HorizonCursor,
+  EventId,
+} from "./cursorStore";
