@@ -99,9 +99,11 @@ export {
   buildManageOffer,
   buildSetOptions,
   buildPayment,
+  buildChangeTrust,
   ManageOfferBuilder,
   SetOptionsBuilder,
   PaymentBuilder,
+  ChangeTrustBuilder,
 } from "./builders";
 export type {
   FluentBuilderContext,

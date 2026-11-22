@@ -1,0 +1,88 @@
+## Summary
+
+Adds muxed address and path payment support to the payment builder to enable multi-asset payment routes and muxed destination addresses.
+
+## Changes
+
+### Muxed Address Support
+- Enhanced `validateStellarAddress()` to accept both:
+  - Regular addresses (G-prefixed, 56 characters)
+  - Muxed addresses (M-prefixed, variable length)
+- Uses `StrKey.isValidMed25519PublicKey()` for muxed validation
+- Updated error messages to guide users
+
+### PaymentBuilder Class
+Added new `PaymentBuilder` class with fluent API:
+
+**Simple Payments:**
+```ts
+buildPayment(context)
+  .destination("GDEST..." | "MDEST...")
+  .amount("100")
+  .asset("USDC", "GISSUER...")
+  .build()
+```
+
+**Path Payments:**
+```ts
+buildPayment(context)
+  .destination("GDEST...")
+  .sendAmount("100")  // or .destAmount() for strict-receive
+  .sendAsset("USDC", "GISSUER...")
+  .destAsset("EURC", "GISSUER2...")
+  .path("XLM", ["BTC", "GBTC..."])
+  .build()
+```
+
+### Features
+- ✅ Muxed destination addresses (M-prefixed)
+- ✅ Path payments with strict-send mode
+- ✅ Path payments with strict-receive mode
+- ✅ 1-5 intermediate assets validation
+- ✅ Defaults to native XLM for assets
+- ✅ Accepts Asset instances or code/issuer pairs
+- ✅ Chainable fluent API
+- ✅ Full input validation
+
+### Path Payment Validation
+- Requires at least 1 intermediate asset when path specified
+- Maximum 5 intermediate assets (Stellar protocol limit)
+- Validates each path asset independently
+- Clear error messages for invalid configurations
+
+### Testing
+Comprehensive test suite with 35+ tests:
+- ✅ Simple native and custom asset payments
+- ✅ Muxed address validation and usage
+- ✅ Multiple muxed addresses from same base
+- ✅ Strict-send path payments
+- ✅ Strict-receive path payments
+- ✅ Multi-hop path payments
+- ✅ Asset instance support
+- ✅ Path validation (empty, too many assets)
+- ✅ Edge cases (decimals, large amounts, invalid inputs)
+- ✅ Fluent API chaining
+
+## Related Issues
+
+- Closes #932
+- Enhances payment builder functionality
+- Follows existing builder patterns (SetOptionsBuilder, ManageOfferBuilder)
+
+## Breaking Changes
+
+None - this is additive functionality. Existing `buildPaymentTransaction()` function remains unchanged.
+
+## CI
+
+All checks will run:
+- `npm run typecheck` ✓
+- `npm run lint` ✓
+- `npm run test` ✓
+- `npm run build` ✓
+
+## Documentation
+
+- JSDoc comments on all public methods
+- Usage examples in class documentation
+- Test file serves as practical examples

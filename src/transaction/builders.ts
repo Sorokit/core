@@ -57,6 +57,11 @@ export function buildPayment(context: FluentBuilderContext): PaymentBuilder {
   return new PaymentBuilder(context);
 }
 
+/** Create a chainable change trust builder (issue #933). */
+export function buildChangeTrust(context: FluentBuilderContext): ChangeTrustBuilder {
+  return new ChangeTrustBuilder(context);
+}
+
 type SetOptionsOperation = NonNullable<
   Parameters<typeof Operation.setOptions>[0]
 >;
@@ -704,6 +709,130 @@ export class PaymentBuilder {
       return err(
         SorokitErrorCode.TX_BUILD_FAILED,
         `Failed to build path payment operation: ${toMessage(cause)}`,
+        cause,
+      );
+    }
+
+    const accountResult = await resolveBuilderAccount(this.context);
+    if (accountResult.status === "error") return accountResult;
+    return buildTransaction(accountResult.data, this.context, [operation]);
+  }
+}
+
+/**
+ * Chainable builder for trustline operations (issue #933).
+ *
+ * Supports:
+ * - Creating trustlines for custom assets
+ * - Updating trustline limits
+ * - Removing trustlines (limit = "0")
+ *
+ * @example
+ * ```ts
+ * // Create trustline with default limit
+ * const tx = await buildChangeTrust(context)
+ *   .asset("USDC", "GISSUER...")
+ *   .build();
+ *
+ * // Create trustline with custom limit
+ * const tx = await buildChangeTrust(context)
+ *   .asset("EURC", "GISSUER...")
+ *   .limit("1000")
+ *   .build();
+ *
+ * // Remove trustline
+ * const tx = await buildChangeTrust(context)
+ *   .asset("USDC", "GISSUER...")
+ *   .limit("0")
+ *   .build();
+ * ```
+ */
+export class ChangeTrustBuilder {
+  private assetValue: BuilderAssetInput | undefined;
+  private limitValue: string | undefined;
+
+  constructor(private readonly context: FluentBuilderContext) {}
+
+  /**
+   * Set the asset to trust.
+   * Provide an Asset instance, or an asset code with issuer.
+   *
+   * Note: Native XLM cannot be used with changeTrust - trustlines are only for issued assets.
+   */
+  asset(asset: Asset | string, issuer?: string): this {
+    this.assetValue = toAssetInput(asset, issuer);
+    return this;
+  }
+
+  /**
+   * Set the trust limit in asset units.
+   *
+   * - Omit or pass no value: Maximum limit (default)
+   * - Positive value: Set specific limit
+   * - "0": Remove the trustline
+   *
+   * The limit must be a non-negative decimal with at most 7 decimal places.
+   */
+  limit(amount?: string | number): this {
+    if (amount !== undefined) {
+      this.limitValue = String(amount);
+    }
+    return this;
+  }
+
+  async build(): Promise<SorokitResult<Transaction>> {
+    // Validate asset is provided
+    if (this.assetValue === undefined) {
+      return err(SorokitErrorCode.TX_BUILD_FAILED, "Asset is required for trustline");
+    }
+
+    // Resolve asset
+    const assetResult = resolveOfferAsset(this.assetValue, "asset");
+    if (assetResult.status === "error") return assetResult;
+    const asset = assetResult.data;
+
+    // Validate that asset is not native
+    if (asset.isNative()) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        "Cannot create trustline for native XLM. Trustlines are only for issued assets.",
+      );
+    }
+
+    // Validate limit if provided
+    if (this.limitValue !== undefined) {
+      // Allow "0" for removing trustline, otherwise validate as amount
+      if (this.limitValue !== "0") {
+        const limitResult = validateOfferAmount(this.limitValue);
+        if (limitResult.status === "error") {
+          return err(
+            SorokitErrorCode.TX_BUILD_FAILED,
+            `Invalid trust limit: ${limitResult.error.message}`,
+          );
+        }
+      }
+
+      // Ensure limit is non-negative
+      const limitNum = parseFloat(this.limitValue);
+      if (isNaN(limitNum) || limitNum < 0) {
+        return err(
+          SorokitErrorCode.TX_BUILD_FAILED,
+          "Trust limit must be a non-negative number",
+        );
+      }
+    }
+
+    // Build changeTrust operation
+    let operation: ReturnType<typeof Operation.changeTrust>;
+    try {
+      operation = Operation.changeTrust({
+        asset,
+        ...(this.limitValue !== undefined && { limit: this.limitValue }),
+      });
+    } catch (cause) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        `Failed to build changeTrust operation: ${toMessage(cause)}`,
         cause,
       );
     }
