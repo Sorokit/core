@@ -96,6 +96,9 @@ jobs:
       - name: Check bundle size
         run: npm run size:check --if-present
 
+      - name: Analyze dependency graph
+        run: npm run analyze:dependencies
+
   security:
     name: Security Audit
     runs-on: ubuntu-latest

@@ -27,5 +27,6 @@ export default defineConfig({
   splitting: true,
   treeshake: true,
   minify: true,
+  esbuildOptions(options) { options.drop = ["debugger"]; options.pure = ["console.debug", "console.trace"]; },
   external: ["@stellar/stellar-sdk", "@walletconnect/sign-client"],
 });

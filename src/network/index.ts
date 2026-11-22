@@ -1,5 +1,8 @@
 export { AdaptiveRateLimiter, adaptiveRateLimiter, parseRetryAfter } from "./adaptiveRateLimiter";
 export type { AdaptiveRateLimiterOptions, RateLimitState, RateLimitedResponse } from "./adaptiveRateLimiter";
+export { RateLimitTracker, createRateLimitTracker } from "./rateLimitTracker";
+export type { RateLimitUsage, RateLimitTrackerOptions } from "./rateLimitTracker";
+export { executeWithTimeout } from "./timeoutHandler";
 export { resolveNetwork } from "./resolveNetwork";
 export type { NetworkOverrides } from "./resolveNetwork";
 export * from "./fallback";
