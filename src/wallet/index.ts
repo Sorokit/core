@@ -814,7 +814,7 @@ export {
   DEFAULT_STATE_KEY,
 } from "./stateManager";
 export type {
-  WalletConnectionState,
+  WalletConnectionState as WalletStateManagerConnectionState,
   StateManagerOptions,
 } from "./stateManager";
 

@@ -6,8 +6,9 @@ export interface RateLimitTrackerOptions { warningThreshold?: number; onWarning?
 type HeaderSource = Headers | Record<string, string | undefined>;
 function header(headers: HeaderSource, name: string): string | null {
   if (typeof (headers as Headers).get === "function") return (headers as Headers).get(name);
-  const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
-  return key === undefined ? null : headers[key] ?? null;
+  const record = headers as Record<string, string | undefined>;
+  const key = Object.keys(record).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+  return key === undefined ? null : record[key] ?? null;
 }
 function numberHeader(headers: HeaderSource, names: string[], minimum: number): number | null {
   for (const name of names) { const value = header(headers, name); if (value !== null) { const parsed = Number(value); if (Number.isFinite(parsed) && parsed >= minimum) return parsed; } }
