@@ -100,10 +100,14 @@ export {
   buildSetOptions,
   buildPayment,
   buildChangeTrust,
+  buildPaymentStrictSend,
+  buildPaymentStrictReceive,
   ManageOfferBuilder,
   SetOptionsBuilder,
   PaymentBuilder,
   ChangeTrustBuilder,
+  PaymentStrictSendBuilder,
+  PaymentStrictReceiveBuilder,
 } from "./builders";
 export type {
   FluentBuilderContext,

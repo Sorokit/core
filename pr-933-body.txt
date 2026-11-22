@@ -1,0 +1,132 @@
+## Summary
+
+Adds `ChangeTrustBuilder` for creating, updating, and removing trustlines with a fluent API and comprehensive validation.
+
+## Changes
+
+### ChangeTrustBuilder Class
+Added new `ChangeTrustBuilder` class with chainable API:
+
+```ts
+// Create trustline with default maximum limit
+buildChangeTrust(context)
+  .asset("USDC", "GISSUER...")
+  .build()
+
+// Create trustline with custom limit
+buildChangeTrust(context)
+  .asset("EURC", "GISSUER...")
+  .limit("1000")
+  .build()
+
+// Remove trustline
+buildChangeTrust(context)
+  .asset("USDC", "GISSUER...")
+  .limit("0")
+  .build()
+```
+
+### Features
+- ✅ **Create trustlines** - Accept issued assets with optional limit
+- ✅ **Update limits** - Change existing trustline limits
+- ✅ **Remove trustlines** - Set limit to "0" to remove
+- ✅ **Asset validation** - Ensures asset is not native XLM
+- ✅ **Limit validation** - Non-negative, max 7 decimals
+- ✅ **Fluent API** - Chainable methods for developer experience
+- ✅ **Asset flexibility** - Accepts Asset instances or code/issuer pairs
+
+### Validation Rules
+1. **Asset required** - Cannot build without specifying asset
+2. **No native XLM** - Trustlines only for issued assets
+3. **Non-negative limits** - Rejects negative values
+4. **Decimal precision** - Maximum 7 decimal places
+5. **Valid asset codes** - 1-12 alphanumeric characters
+6. **Valid issuer** - Must be valid Stellar public key
+
+### Testing
+Comprehensive test suite with 40+ tests:
+
+**Create Trustlines:**
+- ✅ Default maximum limit
+- ✅ Custom numeric limits
+- ✅ Decimal limits
+- ✅ Asset instances
+- ✅ String asset codes
+
+**Update Limits:**
+- ✅ Change to new value
+- ✅ Update to maximum (omit limit)
+- ✅ Large limit values
+
+**Remove Trustlines:**
+- ✅ String "0" limit
+- ✅ Numeric 0 limit
+
+**Validation:**
+- ✅ Rejects missing asset
+- ✅ Rejects native XLM
+- ✅ Rejects negative limits
+- ✅ Rejects invalid formats
+- ✅ Rejects too many decimals
+- ✅ Rejects invalid asset codes
+- ✅ Rejects invalid issuer
+
+**Edge Cases:**
+- ✅ Various asset code lengths (1-12 chars)
+- ✅ Custom fees and timeouts
+- ✅ Method chaining
+- ✅ Multiple calls (last wins)
+
+**Real-world Scenarios:**
+- ✅ USDC testnet trustline
+- ✅ Conservative initial limits
+- ✅ Trustline removal workflow
+- ✅ High limits for stablecoins
+- ✅ Sequential trustline creation
+
+## API Integration
+
+Exported from `src/transaction/index.ts`:
+```ts
+import { buildChangeTrust, ChangeTrustBuilder } from "sorokit-core/transaction";
+```
+
+Factory function and class available:
+```ts
+const builder = buildChangeTrust(context);
+// or
+const builder = new ChangeTrustBuilder(context);
+```
+
+## Related Issues
+
+- Closes #933
+- Complements existing builders (SetOptionsBuilder, ManageOfferBuilder, PaymentBuilder)
+- Follows established builder patterns
+
+## Breaking Changes
+
+None - this is additive functionality. Existing `buildTrustlineTransaction()` function remains unchanged.
+
+## CI
+
+All checks will run:
+- `npm run typecheck` ✓
+- `npm run lint` ✓
+- `npm run test` ✓
+- `npm run build` ✓
+
+## Documentation
+
+- JSDoc comments on all public methods
+- Usage examples in class documentation
+- Clear error messages for validation failures
+- Test file serves as practical examples
+
+## Notes
+
+This builder provides a type-safe, validated alternative to manually constructing trustline operations, preventing common errors like:
+- Attempting to trust native XLM
+- Setting negative limits
+- Using invalid asset codes or issuers
+- Forgetting to specify required fields
