@@ -590,10 +590,8 @@ export type {
   ContractAuditFilter,
   ContractAuditStatus,
 } from "./contractAuditTrail";
-export { createDeploymentTracker, trackDeployment } from "./deploymentTracker";
-export type { DeploymentProgress, DeploymentStage, DeploymentTracker } from "./deploymentTracker";
-export { estimateResources } from "./resourceCalculator";
-export type { ResourceEstimate, ResourceCalculatorOptions } from "./resourceCalculator";
+export { createInvocationLogger } from "./invocationLogger";
+export type { InvocationLogger, InvocationLoggerOptions, InvocationLogEntry, InvocationStatus } from "./invocationLogger";
 
 // ─── Contract upgrade detection ───────────────────────────────────────────────
 export { detectContractUpgrade } from "./upgradeDetection";

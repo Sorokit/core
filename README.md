@@ -899,3 +899,13 @@ await client.soroban.execute(signedXdr, undefined, undefined, {
 - `createAndFundAccount(horizonUrl, publicKey, initialBalance, { network, friendbotUrl })` funds through Friendbot (`https://friendbot.stellar.org` on testnet, `https://friendbot-futurenet.stellar.org` on futurenet). Other networks need `friendbotUrl`. Friendbot sets the amount; `initialBalance` is a minimum check.
 - `getAssetCreationSteps(issuerKey)` and `prepareAssetForIssuing(code, issuerKey, flags)` guide issuance. The issuer must be a funded account you control; use a separate distributor account. Minting is out of scope.
 - `createOperationDebugger(logger, operation)` writes debug entries tagged `[operationId]` with `operation` and `operationId` metadata. The logger adds the timestamp and redacts secret and signature keys. Enable it with `logLevel: "debug"` or `debug: true`.
+
+## Wallet Security & Management (#1004, #1005, #1006)
+
+- **Security Audit Checklist**: See [`docs/wallet-security-checklist.md`](docs/wallet-security-checklist.md) for a comprehensive guide on private key protection, seed backups, and network verification.
+- **State Manager**: Persist and restore wallet connections across page reloads with end-to-end encryption (`saveWalletState`, `loadWalletState`, `clearWalletState`, `WalletStateManager`).
+- **Version Check**: Inspect connected wallet extensions and verify against minimum supported versions (`checkWalletVersion`).
+
+## Transaction Utilities (#1003)
+
+- **Transaction Comparator**: Diff two transactions before and after optimization (`compareTxs`) showing operation differences, fee adjustments, and memo changes.

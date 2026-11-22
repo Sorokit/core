@@ -267,8 +267,8 @@ export { RateLimitRuleType } from "./wallet/throttlingTypes";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
-export { createRetryPolicy, createHttpClient, parseCacheControlMaxAge } from "./network";
-export type { RetryPolicy, RetryPolicyOptions, HttpClient, HttpClientOptions } from "./network";
+export { createConcurrencyLimiter } from "./network/concurrencyLimiter";
+export type { ConcurrencyLimiter } from "./network/concurrencyLimiter";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type {
@@ -296,6 +296,8 @@ export type {
   RateLimitState,
   RateLimitedResponse,
 } from "./network";
+export { createConnectionStateMachine } from "./wallet/connectionStateMachine";
+export type { WalletConnectionState, WalletConnectionEvent, WalletConnectionStateChange, WalletConnectionStateMachine } from "./wallet/connectionStateMachine";
 export {
   MemoryCursorStore,
   LocalStorageCursorStore,
@@ -478,6 +480,8 @@ export {
   usdtAsset,
   eurcAsset,
 } from "./transaction";
+export { createTransactionBuilderSchema, validateTransactionBuilder, validateTransactionOperations } from "./transaction/builderValidation";
+export type { TransactionBuilderFieldRule, TransactionBuilderSchema, TransactionBuilderValidationIssue } from "./transaction/builderValidation";
 export type { SorokitMemo } from "./transaction";
 export type {
   TransactionValidationFinding,
@@ -947,8 +951,8 @@ export {
   serializeCustomType,
 } from "./soroban/contractEncoding";
 export { validateContractData } from "./soroban";
-export { createDeploymentTracker, trackDeployment, estimateResources } from "./soroban";
-export type { DeploymentProgress, DeploymentStage, DeploymentTracker, ResourceEstimate, ResourceCalculatorOptions } from "./soroban";
+export { createInvocationLogger } from "./soroban/invocationLogger";
+export type { InvocationLogger, InvocationLoggerOptions, InvocationLogEntry, InvocationStatus } from "./soroban/invocationLogger";
 export {
   classifySorobanRpcError,
   extractRpcErrorMessage,
@@ -2303,3 +2307,33 @@ export {
   sponsorOperation,
 } from "./transaction";
 export type { WaitForTransactionOptions } from "./transaction";
+
+// ─── Wallet State Manager & Version Check (#1005, #1006) ─────────────────────
+export {
+  saveWalletState,
+  loadWalletState,
+  clearWalletState,
+  WalletStateManager,
+  createWalletStateManager,
+  DEFAULT_STATE_KEY,
+  checkWalletVersion,
+  compareSemver,
+  MINIMUM_WALLET_VERSIONS,
+  WALLET_UPGRADE_URLS,
+} from "./wallet";
+export type {
+  WalletConnectionState,
+  StateManagerOptions,
+  VersionInfo,
+  WalletVersionTarget,
+} from "./wallet";
+
+// ─── Transaction Comparator (#1003) ──────────────────────────────────────────
+export {
+  compareTxs,
+} from "./utilities/transactionComparator";
+export type {
+  ComparisonResult,
+  OperationDiff as TransactionDiffItem,
+  TransactionSummary,
+} from "./utilities/transactionComparator";
