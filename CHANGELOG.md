@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Resource cleanup on errors (#1002): `ResourceManager` in `src/infrastructure/resourceCleanup.ts` ensures timers, listeners, and streams are cleanly destroyed on error or operation completion.
+- Health check endpoint (#1001): `performHealthCheck()` in `src/infrastructure/healthCheck.ts` monitors Horizon and Soroban RPC availability and latency.
+- Operation event emitter (#1000): `SdkOperationEventEmitter` in `src/infrastructure/eventEmitter.ts` provides pub-sub notifications for transaction lifecycle and SDK errors.
+- Soroban integration test suite (#991): Comprehensive contract interaction and simulation tests in `tests/soroban-integration/contract-interactions.test.ts`.
+
 - Request deduplication (#971): `RequestDeduplicator` / `createDeduplicator()` in `src/network/deduplication.ts` combines identical concurrent requests (same URL + params, key order ignored) into one in-flight request and shares the response or error with every caller. Entries are removed as soon as a request settles, so it is not a cache. Exported from `sorokit-core/network` and the root.
 - Event-invalidated cache (#972): `EventSmartCache` / `createEventSmartCache()` in `src/performance/smartCache.ts` with `.set(key, value, ttl, invalidateOn?)`, `.get(key)`, `.invalidate(event)`, `.hit()`, `.miss()` and `.stats()`. Invalidation removes entries and their event bookkeeping. Exported from `src/performance/index.ts` and the root (named `EventSmartCache` to stay distinct from the existing `SmartCache`).
 - Transaction polling (#973): `waitForTransaction(hash, timeout?, interval?, options?)` polls Horizon until a transaction is confirmed. Defaults: 30 000 ms timeout, 1 000 ms interval; optional `maxRetries`, `signal` and `fetchStatus`. Returns `TX_NOT_FOUND`, `OPERATION_TIMEOUT` or the last lookup error when it gives up. Exported from `sorokit-core/transaction` and the root.

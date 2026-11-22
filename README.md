@@ -899,3 +899,13 @@ await client.soroban.execute(signedXdr, undefined, undefined, {
 - `createAndFundAccount(horizonUrl, publicKey, initialBalance, { network, friendbotUrl })` funds through Friendbot (`https://friendbot.stellar.org` on testnet, `https://friendbot-futurenet.stellar.org` on futurenet). Other networks need `friendbotUrl`. Friendbot sets the amount; `initialBalance` is a minimum check.
 - `getAssetCreationSteps(issuerKey)` and `prepareAssetForIssuing(code, issuerKey, flags)` guide issuance. The issuer must be a funded account you control; use a separate distributor account. Minting is out of scope.
 - `createOperationDebugger(logger, operation)` writes debug entries tagged `[operationId]` with `operation` and `operationId` metadata. The logger adds the timestamp and redacts secret and signature keys. Enable it with `logLevel: "debug"` or `debug: true`.
+
+## Infrastructure & Diagnostics (#1000, #1001, #1002)
+
+- **Resource Cleanup**: Automatic lifecycle and cleanup manager for timers, listeners, and streams (`ResourceManager`, `withResourceCleanup`, `cleanupOnError`).
+- **Health Check**: Endpoint availability and latency monitor for Horizon and Soroban RPC (`performHealthCheck`).
+- **SDK Operation Event Emitter**: Publish-subscribe event bus for transaction submission, confirmation, failure, and error tracking (`SdkOperationEventEmitter`, `sdkEventEmitter`).
+
+## Soroban Integration Suite (#991)
+
+- Comprehensive test suite for real Soroban contract invocation and simulation (`tests/soroban-integration/contract-interactions.test.ts`).

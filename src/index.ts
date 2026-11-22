@@ -2299,3 +2299,32 @@ export {
   sponsorOperation,
 } from "./transaction";
 export type { WaitForTransactionOptions } from "./transaction";
+
+// ─── Resource Cleanup, Health Check, & Operation Event Emitter (#1000, #1001, #1002) ─
+export {
+  ResourceManager,
+  withResourceCleanup,
+  cleanupOnError,
+  createResourceManager,
+  performHealthCheck,
+  DEFAULT_HORIZON_URL,
+  DEFAULT_SOROBAN_RPC_URL,
+  DEFAULT_HEALTH_TIMEOUT_MS,
+  SdkOperationEventEmitter,
+  createSdkEventEmitter,
+  sdkEventEmitter,
+} from "./infrastructure";
+export type {
+  ResourceItem,
+  CleanupTask,
+  HealthStatus,
+  EndpointHealth,
+  HealthCheckOptions,
+  TxSubmittedPayload,
+  TxConfirmedPayload,
+  TxFailedPayload,
+  AccountFetchedPayload,
+  SdkErrorPayload,
+  SdkEventMap,
+  SdkEventListener,
+} from "./infrastructure";
