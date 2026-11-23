@@ -1,5 +1,7 @@
 import { ok } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import { getOfferById } from "./dexActivity";
+import type { OfferInfo } from "./dexActivity";
 import { getEffects } from "./getEffects";
 import type { EffectInfo, GetEffectsOptions } from "./getEffects";
 import { resolveAccountQueryHorizonUrl } from "./paymentHistory";
@@ -152,6 +154,34 @@ export async function getAccountSigners(
 
   return ok({ masterWeight: result.data.masterWeight, signers });
 }
+
+/** A single offer, as returned by Horizon. */
+export type Offer = OfferInfo;
+
+/**
+ * Fetch one offer by its Horizon offer id (#946).
+ *
+ * Uses `SOROKIT_HORIZON_URL` (or the default Horizon) unless a Horizon URL is passed first.
+ * Resolves with the offer's seller, selling and buying assets, `price` and `amount`, or an error
+ * result: `OFFER_NOT_FOUND` for an unknown, filled or cancelled offer, `VALIDATION` for a
+ * malformed id, `ACCOUNT_FETCH_FAILED` otherwise. Never throws.
+ */
+export function getOffer(offerId: string | number): Promise<SorokitResult<Offer>>;
+export function getOffer(
+  horizonUrl: string,
+  offerId: string | number,
+): Promise<SorokitResult<Offer>>;
+export async function getOffer(
+  first: string | number,
+  second?: string | number,
+): Promise<SorokitResult<Offer>> {
+  return second === undefined
+    ? getOfferById(resolveAccountQueryHorizonUrl(), first)
+    : getOfferById(resolveAccountQueryHorizonUrl(String(first)), second);
+}
+
+/** Alias of {@link getOffer}. */
+export const getAccountOffer = getOffer;
 
 export function getSignerThresholds(
   publicKey: string,

@@ -173,6 +173,43 @@ if (tradesResult.status === "ok") {
 }
 ```
 
+## Fetching a single offer
+
+When you already know an offer's id (for example from a `manageSellOffer` result or an
+order-book entry), `getOffer` fetches just that offer instead of listing all of an account's
+offers. It never throws; it returns a `SorokitResult`.
+
+```typescript
+import { getOffer, SorokitErrorCode } from "sorokit-core";
+
+const result = await getOffer("12345"); // or getOffer(horizonUrl, "12345")
+
+if (result.status === "error") {
+  if (result.error.code === SorokitErrorCode.OFFER_NOT_FOUND) {
+    console.log("That offer no longer exists (filled, cancelled, or never created).");
+  } else {
+    console.error(result.error.message);
+  }
+} else {
+  const offer = result.data;
+  console.log(
+    `#${offer.id} by ${offer.seller}: ${offer.amount} ${offer.selling.code} on offer` +
+      ` @ ${offer.price} ${offer.buying.code} per ${offer.selling.code}`,
+  );
+}
+```
+
+- `price` is the price of one unit of the selling asset in the buying asset, and `amount` is how
+  much of the selling asset is still on offer. The `amount` inside `selling` and `buying` is `"0"`
+  because Horizon does not report amounts there; use the top-level `amount` and `price`.
+- The id must be a positive integer, as a digit string or a safe integer number. Pass ids from
+  Horizon as strings: a number above 2^53 cannot be represented exactly. A malformed id returns
+  `VALIDATION` and no request is made.
+- Errors: `OFFER_NOT_FOUND` (Horizon answered 404), `VALIDATION` (malformed id),
+  `ACCOUNT_FETCH_FAILED` (anything else, with the original error as `cause`).
+- With no Horizon URL it uses `SOROKIT_HORIZON_URL` or the default Horizon; pass a URL first to
+  override it. `getAccountOffer` is an alias.
+
 ## Passive offers
 
 Passive offers do not take liquidity from existing offers (they can be placed without immediately matching). Use `ManagePassiveSellOffer`:

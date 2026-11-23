@@ -267,6 +267,8 @@ export { RateLimitRuleType } from "./wallet/throttlingTypes";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
+export { createConcurrencyLimiter } from "./network/concurrencyLimiter";
+export type { ConcurrencyLimiter } from "./network/concurrencyLimiter";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type {
@@ -286,12 +288,16 @@ export {
   NETWORK_DEFAULTS,
   ConnectionPool,
   createConnectionPool,
+  streamAccountUpdates,
+  streamPayments,
 } from "./network";
 export type {
   AdaptiveRateLimiterOptions,
   RateLimitState,
   RateLimitedResponse,
 } from "./network";
+export { createConnectionStateMachine } from "./wallet/connectionStateMachine";
+export type { WalletConnectionState, WalletConnectionEvent, WalletConnectionStateChange, WalletConnectionStateMachine } from "./wallet/connectionStateMachine";
 export {
   MemoryCursorStore,
   LocalStorageCursorStore,
@@ -317,6 +323,12 @@ export type {
   NetworkSwitcherConfig,
   ConnectionPoolConfig,
   ConnectionPoolStats,
+  HorizonAccountUpdateEvent,
+  HorizonPaymentStreamEvent,
+  HorizonSSEStreamOptions,
+  HorizonSSESubscription,
+  EventSourceLike,
+  EventSourceFactory,
 } from "./network";
 export { setConnectionPool, getConnectionPool } from "./shared/serverFactory";
 
@@ -470,6 +482,8 @@ export {
   usdtAsset,
   eurcAsset,
 } from "./transaction";
+export { createTransactionBuilderSchema, validateTransactionBuilder, validateTransactionOperations } from "./transaction/builderValidation";
+export type { TransactionBuilderFieldRule, TransactionBuilderSchema, TransactionBuilderValidationIssue } from "./transaction/builderValidation";
 export type { SorokitMemo } from "./transaction";
 export type {
   TransactionValidationFinding,
@@ -843,6 +857,10 @@ export {
   checkMainnetSafety,
   extractTransactionTotalXlm,
   isMainnetNetwork,
+  enableMainnet,
+  disableMainnet,
+  isMainnetEnabled,
+  guardMainnetInDevMode,
   DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM,
   MAINNET_NETWORK_PASSPHRASE,
 } from "./shared/mainnetSafety";
@@ -946,6 +964,8 @@ export {
   serializeCustomType,
 } from "./soroban/contractEncoding";
 export { validateContractData } from "./soroban";
+export { createInvocationLogger } from "./soroban/invocationLogger";
+export type { InvocationLogger, InvocationLoggerOptions, InvocationLogEntry, InvocationStatus } from "./soroban/invocationLogger";
 export {
   classifySorobanRpcError,
   extractRpcErrorMessage,
@@ -1828,6 +1848,9 @@ export {
   SOROBAN_SCALAR_TYPES,
   SOROBAN_CONTAINER_TYPES,
   SOROBAN_SPECIAL_TYPES,
+  shortenAddress,
+  DEFAULT_ADDRESS_VISIBLE_CHARS,
+  ADDRESS_ELLIPSIS,
 } from "./utility";
 export type {
   StellarAddressType,
@@ -1889,10 +1912,20 @@ export {
 export {
   validateStellarAddress,
   validatePublicKey,
+  validatePublicKeyDetailed,
+  detectPublicKeyFormat,
+  verifyPublicKeyChecksum,
+  STELLAR_ED25519_PUBLIC_KEY_LENGTH,
+  STELLAR_MUXED_PUBLIC_KEY_LENGTH,
   validateAssetIssuer,
   STELLAR_MAX_DECIMAL_PLACES,
   STELLAR_MAX_ASSET_CODE_LENGTH,
   STELLAR_MIN_ASSET_CODE_LENGTH,
+} from "./shared/validation";
+export type {
+  PublicKeyFormat,
+  ValidatePublicKeyOptions,
+  PublicKeyValidationDetails,
 } from "./shared/validation";
 
 // ─── Account signer, history, effects, and data entries (#556/#557/#558/#559) ─
@@ -1916,11 +1949,14 @@ export type {
 } from "./account/paymentHistory";
 export {
   getAccountEffects,
+  getAccountOffer,
   getAccountSigners,
+  getOffer,
   getSignerThresholds,
 } from "./account/queries";
 export type {
   Effect,
+  Offer,
   EffectFilters,
   Payment,
   PaymentDirection,
@@ -2236,3 +2272,81 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+// ─── Connection Pooling & Adaptive Rate Limiter (#930) ────────────────────────
+export {
+  HorizonRateLimiter,
+  createHorizonRateLimiter,
+} from "./network/rateLimiter";
+export type {
+  HorizonRateLimiterConfig,
+  EndpointRateLimitMetrics,
+  RateLimiterQueueStats,
+  RateLimitResponseMeta,
+} from "./network/rateLimiter";
+
+// ─── Issues #979, #981, #983, #984 ────────────────────────────────────────────
+export {
+  initializeSignatureCollection,
+  addSignature as addCollectedSignature,
+  finalizeTransaction,
+} from "./transaction/multiSigCoordinator";
+export type { SignatureCollectionProgress } from "./transaction/multiSigCoordinator";
+export { createAndFundAccount, FRIENDBOT_URLS } from "./account/fundingHelper";
+export type { FundingOptions } from "./account/fundingHelper";
+export { getAssetCreationSteps, prepareAssetForIssuing } from "./account/assetCreationHelper";
+export type { AssetCreationStep, AssetIssuingPreset } from "./account/assetCreationHelper";
+export { createOperationDebugger } from "./shared/operationDebug";
+export type { OperationDebugger } from "./shared/operationDebug";
+
+// ─── Request deduplication (#971) ─────────────────────────────────────────────
+export {
+  RequestDeduplicator,
+  createDeduplicator,
+  buildRequestKey,
+} from "./network";
+export type { DeduplicationStats } from "./network";
+
+// ─── Event-invalidated cache (#972) ───────────────────────────────────────────
+export { EventSmartCache, createEventSmartCache } from "./performance/smartCache";
+export type { EventCacheStats } from "./performance/smartCache";
+
+// ─── Transaction polling (#973) & sponsorship builder (#974) ──────────────────
+export {
+  waitForTransaction,
+  DEFAULT_POLL_TIMEOUT_MS,
+  DEFAULT_POLL_INTERVAL_MS,
+  sponsorTransaction,
+  sponsorOperation,
+} from "./transaction";
+export type { WaitForTransactionOptions } from "./transaction";
+
+// ─── Wallet State Manager & Version Check (#1005, #1006) ─────────────────────
+export {
+  saveWalletState,
+  loadWalletState,
+  clearWalletState,
+  WalletStateManager,
+  createWalletStateManager,
+  DEFAULT_STATE_KEY,
+  checkWalletVersion,
+  compareSemver,
+  MINIMUM_WALLET_VERSIONS,
+  WALLET_UPGRADE_URLS,
+} from "./wallet";
+export type {
+  WalletConnectionState,
+  StateManagerOptions,
+  VersionInfo,
+  WalletVersionTarget,
+} from "./wallet";
+
+// ─── Transaction Comparator (#1003) ──────────────────────────────────────────
+export {
+  compareTxs,
+} from "./utilities/transactionComparator";
+export type {
+  ComparisonResult,
+  OperationDiff as TransactionDiffItem,
+  TransactionSummary,
+} from "./utilities/transactionComparator";

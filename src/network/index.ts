@@ -175,6 +175,8 @@ export async function checkNetworkHealth(
 export { CongestionMonitor, createCongestionMonitor } from "./congestionMonitor";
 export { ConnectionPool, createConnectionPool } from "./connectionPool";
 export type { ConnectionPoolConfig, ConnectionPoolStats } from "./connectionPool";
+export { createConcurrencyLimiter } from "./concurrencyLimiter";
+export type { ConcurrencyLimiter } from "./concurrencyLimiter";
 export type {
   CongestionSample,
   CongestionMonitorOptions,
@@ -208,3 +210,37 @@ export type {
   EndpointHealthResult,
   EndpointRegistryConfig,
 } from "./endpointRegistry";
+
+// ─── Horizon SSE Real-time Streaming (#929) ───────────────────────────────────
+export {
+  streamAccountUpdates,
+  streamPayments,
+} from "./streaming";
+export type {
+  HorizonAccountUpdateEvent,
+  HorizonPaymentStreamEvent,
+  HorizonSSEStreamOptions,
+  HorizonSSESubscription,
+  EventSourceLike,
+  EventSourceFactory,
+} from "./streaming";
+
+// ─── Connection Pooling & Adaptive Rate Limiter (#930) ────────────────────────
+export {
+  HorizonRateLimiter,
+  createHorizonRateLimiter,
+} from "./rateLimiter";
+export type {
+  HorizonRateLimiterConfig,
+  EndpointRateLimitMetrics,
+  RateLimiterQueueStats,
+  RateLimitResponseMeta,
+} from "./rateLimiter";
+
+// ─── Request deduplication (#971) ─────────────────────────────────────────────
+export {
+  RequestDeduplicator,
+  createDeduplicator,
+  buildRequestKey,
+} from "./deduplication";
+export type { DeduplicationStats } from "./deduplication";
