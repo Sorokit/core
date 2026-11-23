@@ -20,6 +20,7 @@ import { mapHorizonError, isSequenceError } from "../shared/horizonErrorMapper";
 import { traceTransactionSubmit, type TelemetrySpan } from "../performance/telemetry";
 import { invalidateAccount } from "../account/getAccount";
 import { invalidateSequenceCacheEntry } from "./buildTransaction";
+import { validateTransaction as validatePreflightTransaction } from "./validation";
 
 // Shared circuit breaker registry for Horizon operations
 const horizonCircuitBreaker = new CircuitBreakerRegistry({
@@ -264,6 +265,19 @@ async function submitTransactionImpl(
       return err(
         SorokitErrorCode.TX_SUBMIT_FAILED,
         message,
+      );
+    }
+
+    // ── #959: Pre-flight transaction validation ───────────────────────────────
+    const preflight = validatePreflightTransaction(tx);
+    if (preflight.status === "ok" && !preflight.data.valid) {
+      const errorMsg = preflight.data.errors
+        .map((e) => `${e.field}: ${e.message}`)
+        .join("; ");
+      return err(
+        SorokitErrorCode.TX_SUBMIT_FAILED,
+        `Transaction pre-flight validation failed: ${errorMsg}`,
+        preflight.data,
       );
     }
 

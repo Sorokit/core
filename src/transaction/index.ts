@@ -809,3 +809,20 @@ export type { WaitForTransactionOptions } from "./polling";
 
 // ─── Transaction sponsorship builder (#974) ───────────────────────────────────
 export { sponsorTransaction, sponsorOperation } from "./sponsorshipBuilder";
+
+// ─── Transaction serialization (#958) ─────────────────────────────────────────
+export {
+  encodeTransaction,
+  decodeTransaction,
+} from "./serialization";
+export type { SupportedTransaction } from "./serialization";
+
+// ─── Transaction pre-flight validation (#959) ──────────────────────────────────
+export {
+  validateTransaction as validatePreflightTransaction,
+} from "./validation";
+export type {
+  ValidationReport as PreflightValidationReport,
+  ValidationError as PreflightValidationError,
+  PreflightValidationOptions,
+} from "./validation";

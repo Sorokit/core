@@ -2337,3 +2337,37 @@ export type {
   OperationDiff as TransactionDiffItem,
   TransactionSummary,
 } from "./utilities/transactionComparator";
+
+// ─── Transaction serialization (#958) ─────────────────────────────────────────
+export {
+  encodeTransaction,
+  decodeTransaction,
+} from "./transaction/serialization";
+export type { SupportedTransaction } from "./transaction/serialization";
+
+// ─── Transaction pre-flight validation (#959) ──────────────────────────────────
+export {
+  validateTransaction as validatePreflightTransaction,
+} from "./transaction/validation";
+export type {
+  ValidationReport,
+  ValidationError,
+  PreflightValidationOptions,
+} from "./transaction/validation";
+
+// ─── Asset metadata resolver (#960) ──────────────────────────────────────────
+export {
+  getAssetMetadata,
+  clearAssetMetadataCache,
+  getCachedAssetMetadata,
+  setCachedAssetMetadata,
+} from "./integration/assetMetadataResolver";
+export type {
+  AssetMetadata,
+  AssetMetadataResolverOptions,
+} from "./integration/assetMetadataResolver";
+
+// ─── XDR transaction viewer/debugger (#961) ───────────────────────────────────
+export {
+  formatXDR,
+} from "./utilities/xdrViewer";

@@ -125,3 +125,15 @@ export type {
   DirectPaymentReceiver,
   DirectPaymentQuoteRequestOptions,
 } from "./sep31DirectPayment";
+
+// ─── Asset metadata resolver (#960) ──────────────────────────────────────────
+export {
+  getAssetMetadata,
+  clearAssetMetadataCache,
+  getCachedAssetMetadata,
+  setCachedAssetMetadata,
+} from "./assetMetadataResolver";
+export type {
+  AssetMetadata,
+  AssetMetadataResolverOptions,
+} from "./assetMetadataResolver";

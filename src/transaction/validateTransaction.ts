@@ -3,6 +3,7 @@ import type { Transaction, FeeBumpTransaction } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { toMessage } from "../shared";
+import { validateTransaction as validatePreflightTransaction } from "./validation";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -75,9 +76,13 @@ export interface TransactionValidationReport {
  * passphrase match. Returns a detailed validation report.
  */
 export function validateTransaction(
-  transactionXdr: string,
+  transactionXdr: any,
   rules?: ValidationRules,
-): SorokitResult<TransactionValidationReport> {
+): SorokitResult<any> {
+  if (typeof transactionXdr !== "string" && transactionXdr && typeof transactionXdr === "object") {
+    return validatePreflightTransaction(transactionXdr, rules as any);
+  }
+
   const parsePassphrase = rules?.networkPassphrase ?? FALLBACK_PARSE_PASSPHRASE;
 
   let transaction: Transaction;
