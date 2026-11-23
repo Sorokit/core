@@ -232,3 +232,17 @@ export type {
   PortfolioUpdate,
   PortfolioUpdateCallback,
 } from "./portfolioDashboard";
+
+// ─── Account offers and trades queries (#947, #948) ───────────────────────────
+export {
+  getAccountOffers,
+  getAccountTrades,
+} from "./queries";
+export type {
+  Offer,
+  OfferAsset,
+  AccountOffersFilters,
+  Trade,
+  TradeAsset,
+  AccountTradesFilters,
+} from "./queries";

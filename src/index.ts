@@ -2171,3 +2171,38 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+// ─── Account offers and trades queries (#947, #948) ───────────────────────────
+export {
+  getAccountOffers,
+  getAccountTrades,
+} from "./account/queries";
+export type {
+  Offer,
+  OfferAsset,
+  AccountOffersFilters,
+  Trade,
+  TradeAsset,
+  AccountTradesFilters,
+} from "./account/queries";
+
+// ─── Path payment builders (#951) ─────────────────────────────────────────────
+export {
+  PathPaymentStrictSendBuilder,
+  PathPaymentStrictReceiveBuilder,
+  buildPathPaymentStrictSend,
+  buildPathPaymentStrictReceive,
+  normalizeBuilderAsset,
+} from "./transaction/builders";
+export type {
+  BuilderAsset,
+  PathPaymentStrictSendParams,
+  PathPaymentStrictReceiveParams,
+} from "./transaction/builders";
+
+// ─── Amount formatting utilities (#962) ───────────────────────────────────────
+export {
+  stroopsToAmount,
+  amountToStroops,
+  DEFAULT_STROOP_DECIMALS,
+} from "./utilities/amountFormatter";

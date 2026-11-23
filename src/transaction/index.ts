@@ -767,3 +767,17 @@ export type {
   StateChange,
   PreviewSummaryLine,
 } from "./simulationPreview";
+
+// ─── Path payment builders (#951) ─────────────────────────────────────────────
+export {
+  PathPaymentStrictSendBuilder,
+  PathPaymentStrictReceiveBuilder,
+  buildPathPaymentStrictSend,
+  buildPathPaymentStrictReceive,
+  normalizeBuilderAsset,
+} from "./builders";
+export type {
+  BuilderAsset,
+  PathPaymentStrictSendParams,
+  PathPaymentStrictReceiveParams,
+} from "./builders";
