@@ -813,8 +813,10 @@ export {
   createWalletStateManager,
   DEFAULT_STATE_KEY,
 } from "./stateManager";
+// `WalletConnectionState` is already the connection state machine's status union (above), so the persisted
+// record is exported under its own name.
 export type {
-  WalletConnectionState,
+  WalletConnectionState as PersistedWalletConnectionState,
   StateManagerOptions,
 } from "./stateManager";
 
