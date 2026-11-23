@@ -2322,7 +2322,7 @@ export {
   WALLET_UPGRADE_URLS,
 } from "./wallet";
 export type {
-  WalletConnectionState,
+  PersistedWalletConnectionState,
   StateManagerOptions,
   VersionInfo,
   WalletVersionTarget,
