@@ -123,6 +123,168 @@ export interface Sep7ValidationResult {
   params?: Sep7Params | undefined;
 }
 
+/** Options for generating a wallet signing deeplink for a transaction. */
+export interface Sep7SigningRedirectOptions {
+  /** URL that the wallet POSTs the signed XDR to, prefixed with `url:`. */
+  callback?: string;
+  /** Public key the wallet should sign with. */
+  pubkey?: string;
+  /** Message shown to the user by the wallet. */
+  msg?: string;
+  /** Fully qualified domain that originated the request. */
+  originDomain?: string;
+  /** Network passphrase, defaults to the Stellar testnet. */
+  networkPassphrase?: string;
+}
+
+/** A validated SEP-7 wallet redirect and its optional callback target. */
+export interface Sep7SigningRedirect {
+  /** `web+stellar:tx` URI that opens the user's wallet. */
+  uri: string;
+  /** Validated URL the wallet should POST the signed XDR to, or null. */
+  callbackUrl: string | null;
+}
+
+/**
+ * Build a SEP-7 signing deeplink from an already assembled transaction.
+ *
+ * The transaction is serialized with `toXDR()` and verified as canonical
+ * base64 before it is embedded in the URI. Callbacks must be absolute HTTPS
+ * URLs with the required `url:` prefix.
+ */
+export function createSep7SigningRedirect(
+  transaction: Transaction | FeeBumpTransaction,
+  options: Sep7SigningRedirectOptions = {},
+): SorokitResult<Sep7SigningRedirect> {
+  const xdrResult = encodeSep7TransactionXdr(transaction);
+  if (xdrResult.status === "error") return xdrResult;
+
+  let callbackUrl: string | null = null;
+  if (options.callback !== undefined) {
+    const callbackResult = validateSep7CallbackUrl(options.callback);
+    if (callbackResult.status === "error") return callbackResult;
+    callbackUrl = callbackResult.data;
+  }
+
+  if (options.pubkey !== undefined && !isValidPublicKey(options.pubkey)) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      `Invalid SEP-7 pubkey: '${options.pubkey}'`,
+    );
+  }
+
+  let originDomain: string | undefined;
+  if (options.originDomain !== undefined) {
+    const value = options.originDomain.trim();
+    try {
+      const parsed = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`);
+      if (parsed.protocol !== "https:" || parsed.pathname !== "/" || parsed.search || parsed.hash) {
+        return err(
+          SorokitErrorCode.VALIDATION,
+          `Invalid SEP-7 origin_domain: '${options.originDomain}'`,
+        );
+      }
+      originDomain = parsed.hostname;
+    } catch {
+      return err(
+        SorokitErrorCode.VALIDATION,
+        `Invalid SEP-7 origin_domain: '${options.originDomain}'`,
+      );
+    }
+  }
+
+  const params: Sep7TxParams = {
+    operation: "tx",
+    xdr: xdrResult.data,
+    ...(options.callback !== undefined && { callback: options.callback }),
+    ...(options.pubkey !== undefined && { pubkey: options.pubkey }),
+    ...(options.msg !== undefined && { msg: options.msg }),
+    ...(originDomain !== undefined && { origin_domain: originDomain }),
+    ...(options.networkPassphrase !== undefined && {
+      network_passphrase: options.networkPassphrase,
+    }),
+  };
+  const uriResult = generateSep7Uri(params);
+  if (uriResult.status === "error") return uriResult;
+  return ok({ uri: uriResult.data, callbackUrl });
+}
+
+/** Alias for {@link createSep7SigningRedirect}. */
+export const buildSep7SigningRedirect = createSep7SigningRedirect;
+
+/**
+ * Validate a SEP-7 `callback` value before it is embedded in a URI or used as
+ * a redirect target. Only absolute HTTP(S) URLs with the required `url:` prefix
+ * are accepted, so a wallet can never be redirected to a script or a relative
+ * path.
+ */
+export function validateSep7CallbackUrl(callback: string): SorokitResult<string> {
+  if (typeof callback !== "string" || !callback.startsWith("url:")) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      "Callback parameter must start with 'url:' prefix",
+    );
+  }
+  const rawValue = callback.slice(4);
+  let raw: string;
+  try {
+    raw = decodeURIComponent(rawValue);
+  } catch {
+    return err(SorokitErrorCode.VALIDATION, `Invalid callback URL: '${rawValue}'`);
+  }
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return err(SorokitErrorCode.VALIDATION, `Invalid callback URL: '${raw}'`);
+  }
+  if (url.protocol !== "https:") {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      "Callback URL must use secure HTTPS protocol",
+    );
+  }
+  if (!url.hostname || url.username || url.password) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      "Callback URL must have a hostname and no embedded credentials",
+    );
+  }
+  return ok(url.toString());
+}
+
+const CANONICAL_BASE64_PATTERN =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+/** Check that a string is canonical, padded base64 before decoding it as XDR. */
+export function isValidSep7XdrBase64(xdrValue: string): boolean {
+  if (typeof xdrValue !== "string" || !CANONICAL_BASE64_PATTERN.test(xdrValue)) {
+    return false;
+  }
+  const bytes = Buffer.from(xdrValue, "base64");
+  return bytes.length > 0 && bytes.toString("base64") === xdrValue;
+}
+
+/** Encode a transaction as the canonical base64 XDR value required by SEP-7. */
+export function encodeSep7TransactionXdr(
+  transaction: Transaction | FeeBumpTransaction,
+): SorokitResult<string> {
+  try {
+    const xdr = transaction.toXDR();
+    if (!isValidSep7XdrBase64(xdr)) {
+      return err(SorokitErrorCode.VALIDATION, "Transaction XDR is not canonical base64.");
+    }
+    return ok(xdr);
+  } catch (cause) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      "Failed to encode transaction XDR for SEP-7.",
+      cause,
+    );
+  }
+}
+
 export interface Sep7BuildOptions {
   /**
    * Source account public key used to build the transaction (if not provided in URI or XDR).
@@ -218,6 +380,12 @@ export function parseSep7Uri(uri: string): SorokitResult<Sep7Params> {
         return err(
           SorokitErrorCode.VALIDATION,
           "Missing required SEP-7 tx parameter: 'xdr'",
+        );
+      }
+      if (!isValidSep7XdrBase64(xdr)) {
+        return err(
+          SorokitErrorCode.VALIDATION,
+          "Invalid SEP-7 tx parameter: 'xdr' must be canonical base64",
         );
       }
       const txParams: Sep7TxParams = {
@@ -351,19 +519,10 @@ export function validateSep7Uri(uri: string): SorokitResult<Sep7ValidationResult
   const warnings: string[] = [];
 
   // Validate callback protocol if present
-  if (params.callback) {
-    if (!params.callback.startsWith("url:")) {
-      errors.push("Callback parameter must start with 'url:' prefix");
-    } else {
-      const urlStr = params.callback.slice(4);
-      try {
-        const u = new URL(urlStr);
-        if (u.protocol !== "https:") {
-          warnings.push("Callback URL should use secure HTTPS protocol");
-        }
-      } catch {
-        errors.push(`Invalid callback URL: '${urlStr}'`);
-      }
+  if (params.callback !== undefined) {
+    const callbackResult = validateSep7CallbackUrl(params.callback);
+    if (callbackResult.status === "error") {
+      errors.push(callbackResult.error.message);
     }
   }
 
@@ -408,13 +567,17 @@ export function validateSep7Uri(uri: string): SorokitResult<Sep7ValidationResult
     }
 
     case "tx": {
-      try {
-        const buffer = Buffer.from(params.xdr, "base64");
-        if (buffer.length === 0) {
-          errors.push("Invalid XDR: base64 payload is empty");
+      if (!isValidSep7XdrBase64(params.xdr)) {
+        errors.push("Invalid XDR: 'xdr' must be canonical base64");
+      } else {
+        try {
+          TransactionBuilder.fromXDR(
+            params.xdr,
+            params.network_passphrase ?? Networks.TESTNET,
+          );
+        } catch {
+          errors.push("Invalid XDR: payload is not a decodable Stellar transaction");
         }
-      } catch {
-        errors.push("Invalid XDR: payload is not valid base64");
       }
       if (params.pubkey && !isValidPublicKey(params.pubkey)) {
         errors.push(`Invalid replacement pubkey: '${params.pubkey}'`);
@@ -486,7 +649,18 @@ export async function buildFromSep7Uri(
   const networkPassphrase =
     params.network_passphrase ?? options.networkPassphrase ?? Networks.TESTNET;
 
-    if (params.operation === "tx") {
+  if (params.callback !== undefined) {
+    const callbackResult = validateSep7CallbackUrl(params.callback);
+    if (callbackResult.status === "error") return callbackResult;
+  }
+
+  if (params.operation === "tx") {
+    if (!isValidSep7XdrBase64(params.xdr)) {
+      return err(
+        SorokitErrorCode.VALIDATION,
+        "Invalid SEP-7 XDR: 'xdr' must be canonical base64",
+      );
+    }
     try {
       const tx = TransactionBuilder.fromXDR(params.xdr, networkPassphrase);
       return ok(tx);
@@ -658,6 +832,17 @@ export async function buildFromSep7Uri(
  * Generates a valid SEP-7 URI from parameters.
  */
 export function generateSep7Uri(params: Sep7Params): SorokitResult<string> {
+  if (params.callback !== undefined) {
+    const callbackResult = validateSep7CallbackUrl(params.callback);
+    if (callbackResult.status === "error") return callbackResult;
+  }
+  if (params.operation === "tx" && !isValidSep7XdrBase64(params.xdr)) {
+    return err(
+      SorokitErrorCode.VALIDATION,
+      "Invalid SEP-7 XDR: 'xdr' must be canonical base64",
+    );
+  }
+
   const query = new URLSearchParams();
 
   if (params.msg) query.set("msg", params.msg);

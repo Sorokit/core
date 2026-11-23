@@ -28,7 +28,12 @@ import { WalletType } from "../types";
 import type { WalletAdapter, SignTransactionInput } from "../types";
 import { ok, err, SorokitErrorCode } from "../../shared/response";
 import type { SorokitResult } from "../../shared/response";
-import { isBrowser, isUserRejection, isTimeoutError, toMessage } from "../../shared";
+import {
+  isBrowser,
+  isUserRejection,
+  isTimeoutError,
+  toMessage,
+} from "../../shared";
 
 // ─── Albedo SDK types (typed locally — never imported at runtime until the
 //     consumer installs @albedo-link/intent) ──────────────────────────────────
@@ -51,7 +56,9 @@ interface AlbedoIntent {
    * Request the user's public key.
    * Opens the Albedo pop-up if no session token is present.
    */
-  publicKey(opts?: { require_existing?: boolean }): Promise<AlbedoPublicKeyResult>;
+  publicKey(opts?: {
+    require_existing?: boolean;
+  }): Promise<AlbedoPublicKeyResult>;
 
   /**
    * Request the user to sign a transaction XDR.
@@ -84,7 +91,10 @@ async function loadAlbedo(): Promise<AlbedoIntent> {
   try {
     const mod = await import("@albedo-link/intent" as string);
     const albedo = (mod.default ?? mod) as AlbedoIntent;
-    if (typeof albedo?.publicKey !== "function" || typeof albedo?.tx !== "function") {
+    if (
+      typeof albedo?.publicKey !== "function" ||
+      typeof albedo?.tx !== "function"
+    ) {
       throw new Error("Unexpected @albedo-link/intent module shape.");
     }
     return albedo;
@@ -131,11 +141,7 @@ export class AlbedoAdapter implements WalletAdapter {
     try {
       albedo = await loadAlbedo();
     } catch (cause) {
-      return err(
-        SorokitErrorCode.WALLET_NOT_FOUND,
-        toMessage(cause),
-        cause,
-      );
+      return err(SorokitErrorCode.WALLET_NOT_FOUND, toMessage(cause), cause);
     }
 
     try {
@@ -143,7 +149,7 @@ export class AlbedoAdapter implements WalletAdapter {
       if (!pubkey) {
         return err(
           SorokitErrorCode.WALLET_CONNECT_FAILED,
-          "Albedo returned an empty public key.",
+          "Wallet returned an empty public key.",
         );
       }
       this._publicKey = pubkey;
@@ -198,11 +204,7 @@ export class AlbedoAdapter implements WalletAdapter {
     try {
       albedo = await loadAlbedo();
     } catch (cause) {
-      return err(
-        SorokitErrorCode.WALLET_NOT_FOUND,
-        toMessage(cause),
-        cause,
-      );
+      return err(SorokitErrorCode.WALLET_NOT_FOUND, toMessage(cause), cause);
     }
 
     try {
@@ -215,7 +217,7 @@ export class AlbedoAdapter implements WalletAdapter {
       if (!signed_envelope_xdr) {
         return err(
           SorokitErrorCode.WALLET_SIGN_FAILED,
-          "Albedo returned an empty signed transaction XDR.",
+          "Wallet returned an empty signed transaction XDR.",
         );
       }
 

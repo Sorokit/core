@@ -7,7 +7,12 @@ import { createHorizonServer } from "../shared/serverFactory";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SetOptionsParams } from "./types";
 
-function validateByte(name: string, value: number | undefined, minimum = 0): SorokitResult<void> {
+/** Shared byte-range validation for SetOptions builders and helpers. */
+export function validateSetOptionsByte(
+  name: string,
+  value: number | undefined,
+  minimum = 0,
+): SorokitResult<void> {
   if (value === undefined) return ok(undefined);
   if (!Number.isInteger(value) || value < minimum || value > 255) {
     return err(SorokitErrorCode.TX_BUILD_FAILED, `${name} must be an integer between ${minimum} and 255`);
@@ -15,7 +20,8 @@ function validateByte(name: string, value: number | undefined, minimum = 0): Sor
   return ok(undefined);
 }
 
-function validateHomeDomain(domain: string | null | undefined): SorokitResult<void> {
+/** Shared home-domain validation for SetOptions builders and helpers. */
+export function validateHomeDomain(domain: string | null | undefined): SorokitResult<void> {
   if (domain === undefined || domain === null) return ok(undefined);
   if (domain.length === 0 || domain.length > 32 || !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(domain)) {
     return err(SorokitErrorCode.TX_BUILD_FAILED, "homeDomain must be a valid DNS name of 1-32 characters");
@@ -46,7 +52,7 @@ export async function buildSetOptionsTransaction(
     ["medThreshold", params.medThreshold],
     ["highThreshold", params.highThreshold],
   ] as const) {
-    const result = validateByte(name, value);
+    const result = validateSetOptionsByte(name, value);
     if (result.status === "error") return result;
   }
   if (params.lowThreshold !== undefined && params.medThreshold !== undefined && params.lowThreshold > params.medThreshold) {
@@ -62,7 +68,7 @@ export async function buildSetOptionsTransaction(
   for (const signer of params.signers ?? []) {
     const keyResult = validatePublicKey(signer.publicKey);
     if (keyResult.status === "error") return keyResult;
-    const weightResult = validateByte("signer weight", signer.weight, 1);
+    const weightResult = validateSetOptionsByte("signer weight", signer.weight, 1);
     if (weightResult.status === "error") return weightResult;
   }
 

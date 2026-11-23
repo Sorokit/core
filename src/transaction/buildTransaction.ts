@@ -34,6 +34,8 @@ import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { MAX_OPERATIONS_PER_TRANSACTION } from "./validateTransaction";
+import { validatePathPaymentPathLength } from "./pathPayment";
+import { warnOnExtremeOfferPrice } from "./offerPrice";
 import type {
   MemoParams,
   MemoValidationConfig,
@@ -195,6 +197,43 @@ function resolveAsset(
  */
 export function validateMemoPolicy(params: MemoParams): SorokitResult<void> {
   const hasMemo = typeof params.memo === "string" && params.memo.length > 0;
+  const allowEmpty =
+    params.allowEmptyMemo === true ||
+    (typeof params.memoValidation === "object" &&
+      params.memoValidation !== null &&
+      params.memoValidation.allowEmpty === true);
+
+  // Check rule: "prohibit" first so that passing memo: "" or omitting memo
+  // is accepted under prohibition without triggering empty memo rejection.
+  const isProhibitRule =
+    params.memoValidation === "prohibit" ||
+    (typeof params.memoValidation === "object" &&
+      params.memoValidation !== null &&
+      params.memoValidation.rule === "prohibit");
+
+  if (isProhibitRule) {
+    if (params.memo !== undefined && params.memo !== "") {
+      const configErrorMessage =
+        typeof params.memoValidation === "object" && params.memoValidation !== null
+          ? params.memoValidation.errorMessage
+          : undefined;
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        configErrorMessage || "Memo is prohibited for this transaction",
+      );
+    }
+    return ok(undefined);
+  }
+
+  // Rejection of empty or whitespace-only memo strings (#846)
+  if (params.memo !== undefined && !allowEmpty) {
+    if (params.memo.trim().length === 0) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        "Memo cannot be empty or whitespace-only",
+      );
+    }
+  }
 
   // 1. Backward-compatible requireMemo flag
   if (params.requireMemo && !hasMemo) {
@@ -222,12 +261,7 @@ export function validateMemoPolicy(params: MemoParams): SorokitResult<void> {
         break;
 
       case "prohibit":
-        if (params.memo !== undefined && params.memo !== "") {
-          return err(
-            SorokitErrorCode.TX_BUILD_FAILED,
-            config.errorMessage || "Memo is prohibited for this transaction",
-          );
-        }
+        // Already handled above
         break;
 
       case "require_format": {
@@ -304,7 +338,21 @@ function validateMemoParams(
     return policyResult;
   }
 
+  const allowEmpty =
+    params.allowEmptyMemo === true ||
+    (typeof params.memoValidation === "object" &&
+      params.memoValidation !== null &&
+      params.memoValidation.allowEmpty === true);
+
   if (!params.memo) {
+    if (params.memo === "" && allowEmpty) {
+      const memoType = params.memoType ?? "text";
+      try {
+        if (memoType === "text") return ok(Memo.text(""));
+      } catch {
+        // Fall through
+      }
+    }
     return ok(undefined);
   }
 
@@ -927,6 +975,12 @@ function resolvePathAssets(
  * Build a path payment transaction XDR.
  * Use mode "strict-send" to send an exact amount, or "strict-receive" to receive an exact amount.
  * Returns the unsigned XDR ready for signing.
+ *
+ * Path semantics:
+ * - Omit `path` to let Horizon discover a route, including a direct route with
+ *   no intermediate assets (a valid Stellar direct conversion).
+ * - If `path` is provided it must contain 1–5 intermediate assets. An explicit
+ *   empty array is rejected as ambiguous; omit it instead.
  */
 export async function buildPathPayment(
   horizonUrl: string,
@@ -948,6 +1002,14 @@ export async function buildPathPayment(
       console.warn(message);
     }
   }
+
+  if (params.path !== undefined) {
+    const explicitPathLength = validatePathPaymentPathLength(
+      params.path.length,
+    );
+    if (explicitPathLength.status === "error") return explicitPathLength;
+  }
+
   const sendAssetResult = resolveAsset(
     params.sendAssetCode,
     params.sendAssetIssuer,
@@ -1059,6 +1121,12 @@ export async function buildPathPayment(
         }
       }
     }
+
+    const finalPathLength = validatePathPaymentPathLength(
+      finalPath?.length ?? 0,
+      { allowEmpty: true },
+    );
+    if (finalPathLength.status === "error") return finalPathLength;
 
     const pathResult = resolvePathAssets(finalPath);
     if (pathResult.status === "error") return pathResult;
@@ -1916,9 +1984,17 @@ export async function buildManageOfferTransaction(
 
   // ── Selling and buying must differ ────────────────────────────────────────
   if (sellingResult.data.equals(buyingResult.data)) {
-    return err(
-      SorokitErrorCode.TX_BUILD_FAILED,
-      "Selling and buying assets must be different.",
+    if (params.allowSameAsset !== true) {
+      return err(
+        SorokitErrorCode.TX_BUILD_FAILED,
+        "Selling and buying assets must be different.",
+      );
+    }
+    console.warn(
+      `[sorokit] Offer selling and buying asset are both ` +
+        `${params.sellingAssetCode}${params.sellingAssetIssuer ? `:${params.sellingAssetIssuer}` : ""}. ` +
+        "This offer can never fill and only wastes fees. Proceeding because " +
+        "allowSameAsset: true was passed.",
     );
   }
 
@@ -1970,6 +2046,16 @@ export async function buildManageOfferTransaction(
 
   const priceResult = validateOfferPrice(params.price);
   if (priceResult.status === "error") return priceResult;
+
+  if (parseFloat(params.amount) > 0) {
+    warnOnExtremeOfferPrice(params.price, {
+      suppress: params.suppressPriceWarnings === true,
+      ...(params.priceWarningRange !== undefined && {
+        range: params.priceWarningRange,
+      }),
+      context: `Offer price (${params.sellingAssetCode}/${params.buyingAssetCode})`,
+    });
+  }
 
   // ── Memo ──────────────────────────────────────────────────────────────────
   const memoResult = validateMemoParams(params);

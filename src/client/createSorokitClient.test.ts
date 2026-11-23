@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSorokitClient } from "./createSorokitClient";
 import type { SorokitClient } from "./createSorokitClient";
 
@@ -70,5 +70,33 @@ describe("SorokitClient type/runtime shape", () => {
       expect(["healthy", "degraded", "down"]).toContain(result.data.status);
       expect(typeof result.data.version).toBe("string");
     }
+  });
+});
+
+describe("stellar-sdk version compatibility check wiring (#865)", () => {
+  it("logs a warning when config.stellarSdkVersion diverges, and does not fail client creation", () => {
+    const warn = vi.fn();
+    const logger = { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() };
+
+    const result = createSorokitClient({
+      network: "testnet",
+      logger,
+      stellarSdkVersion: "99.0.0",
+    });
+
+    expect(result.status).toBe("ok");
+    expect(warn).toHaveBeenCalledTimes(1);
+    const [message] = warn.mock.calls[0]!;
+    expect(message).toContain("99.0.0");
+  });
+
+  it("does not log anything when stellarSdkVersion is omitted", () => {
+    const warn = vi.fn();
+    const logger = { debug: vi.fn(), info: vi.fn(), warn, error: vi.fn() };
+
+    const result = createSorokitClient({ network: "testnet", logger });
+
+    expect(result.status).toBe("ok");
+    expect(warn).not.toHaveBeenCalled();
   });
 });

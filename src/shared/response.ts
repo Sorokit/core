@@ -73,6 +73,7 @@ export enum SorokitErrorCode {
   WALLET_BROWSER_ONLY = "WALLET_BROWSER_ONLY",
   ACCOUNT_NOT_FOUND = "ACCOUNT_NOT_FOUND",
   ACCOUNT_FETCH_FAILED = "ACCOUNT_FETCH_FAILED",
+  OFFER_NOT_FOUND = "OFFER_NOT_FOUND",
   TX_BUILD_FAILED = "TX_BUILD_FAILED",
   TX_SIMULATE_FAILED = "TX_SIMULATE_FAILED",
   TX_SUBMIT_FAILED = "TX_SUBMIT_FAILED",
@@ -249,6 +250,27 @@ export function err<T>(
     data: null,
     error,
   }) as SorokitResult<T>;
+}
+
+/**
+ * Normalize a synchronous or asynchronous operation to the SDK result
+ * contract. Use this at integration boundaries where a third-party callback
+ * or legacy helper may throw; public SDK operations should return the
+ * resulting `SorokitResult` instead of leaking the exception to callers.
+ */
+export async function toSorokitResult<T>(
+  operation: () => T | Promise<T>,
+  code: SorokitErrorCode = SorokitErrorCode.INTERNAL,
+): Promise<SorokitResult<T>> {
+  try {
+    return ok(await operation());
+  } catch (cause) {
+    return err(
+      code,
+      cause instanceof Error ? cause.message : String(cause),
+      cause,
+    );
+  }
 }
 
 export function attachTraceId<T>(

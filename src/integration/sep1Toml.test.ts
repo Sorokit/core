@@ -46,7 +46,7 @@ describe("fetchStellarToml", () => {
   });
 
   it("caches successful results for the configured TTL, used as a fallback if verification is unavailable", async () => {
-    const fetcher = vi.fn().mockResolvedValue(new Response('AUTH_SERVER = "https://auth.example.com"'));
+    const fetcher = vi.fn().mockImplementation(async () => new Response('AUTH_SERVER = "https://auth.example.com"'));
     const options = { fetch: fetcher, ttlMs: 60_000, verifyOnCacheHit: false };
 
     await fetchStellarToml("https://example.com", options);
@@ -58,7 +58,7 @@ describe("fetchStellarToml", () => {
   });
 
   it("by default, re-verifies a cache hit against a fresh fetch (#837)", async () => {
-    const fetcher = vi.fn().mockResolvedValue(new Response('AUTH_SERVER = "https://auth.example.com"'));
+    const fetcher = vi.fn().mockImplementation(async () => new Response('AUTH_SERVER = "https://auth.example.com"'));
     const options = { fetch: fetcher, ttlMs: 60_000 };
 
     await fetchStellarToml("https://example.com", options);
@@ -132,7 +132,7 @@ describe("fetchStellarToml", () => {
   it("fetches again after the configured TTL expires", async () => {
     vi.useFakeTimers();
     try {
-      const fetcher = vi.fn().mockResolvedValue(new Response('AUTH_SERVER = "https://auth.example.com"'));
+      const fetcher = vi.fn().mockImplementation(async () => new Response('AUTH_SERVER = "https://auth.example.com"'));
       const options = { fetch: fetcher, ttlMs: 100 };
 
       await fetchStellarToml("example.com", options);
@@ -146,11 +146,69 @@ describe("fetchStellarToml", () => {
   });
 
   it("does not cache when the TTL is zero", async () => {
-    const fetcher = vi.fn().mockResolvedValue(new Response('AUTH_SERVER = "https://auth.example.com"'));
+    const fetcher = vi.fn().mockImplementation(async () => new Response('AUTH_SERVER = "https://auth.example.com"'));
 
     await fetchStellarToml("example.com", { fetch: fetcher, ttlMs: 0 });
     await fetchStellarToml("example.com", { fetch: fetcher, ttlMs: 0 });
 
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("tries the SEP-1 well-known path first (#862)", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response('AUTH_SERVER = "https://auth.example.com"'));
+
+    await fetchStellarToml("example.com", { fetch: fetcher });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledWith(
+      new URL("https://example.com/.well-known/stellar.toml"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("falls back to the legacy root path when .well-known is missing (#862)", async () => {
+    const fetcher = vi.fn().mockImplementation(async (url: URL) => {
+      if (url.pathname === "/.well-known/stellar.toml") {
+        return new Response("Not found", { status: 404 });
+      }
+      return new Response('AUTH_SERVER = "https://auth.example.com"', { status: 200 });
+    });
+
+    const result = await fetchStellarToml("example.com", { fetch: fetcher });
+
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.data.AUTH_SERVER).toBe("https://auth.example.com");
+    }
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenNthCalledWith(
+      1,
+      new URL("https://example.com/.well-known/stellar.toml"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      new URL("https://example.com/stellar.toml"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("returns an error when both the well-known and legacy root paths fail (#862)", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response("Not found", { status: 404 }));
+
+    const result = await fetchStellarToml("example.com", { fetch: fetcher });
+
+    expect(result.status).toBe("error");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fall back to the legacy root path when .well-known succeeds (#862)", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response('AUTH_SERVER = "https://auth.example.com"', { status: 200 }),
+    );
+
+    await fetchStellarToml("example.com", { fetch: fetcher });
+
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

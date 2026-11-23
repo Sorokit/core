@@ -95,6 +95,69 @@ function parseDID(did: string): SorokitResult<string> {
   return err(SorokitErrorCode.INVALID_CONFIG, `Invalid DID format: ${did}`);
 }
 
+/**
+ * Validate the minimum DID Core shape required by Sorokit's Stellar DID
+ * integration. Resolver implementations return untrusted JSON at runtime, so
+ * the TypeScript interface alone is not sufficient protection.
+ */
+function validateResolvedDocument(
+  document: unknown,
+  did: string,
+  publicKey: string,
+): SorokitResult<StellarDIDDocument> {
+  if (!document || typeof document !== "object") {
+    return err(SorokitErrorCode.INVALID_CONFIG, "Resolved DID document must be an object");
+  }
+  const candidate = document as Partial<StellarDIDDocument>;
+  if (candidate.id !== did) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      `Resolved DID document id must match the requested DID: ${did}`,
+    );
+  }
+  if (
+    !Array.isArray(candidate["@context"]) ||
+    !candidate["@context"].includes("https://www.w3.org/ns/did/v1")
+  ) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "Resolved DID document must include the W3C DID Core context",
+    );
+  }
+  if (!Array.isArray(candidate.verificationMethod) || candidate.verificationMethod.length === 0) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "Resolved DID document must contain at least one verification method",
+    );
+  }
+  for (const method of candidate.verificationMethod) {
+    if (
+      !method ||
+      typeof method !== "object" ||
+      typeof method.id !== "string" ||
+      method.type !== "StellarVerificationKey2024" ||
+      method.controller !== did ||
+      method.publicKeyMultibase !== publicKey
+    ) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        "Resolved DID document contains an invalid Stellar verification method",
+      );
+    }
+  }
+  if (
+    !Array.isArray(candidate.authentication) ||
+    candidate.authentication.length === 0 ||
+    candidate.authentication.some((id) => typeof id !== "string")
+  ) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      "Resolved DID document must contain a non-empty authentication array",
+    );
+  }
+  return ok(document as StellarDIDDocument);
+}
+
 function documentFor(
   did: string,
   publicKey: string,
@@ -182,6 +245,8 @@ export async function resolveDID(
           "Custom resolver returned no document",
         );
       }
+      const documentResult = validateResolvedDocument(resolvedDoc, did, parsed.data);
+      if (documentResult.status === "error") return documentResult;
       // Check for expiry
       if (resolvedDoc.expires) {
         const expiresAt = new Date(resolvedDoc.expires);

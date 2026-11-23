@@ -152,23 +152,12 @@ export function cacheStellarToml(
   });
 }
 
-/** Perform the actual network fetch + parse, without touching the cache. */
-async function fetchStellarTomlFresh(
-  domain: string,
-  baseUrl: URL,
-  options: FetchStellarTomlOptions,
+/** Fetch and parse a stellar.toml document from a single, specific URL path. */
+async function fetchStellarTomlAtPath(
+  url: URL,
+  fetcher: typeof fetch,
+  timeoutMs: number,
 ): Promise<SorokitResult<StellarToml>> {
-  const fetcher = options.fetch ?? globalThis.fetch;
-  if (typeof fetcher !== "function") {
-    return err(SorokitErrorCode.NETWORK_ERROR, "Fetch is unavailable in this runtime.");
-  }
-
-  const timeoutMs = options.timeoutMs ?? 15_000;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    return err(SorokitErrorCode.VALIDATION, "Request timeout must be a positive finite number.");
-  }
-
-  const url = new URL("/.well-known/stellar.toml", baseUrl);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -194,6 +183,40 @@ async function fetchStellarTomlFresh(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Perform the actual network fetch + parse, without touching the cache.
+ *
+ * SEP-1 requires `/.well-known/stellar.toml`, so that path is tried first.
+ * Some domains predating widespread SEP-1 adoption still only serve a bare
+ * `/stellar.toml` at the root; rather than fail discovery outright, that
+ * legacy path is tried as a fallback when the standard path 404s or errors
+ * (#862). The modern path is always preferred when both exist.
+ */
+async function fetchStellarTomlFresh(
+  domain: string,
+  baseUrl: URL,
+  options: FetchStellarTomlOptions,
+): Promise<SorokitResult<StellarToml>> {
+  const fetcher = options.fetch ?? globalThis.fetch;
+  if (typeof fetcher !== "function") {
+    return err(SorokitErrorCode.NETWORK_ERROR, "Fetch is unavailable in this runtime.");
+  }
+
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return err(SorokitErrorCode.VALIDATION, "Request timeout must be a positive finite number.");
+  }
+
+  const wellKnownResult = await fetchStellarTomlAtPath(
+    new URL("/.well-known/stellar.toml", baseUrl),
+    fetcher,
+    timeoutMs,
+  );
+  if (wellKnownResult.status === "ok") return wellKnownResult;
+
+  return fetchStellarTomlAtPath(new URL("/stellar.toml", baseUrl), fetcher, timeoutMs);
 }
 
 /** Fetch and parse a domain's SEP-1 `/.well-known/stellar.toml` document. */

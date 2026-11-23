@@ -14,6 +14,7 @@ export {
   completeSep10Auth,
   deriveKey,
   fetchStellarToml,
+  getAuthChallenge,
   getSep6TransactionStatus,
   getKycFields,
   getKycStatus,
@@ -30,10 +31,12 @@ export {
   rotateSecretKey,
   sendDirectPayment,
   submitKycInfo,
+  submitSignedChallenge,
   trackDirectPayment,
   trackTransaction,
   validateSecretKey,
   validateSep10Token,
+  verifyAuthToken,
   loadIntegration,
   loadKeyManagement,
   loadSoroban,
@@ -80,6 +83,16 @@ export type {
   SorokitClientConfig,
   HealthCheckReport,
 } from "./client/createSorokitClient";
+export {
+  checkStellarSdkVersionCompatibility,
+  compareStellarSdkVersion,
+  parseSemverCore,
+  SUPPORTED_STELLAR_SDK_VERSION,
+} from "./client/sdkVersionCompatibility";
+export type {
+  StellarSdkCompatibility,
+  ParsedVersion,
+} from "./client/sdkVersionCompatibility";
 
 // ─── Wallet discovery & account linking ───────────────────────────────────────
 export {
@@ -254,6 +267,8 @@ export { RateLimitRuleType } from "./wallet/throttlingTypes";
 
 // ─── Network ──────────────────────────────────────────────────────────────────
 export type { NetworkType } from "./network/config";
+export { createConcurrencyLimiter } from "./network/concurrencyLimiter";
+export type { ConcurrencyLimiter } from "./network/concurrencyLimiter";
 export { resolveNetwork } from "./network/resolveNetwork";
 export type { NetworkOverrides } from "./network/resolveNetwork";
 export type {
@@ -273,12 +288,16 @@ export {
   NETWORK_DEFAULTS,
   ConnectionPool,
   createConnectionPool,
+  streamAccountUpdates,
+  streamPayments,
 } from "./network";
 export type {
   AdaptiveRateLimiterOptions,
   RateLimitState,
   RateLimitedResponse,
 } from "./network";
+export { createConnectionStateMachine } from "./wallet/connectionStateMachine";
+export type { WalletConnectionState, WalletConnectionEvent, WalletConnectionStateChange, WalletConnectionStateMachine } from "./wallet/connectionStateMachine";
 export {
   MemoryCursorStore,
   LocalStorageCursorStore,
@@ -304,6 +323,12 @@ export type {
   NetworkSwitcherConfig,
   ConnectionPoolConfig,
   ConnectionPoolStats,
+  HorizonAccountUpdateEvent,
+  HorizonPaymentStreamEvent,
+  HorizonSSEStreamOptions,
+  HorizonSSESubscription,
+  EventSourceLike,
+  EventSourceFactory,
 } from "./network";
 export { setConnectionPool, getConnectionPool } from "./shared/serverFactory";
 
@@ -455,6 +480,8 @@ export {
   usdtAsset,
   eurcAsset,
 } from "./transaction";
+export { createTransactionBuilderSchema, validateTransactionBuilder, validateTransactionOperations } from "./transaction/builderValidation";
+export type { TransactionBuilderFieldRule, TransactionBuilderSchema, TransactionBuilderValidationIssue } from "./transaction/builderValidation";
 export type { SorokitMemo } from "./transaction";
 export type {
   TransactionValidationFinding,
@@ -828,12 +855,27 @@ export {
   checkMainnetSafety,
   extractTransactionTotalXlm,
   isMainnetNetwork,
+  enableMainnet,
+  disableMainnet,
+  isMainnetEnabled,
+  guardMainnetInDevMode,
   DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM,
   MAINNET_NETWORK_PASSPHRASE,
 } from "./shared/mainnetSafety";
 export type { MainnetSafetyOptions } from "./shared/mainnetSafety";
 export { getTransactionStatus } from "./transaction/status";
 export { buildSetOptionsTransaction } from "./transaction/setOptions";
+export {
+  buildManageOffer,
+  buildSetOptions,
+  ManageOfferBuilder,
+  SetOptionsBuilder,
+} from "./transaction/builders";
+export type {
+  FluentBuilderContext,
+  ManageOfferPrice,
+  SetOptionsFlags,
+} from "./transaction/builders";
 export { buildAtomicSwap } from "./transaction/atomicSwap";
 export type { SetOptionsParams } from "./transaction/types";
 
@@ -909,6 +951,8 @@ export {
   serializeCustomType,
 } from "./soroban/contractEncoding";
 export { validateContractData } from "./soroban";
+export { createInvocationLogger } from "./soroban/invocationLogger";
+export type { InvocationLogger, InvocationLoggerOptions, InvocationLogEntry, InvocationStatus } from "./soroban/invocationLogger";
 export {
   classifySorobanRpcError,
   extractRpcErrorMessage,
@@ -1312,6 +1356,7 @@ export {
   isErrorCode,
   isOk,
   ok,
+  toSorokitResult,
 } from "./shared/response";
 export type {
   RecoveryAttempt,
@@ -1780,6 +1825,8 @@ export {
   STELLAR_MAX_ASSET_CODE_LEN,
   deduplicateRequest,
   createRateLimiter,
+  withRateLimit,
+  SorokitRateLimitError,
   validateContractMethodSpec,
   isValidContractMethodSpec,
   validateSorobanType,
@@ -1788,6 +1835,9 @@ export {
   SOROBAN_SCALAR_TYPES,
   SOROBAN_CONTAINER_TYPES,
   SOROBAN_SPECIAL_TYPES,
+  shortenAddress,
+  DEFAULT_ADDRESS_VISIBLE_CHARS,
+  ADDRESS_ELLIPSIS,
 } from "./utility";
 export type {
   StellarAddressType,
@@ -1801,6 +1851,9 @@ export type {
   SanitizeInputOptions,
   RateLimiterOptions,
   RateLimiter,
+  AsyncMethod,
+  MethodRateLimitConfig,
+  RateLimitDecoratorConfig,
   ContractMethodParamSpec,
   ContractMethodSpecInput,
   ContractMethodValidationData,
@@ -1846,10 +1899,20 @@ export {
 export {
   validateStellarAddress,
   validatePublicKey,
+  validatePublicKeyDetailed,
+  detectPublicKeyFormat,
+  verifyPublicKeyChecksum,
+  STELLAR_ED25519_PUBLIC_KEY_LENGTH,
+  STELLAR_MUXED_PUBLIC_KEY_LENGTH,
   validateAssetIssuer,
   STELLAR_MAX_DECIMAL_PLACES,
   STELLAR_MAX_ASSET_CODE_LENGTH,
   STELLAR_MIN_ASSET_CODE_LENGTH,
+} from "./shared/validation";
+export type {
+  PublicKeyFormat,
+  ValidatePublicKeyOptions,
+  PublicKeyValidationDetails,
 } from "./shared/validation";
 
 // ─── Account signer, history, effects, and data entries (#556/#557/#558/#559) ─
@@ -1871,6 +1934,24 @@ export type {
   PaymentPage,
   PaymentHistoryOptions,
 } from "./account/paymentHistory";
+export {
+  getAccountEffects,
+  getAccountOffer,
+  getAccountSigners,
+  getOffer,
+  getSignerThresholds,
+} from "./account/queries";
+export type {
+  Effect,
+  Offer,
+  EffectFilters,
+  Payment,
+  PaymentDirection,
+  PaymentFilters,
+  SignerData,
+  SignerEntry,
+  SignerThresholds,
+} from "./account/queries";
 export { getEffects } from "./account/getEffects";
 export type {
   EffectInfo,
@@ -1949,12 +2030,19 @@ export type {
 
 // ─── SEP-7 Handler (#602) ────────────────────────────────────────────────────
 export {
-  parseSep7Uri,
-  validateSep7Uri,
   buildFromSep7Uri,
+  buildSep7SigningRedirect,
+  createSep7SigningRedirect,
+  encodeSep7TransactionXdr,
   generateSep7Uri,
+  isValidSep7XdrBase64,
+  parseSep7Uri,
+  validateSep7CallbackUrl,
+  validateSep7Uri,
 } from "./integration/sep7Handler";
 export type {
+  Sep7SigningRedirect,
+  Sep7SigningRedirectOptions,
   Sep7OperationType,
   Sep7BaseParams,
   Sep7PayParams,

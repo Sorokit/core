@@ -44,6 +44,7 @@ Be respectful and constructive. We're building a framework for the Stellar ecosy
 - Check [existing issues](https://github.com/Just-Bamford/sorokit-core/issues) to see if the work is already in progress
 - For large changes, open a discussion or issue first to get feedback
 - Ensure you're working against the latest `main` branch
+- When testing against Stellar Mainnet in local development (`NODE_ENV=development`), Mainnet transactions are blocked by default for safety; call `enableMainnet()` or use Testnet/Futurenet during development.
 
 ### Making Changes
 

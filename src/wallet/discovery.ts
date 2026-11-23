@@ -44,9 +44,8 @@ export type LinkWalletOptions = WalletDiscoveryOptions;
 const linkedAccounts = new Map<string, LinkedAccount[]>();
 
 function normalizeDomain(domain: string): string | null {
-  const trimmed = domain.trim().toLowerCase();
-  if (!trimmed || trimmed.includes("/") || trimmed.includes("@")) return null;
-  return trimmed;
+  const normalized = domain.trim().toLowerCase();
+  return normalized || null;
 }
 
 export async function discoverAvailableWallets(): Promise<

@@ -590,6 +590,8 @@ export type {
   ContractAuditFilter,
   ContractAuditStatus,
 } from "./contractAuditTrail";
+export { createInvocationLogger } from "./invocationLogger";
+export type { InvocationLogger, InvocationLoggerOptions, InvocationLogEntry, InvocationStatus } from "./invocationLogger";
 
 // ─── Contract upgrade detection ───────────────────────────────────────────────
 export { detectContractUpgrade } from "./upgradeDetection";
@@ -597,3 +599,8 @@ export type {
   UpgradeEvent,
   ContractUpgradeDetectionOptions,
 } from "./upgradeDetection";
+export { getContractData, getContractStorage } from "./stateQueries";
+export type { ContractDurability } from "./stateQueries";
+export { parseABI, buildABI } from "./abiParser";
+export type { ParsedABI, ParsedAbiMethod, ParsedAbiArg } from "./abiParser";
+export { generateInterface } from "./interfaceGenerator";

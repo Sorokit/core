@@ -14,6 +14,9 @@ import { Keypair } from "@stellar/stellar-sdk";
 import {
   validateStellarAddress,
   validatePublicKey,
+  validatePublicKeyDetailed,
+  detectPublicKeyFormat,
+  verifyPublicKeyChecksum,
   validateAssetCode,
   validateAssetIssuer,
   validateAmount,
@@ -704,5 +707,35 @@ describe("exported constants", () => {
 
   it("STELLAR_MIN_ASSET_CODE_LENGTH is 1", () => {
     expect(STELLAR_MIN_ASSET_CODE_LENGTH).toBe(1);
+  });
+
+  it("detects public key formats (ed25519, muxed, federation) and verifies checksums (#926)", () => {
+    expect(detectPublicKeyFormat(VALID_KEY)).toBe("ed25519");
+    expect(detectPublicKeyFormat("alice*example.com")).toBe("federation");
+    expect(detectPublicKeyFormat("M" + "A".repeat(68))).toBe("muxed");
+    expect(detectPublicKeyFormat("invalid")).toBe("unknown");
+
+    expect(verifyPublicKeyChecksum(VALID_KEY)).toBe(true);
+    expect(verifyPublicKeyChecksum(corruptChecksum(VALID_KEY))).toBe(false);
+
+    const ed25519Details = validatePublicKeyDetailed(VALID_KEY);
+    expect(ed25519Details).toEqual({
+      status: "ok",
+      data: { key: VALID_KEY, format: "ed25519", checksumValid: true },
+      error: null,
+    });
+
+    const fedDetails = validatePublicKeyDetailed("alice*stellar.org");
+    expect(fedDetails).toEqual({
+      status: "ok",
+      data: { key: "alice*stellar.org", format: "federation", checksumValid: true },
+      error: null,
+    });
+
+    const invalidChecksum = validatePublicKey(corruptChecksum(VALID_KEY));
+    expect(invalidChecksum.status).toBe("error");
+    if (invalidChecksum.status === "error") {
+      expect(invalidChecksum.error.message).toContain("checksum");
+    }
   });
 });

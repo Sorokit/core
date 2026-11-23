@@ -53,6 +53,7 @@ import { buildDataEntryOperation } from "../account/dataEntries";
 import type { DataEntryValue } from "./dataEntry";
 import type { MemoType, SetOptionsParams } from "./types";
 import type { ClaimPredicateInput } from "./types";
+import { warnOnExtremeOfferPrice } from "./offerPrice";
 
 export type ComposeNetwork = ResolvedNetworkConfig | NetworkType;
 
@@ -86,6 +87,8 @@ export interface ComposeOptions {
   /** Optional transaction memo attached to the built transaction. */
   memo?: string;
   memoType?: MemoType;
+  /** When true, opt in to allowing empty strings or whitespace-only memos (#846). */
+  allowEmptyMemo?: boolean;
   /** Override the Horizon URL for a network-type `network`. */
   horizonUrl?: string;
   /** Override the RPC URL for a network-type `network`. */
@@ -94,6 +97,10 @@ export interface ComposeOptions {
   memoize?: boolean;
   /** Disable the mutable-operation warning for deliberate expert reuse. */
   warnOnMutableMemoized?: boolean;
+  /** Suppress extreme offer-price warnings for this builder. */
+  suppressPriceWarnings?: boolean;
+  /** Override the default offer-price warning bounds (0.001–1000). */
+  priceWarningRange?: { min?: number; max?: number };
 }
 
 export interface ComposePaymentParams {
@@ -120,8 +127,15 @@ export interface ComposeOfferParams {
   /**
    * Price of 1 unit of `selling` in terms of `buying`: a decimal string
    * (e.g. `"1.5"`) or a rational `{ n, d }`.
+   *
+   * Prices below 0.001 or above 1000 trigger an advisory warning unless
+   * `suppressPriceWarnings` is true.
    */
   price: string | { n: number; d: number };
+  /** Suppress the extreme-price warning for this operation. */
+  suppressPriceWarnings?: boolean;
+  /** Override the default offer-price warning bounds (0.001–1000). */
+  priceWarningRange?: { min?: number; max?: number };
 }
 
 export interface ComposePathPaymentBase {
@@ -173,7 +187,11 @@ export interface ComposeBuilder {
   setData(key: string, value: DataEntryValue): ComposeBuilder;
   addDeleteDataEntry(key: string): ComposeBuilder;
   deleteData(key: string): ComposeBuilder;
-  addMemo(memo: string, memoType?: MemoType): ComposeBuilder;
+  addMemo(
+    memo: string,
+    memoType?: MemoType,
+    options?: { allowEmpty?: boolean },
+  ): ComposeBuilder;
   /** Enable automatic fee estimation; `{ mode: "high" }` prefers the fast tier. */
   estimateFee(mode: FeeEstimateMode): ComposeBuilder;
   setSequenceNumber(sequenceNumber: string): ComposeBuilder;
@@ -317,7 +335,9 @@ export function compose(
   let feeOverride = options.estimatedFee;
   let sequenceOverride = options.sequenceNumber;
   let timeoutSeconds = options.timeout ?? DEFAULT_TX_TIMEOUT_SECONDS;
-  let memoState: { memo: string; memoType?: MemoType } | undefined;
+  let memoState:
+    | { memo: string; memoType?: MemoType; allowEmptyMemo?: boolean }
+    | undefined;
 
   const warnIfMemoizedMutable = (operation: string): void => {
     if (options.memoize && options.warnOnMutableMemoized !== false) {
@@ -326,6 +346,17 @@ export function compose(
           "Create a fresh builder per transaction or set warnOnMutableMemoized: false deliberately.",
       );
     }
+  };
+
+  const warnOnOfferPrice = (params: ComposeOfferParams): void => {
+    if (!(Number(params.amount) > 0)) return;
+    const range = params.priceWarningRange ?? options.priceWarningRange;
+    warnOnExtremeOfferPrice(params.price, {
+      suppress:
+        params.suppressPriceWarnings === true ||
+        options.suppressPriceWarnings === true,
+      ...(range !== undefined && { range }),
+    });
   };
 
   const push = (op: PendingComposeOperation): void => {
@@ -452,6 +483,7 @@ export function compose(
         });
         return builder;
       }
+      warnOnOfferPrice(params);
       push({
         kind: "manageOffer",
         build: () => {
@@ -497,6 +529,7 @@ export function compose(
         });
         return builder;
       }
+      warnOnOfferPrice(params);
       push({
         kind: "manageBuyOffer",
         build: () => {
@@ -683,8 +716,14 @@ export function compose(
       return this.addDeleteDataEntry(key);
     },
 
-    addMemo(memo, memoType) {
-      memoState = { memo, ...(memoType !== undefined && { memoType }) };
+    addMemo(memo, memoType, memoOptions) {
+      memoState = {
+        memo,
+        ...(memoType !== undefined && { memoType }),
+        ...(memoOptions?.allowEmpty !== undefined && {
+          allowEmptyMemo: memoOptions.allowEmpty,
+        }),
+      };
       return builder;
     },
 
@@ -740,9 +779,14 @@ export function compose(
 
       // 2. Resolve memo once.
       const { memo, memoType } = memoState ?? options;
+      const allowEmptyMemo = memoState?.allowEmptyMemo ?? options.allowEmptyMemo;
       const memoParams =
         memo !== undefined
-          ? { memo, ...(memoType !== undefined && { memoType }) }
+          ? {
+              memo,
+              ...(memoType !== undefined && { memoType }),
+              ...(allowEmptyMemo !== undefined && { allowEmptyMemo }),
+            }
           : undefined;
       const memoResult = memoParams
         ? resolveMemo(memoParams)

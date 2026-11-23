@@ -11,9 +11,10 @@ import type { SorokitResult } from "../shared/response";
 import { toMessage } from "../shared";
 import { DEFAULT_TX_TIMEOUT_SECONDS } from "../shared/constants";
 import type { ResolvedNetworkConfig } from "../shared/types";
-import type { PaymentParams, TrustlineParams, AccountCreateParams } from "./types";
+import type { PaymentParams, TrustlineParams, AccountCreateParams, MemoParams } from "./types";
 import { validateIssuer } from "../shared/validateIssuer";
 import { createHorizonServer } from "../shared/serverFactory";
+import { validateMemoPolicy } from "./buildTransaction";
 
 /** Context TTL: 5 minutes */
 export const TRANSACTION_CONTEXT_TTL_MS = 5 * 60 * 1000;
@@ -76,8 +77,27 @@ export interface TransactionBuilderContext {
   ): Promise<SorokitResult<string>>;
 }
 
-function resolveMemo(params: { memo?: string; memoType?: string }): SorokitResult<Memo | null> {
-  if (!params.memo) return ok(null);
+function resolveMemo(params: MemoParams): SorokitResult<Memo | null> {
+  const policyResult = validateMemoPolicy(params);
+  if (policyResult.status === "error") return policyResult;
+
+  const allowEmpty =
+    params.allowEmptyMemo === true ||
+    (typeof params.memoValidation === "object" &&
+      params.memoValidation !== null &&
+      params.memoValidation.allowEmpty === true);
+
+  if (!params.memo) {
+    if (params.memo === "" && allowEmpty) {
+      const type = params.memoType ?? "text";
+      try {
+        if (type === "text") return ok(Memo.text(""));
+      } catch {
+        // Fall through
+      }
+    }
+    return ok(null);
+  }
   const type = params.memoType ?? "text";
   try {
     switch (type) {
