@@ -91,6 +91,7 @@
     "clean": "rimraf dist",
     "docs": "typedoc",
     "validate:exports": "node scripts/validate-exports.js",
+    "analyze:dependencies": "node scripts/analyze-dependencies.js",
     "size:check": "node scripts/check-bundle-size.mjs",
     "analyze:unused": "node scripts/analyzeUnused.js",
     "analyze:bundle": "node scripts/analyze-bundle.js"

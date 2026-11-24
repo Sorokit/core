@@ -330,6 +330,8 @@ export type {
   EventSourceLike,
   EventSourceFactory,
 } from "./network";
+export { RateLimitTracker, createRateLimitTracker, executeWithTimeout } from "./network";
+export type { RateLimitUsage, RateLimitTrackerOptions } from "./network";
 export { setConnectionPool, getConnectionPool } from "./shared/serverFactory";
 
 // ─── Circuit breaker (#186) ────────────────────────────────────────────────────
@@ -2322,7 +2324,6 @@ export {
   WALLET_UPGRADE_URLS,
 } from "./wallet";
 export type {
-  WalletConnectionState,
   StateManagerOptions,
   VersionInfo,
   WalletVersionTarget,
