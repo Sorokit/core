@@ -1906,6 +1906,13 @@ export type {
   PluginSystemOptions,
 } from "./infrastructure/pluginSystem";
 
+// SDK initialization helper (#1052)
+export { initializeSDK } from "./infrastructure/sdkInitializer";
+export type {
+  CacheStrategy,
+  SDKInitializationConfig,
+} from "./infrastructure/sdkInitializer";
+
 // ─── Runtime shape validators (#790) ──────────────────────────────────────────
 // Validate untrusted data against the SDK's own public type shapes at
 // runtime. All return SorokitResult<T> and never throw.
