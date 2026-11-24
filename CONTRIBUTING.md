@@ -247,7 +247,94 @@ TypeScript types must be valid. Run:
 npm run typecheck
 ```
 
-No `any` without justification. If you must use `any`, add a comment explaining why.
+### Strict Mode
+
+This project compiles with TypeScript **strict mode** enabled (`strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `noImplicitAny`, `noImplicitThis`, `alwaysStrict`, and related flags). All source and test files must pass strict checks — CI runs `npm run typecheck` on every PR.
+
+### No `any`
+
+`any` is disallowed. The only exception is a narrowly scoped workaround where no better type exists, and it **must** carry a comment explaining why:
+
+```ts
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- third-party type is missing
+const raw = (response as any).legacyField;
+```
+
+Do not use `any` to silence strict-mode errors. Prefer the patterns below.
+
+### Resolving Common Strict-Mode Errors
+
+- **`unknown` instead of `any`** — Accept untrusted input as `unknown` and narrow it before use:
+
+  ```ts
+  function parsePayload(input: unknown): SorokitResult<Payload> {
+    if (typeof input !== "object" || input === null) {
+      return { status: "error", error: new Error("Invalid payload") };
+    }
+    // narrow further before accessing properties
+  }
+  ```
+
+- **Discriminated unions** — Model variants with a shared literal tag so the compiler can narrow exhaustively:
+
+  ```ts
+  type Outcome =
+    | { status: "ok"; value: string }
+    | { status: "error"; error: Error };
+
+  function unwrap(outcome: Outcome): string {
+    return outcome.status === "ok" ? outcome.value : outcome.error.message;
+  }
+  ```
+
+- **Optional chaining and nullish coalescing** — Guard `null`/`undefined` instead of non-null assertions (`!`). Avoid `!` unless the invariant is obvious and documented:
+
+  ```ts
+  const name = account?.displayName ?? "unknown";
+  ```
+
+- **Explicit return types** — Annotate exported functions so `strictNullChecks` catches missing `undefined` returns.
+
+- **`strictFunctionTypes`** — Function parameter types are checked contravariantly. If you hit an error, fix the signature rather than casting the function.
+
+## Commit Messages
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) because the CHANGELOG is generated automatically from commit history (see #1014). PRs with non-conforming commit messages may fail CI or produce an incomplete changelog.
+
+Format:
+
+```
+<type>(<optional scope>): <short description>
+
+<optional body>
+
+<optional footer>
+```
+
+Common types:
+
+- `feat` — new feature (MINOR bump)
+- `fix` — bug fix (PATCH bump)
+- `docs` — documentation only
+- `refactor` — code change that neither fixes a bug nor adds a feature
+- `test` — adding or updating tests
+- `chore` — maintenance, dependencies, tooling
+- `perf` — performance improvement
+
+Breaking changes must include `BREAKING CHANGE:` in the footer or `!` after the type (e.g. `feat(client)!: ...`) to trigger a MAJOR bump.
+
+Examples:
+
+```
+feat(account): add balance history helper
+fix(network): handle timeout on mainnet requests
+docs(contributing): document strict mode policy
+```
+
+## Analytics
+
+The SDK includes an **opt-in, anonymous** usage analytics helper (`src/infrastructure/analyticsHelper.ts`, see #1015). It is **disabled by default** and only collects data after the consumer explicitly enables it. No personally identifiable information (PII) is transmitted — only aggregate feature usage, error patterns, and performance metrics. When contributing to analytics code, keep it opt-in, keep payloads anonymous, and add tests covering the tracking behavior.
+=======
 
 ## Documentation
 

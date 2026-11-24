@@ -87,6 +87,8 @@
     "test:watch": "vitest",
     "test:stress": "vitest --run tests/stress/concurrent.test.ts --reporter=verbose",
     "bench": "vitest bench",
+    "bench:run": "tsx benchmarks/run.ts",
+    "bench:compare": "tsx benchmarks/compare.ts",
     "lint": "eslint src --ext .ts",
     "clean": "rimraf dist",
     "docs": "typedoc",
@@ -131,7 +133,9 @@
     "jsdom": "^24.1.1",
     "msw": "^2.15.0",
     "rimraf": "^5.0.0",
+    "tinybench": "^2.9.0",
     "tsup": "^8.0.0",
+    "tsx": "^4.19.2",
     "typedoc": "^0.28.20",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"

@@ -1,11 +1,23 @@
 # Changelog
 
-All notable changes to sorokit-core will be documented in this file.
+All notable changes to sorokit-core are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+> **This file is auto-generated.** Do not edit it manually.
+>
+> Entries are generated from [Conventional Commits](https://www.conventionalcommits.org/)
+> by [semantic-release](https://github.com/semantic-release/semantic-release) during the
+> release workflow (`.github/workflows/release.yml`). Version numbers and release notes
+> follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+>
+> To add an entry, use a conventional commit message (`feat:`, `fix:`, `perf:`, etc.)
+> in your pull request. See `CONTRIBUTING.md` for details.
 
-## [Unreleased]
+## Historical Entries (pre-automation)
+
+The entries below were maintained manually before CHANGELOG generation was automated
+(#1014). They are preserved for reference and are no longer updated.
+
+### Unreleased
 
 ### Added
 
@@ -59,9 +71,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Release History
 
-> Versions will be documented here as they are released following Semantic Versioning conventions.
->
-> Format:
->
-> - **[Version] - YYYY-MM-DD**: Release date and notes
-> - Sections: Added, Changed, Fixed, Deprecated, Removed, Security
+> Releases from this point forward are generated automatically by semantic-release and
+> appended above this section. Do not add release notes here manually.

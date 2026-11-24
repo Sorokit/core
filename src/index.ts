@@ -1886,6 +1886,31 @@ export type {
   ExternalLogSink as InfraExternalLogSink,
 } from "./infrastructure/logger";
 
+// ─── SDK usage analytics helper (#1015) ───────────────────────────────────────
+// Optional, opt-in, anonymous usage tracking (features used, error patterns,
+// performance). Never transmits PII and never throws — all functions return
+// SorokitResult<void> (or a SorokitResult-wrapped value).
+export {
+  enableAnalytics,
+  disableAnalytics,
+  isAnalyticsEnabled,
+  trackFeatureUsage,
+  trackErrorPattern,
+  trackPerformance,
+  getAnalyticsData,
+  clearAnalyticsData,
+  flushAnalytics,
+} from "./infrastructure/analyticsHelper";
+export type {
+  AnalyticsConfig,
+  AnalyticsEvent,
+  AnalyticsEventType,
+  AnalyticsFeatureEvent,
+  AnalyticsErrorEvent,
+  AnalyticsPerformanceEvent,
+  AnalyticsTransport,
+} from "./infrastructure/analyticsHelper";
+
 // ─── Runtime shape validators (#790) ──────────────────────────────────────────
 // Validate untrusted data against the SDK's own public type shapes at
 // runtime. All return SorokitResult<T> and never throw.
