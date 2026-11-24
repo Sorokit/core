@@ -966,6 +966,8 @@ export type {
   ContractDataValidationIssue,
   ContractDataValidationResult,
 } from "./soroban";
+export { createSandbox } from "./soroban/sandbox";
+export type { ContractSandbox, SandboxResult } from "./soroban/sandbox";
 export { parseContractResult } from "./soroban/parseContractResult";
 export {
   getContractMethods,

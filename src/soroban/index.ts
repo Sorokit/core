@@ -1,6 +1,14 @@
 import { StrKey, xdr } from "@stellar/stellar-sdk";
 import type { ContractResultType } from "./types";
 
+export {
+  createSandbox,
+} from "./sandbox";
+export type {
+  ContractSandbox,
+  SandboxResult,
+} from "./sandbox";
+
 export type ContractDataType = ContractResultType;
 
 export interface ContractDataValidationIssue {
