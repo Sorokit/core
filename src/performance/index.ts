@@ -35,3 +35,12 @@ export {
   createEventSmartCache,
 } from "./smartCache";
 export type { EventCacheStats } from "./smartCache";
+export {
+  Profiler,
+  createProfiler,
+  startProfiling,
+  stopProfiling,
+  profileOperation,
+  getMetrics,
+} from "./profiler";
+export type { ProfilerMetric } from "./profiler";
