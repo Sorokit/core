@@ -1884,6 +1884,26 @@ export type {
   ExternalLogSink as InfraExternalLogSink,
 } from "./infrastructure/logger";
 
+// SDK plugin system (#1054)
+export {
+  PluginSystem,
+  createPluginSystem,
+  registerPlugin,
+  loadPlugin,
+  usePlugin,
+  getPluginSystem,
+} from "./infrastructure/pluginSystem";
+export type {
+  PluginRequestContext,
+  PluginPreRequestHook,
+  PluginPostRequestHook,
+  PluginErrorHook,
+  SDKPlugin,
+  PluginConfig,
+  PluginConfigInput,
+  PluginSystemOptions,
+} from "./infrastructure/pluginSystem";
+
 // ─── Runtime shape validators (#790) ──────────────────────────────────────────
 // Validate untrusted data against the SDK's own public type shapes at
 // runtime. All return SorokitResult<T> and never throw.
