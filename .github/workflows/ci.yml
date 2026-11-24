@@ -115,5 +115,9 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-fund
 
-      - name: Run npm audit
+      - name: Run npm audit (fail on critical)
+        run: npm audit --audit-level=critical
+
+      - name: Run npm audit (report lower severities)
+        if: always()
         run: npm audit --audit-level=moderate || true

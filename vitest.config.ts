@@ -13,6 +13,7 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "**/dist/**", "**/.git/**", "packages/**"],
     coverage: {
       // #570: Coverage enforcement — thresholds prevent silent regression.
+      // #1012: Raised to 90% lines / 85% branches to reduce bugs.
       enabled: true,
       provider: "v8",
       // Measure coverage only over production source files.
@@ -24,10 +25,10 @@ export default defineConfig({
         "src/testing/**",
       ],
       thresholds: {
-        lines: 80,
-        functions: 76,
-        branches: 75,
-        statements: 80,
+        lines: 90,
+        functions: 85,
+        branches: 85,
+        statements: 90,
       },
       reporter: ["text", "lcov", "json-summary"],
     },

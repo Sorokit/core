@@ -599,6 +599,12 @@ export type {
   UpgradeEvent,
   ContractUpgradeDetectionOptions,
 } from "./upgradeDetection";
+export {
+  detectUpgrade,
+  getMigrationSteps,
+  validateUpgradeCompatibility,
+} from "./upgradeHelper";
+export type { UpgradeInfo } from "./upgradeHelper";
 export { getContractData, getContractStorage } from "./stateQueries";
 export type { ContractDurability } from "./stateQueries";
 export { parseABI, buildABI } from "./abiParser";

@@ -72,45 +72,171 @@ npm install sorokit-core @creit.tech/stellar-wallets-kit
 
 ## Quick Start
 
+Five short, runnable examples covering the most common tasks. Each one is
+self-contained; copy it into a `.ts` file and run it with `tsx` or `ts-node`.
+For the full API surface, see the [API Reference](#api-reference) and the
+[hosted docs](https://tochukwujustice.github.io/core/); for complete
+applications, see [`examples/`](examples) and [`docs/recipes/`](docs/recipes/).
+
+### 1. Install
+
+```bash
+npm install sorokit-core @creit.tech/stellar-wallets-kit
+```
+
+`@creit.tech/stellar-wallets-kit` is a required peer dependency — it provides
+the wallet adapter infrastructure that `sorokit-core` builds on. You also need
+`@stellar/stellar-sdk` for the Soroban example below.
+
+### 2. Create a client and read an account
+
+Every call returns a `SorokitResult<T>` — check `status` instead of using
+try/catch.
+
+```ts
+import { createSorokitClient } from "sorokit-core";
+
+const clientResult = createSorokitClient({ network: "testnet" });
+if (clientResult.status === "error") throw new Error(clientResult.error.message);
+const client = clientResult.data;
+
+// Read an existing account's balances
+const account = await client.account.get("GABC...PUBLIC_KEY");
+if (account.status === "ok") {
+  console.log(account.data.balances);
+} else {
+  console.error(account.error.code, account.error.message);
+}
+```
+
+Need a funded testnet account? See `createAndFundAccount` in
+[Recipes and Cookbook](#recipes-and-cookbook) or the
+[workflows guide](docs/workflows.md).
+
+### 3. Connect a wallet
+
+Adapters wrap a [Stellar Wallets Kit](https://github.com/creit-tech/stellar-wallets-kit)
+instance that you initialise yourself.
+
 ```ts
 import { createSorokitClient, FreighterAdapter } from "sorokit-core";
 
-// 1. Create a client
-const result = createSorokitClient({ network: "testnet" });
-if (result.status === "error") throw new Error(result.error.message);
+const clientResult = createSorokitClient({ network: "testnet" });
+if (clientResult.status === "error") throw new Error(clientResult.error.message);
+const client = clientResult.data;
 
-const client = result.data;
-
-// 2. Connect a wallet
+// swkInstance is your initialised @creit.tech/stellar-wallets-kit instance
 const adapter = new FreighterAdapter(swkInstance);
+
 const conn = await client.wallet.connect(adapter);
 if (conn.status === "error") throw new Error(conn.error.message);
 
 const { publicKey } = conn.data;
+console.log("Connected as", publicKey);
+```
 
-// 3. Fetch account balances
-const account = await client.account.get(publicKey);
-if (account.status === "ok") {
-  console.log(account.data.balances);
-}
+Other adapters: `XBullAdapter`, `LobstrAdapter`, `HanaAdapter`, `SWKSignAdapter`.
+See [Wallet Adapters](#wallet-adapters).
 
-// 4. Build, sign, and submit a payment
+### 4. Send a payment
+
+Build → sign → submit. Each step returns a result you check before continuing.
+
+```ts
+import { createSorokitClient, FreighterAdapter } from "sorokit-core";
+
+const clientResult = createSorokitClient({ network: "testnet" });
+if (clientResult.status === "error") throw new Error(clientResult.error.message);
+const client = clientResult.data;
+
+const adapter = new FreighterAdapter(swkInstance);
+const conn = await client.wallet.connect(adapter);
+if (conn.status === "error") throw new Error(conn.error.message);
+const { publicKey } = conn.data;
+
+// 1. Build the payment (returns an XDR string)
 const tx = await client.transaction.buildPayment(publicKey, {
   destination: "GDEST...WXYZ",
-  amount: "10",
+  amount: "10", // asset defaults to native XLM
 });
+if (tx.status === "error") throw new Error(tx.error.message);
 
-if (tx.status === "ok") {
-  const signed = await client.wallet.signTransaction(adapter, {
-    transactionXdr: tx.data,
-    networkPassphrase: client.networkConfig.networkPassphrase,
-  });
+// 2. Sign with the connected wallet
+const signed = await client.wallet.signTransaction(adapter, {
+  transactionXdr: tx.data,
+  networkPassphrase: client.networkConfig.networkPassphrase,
+});
+if (signed.status === "error") throw new Error(signed.error.message);
 
-  if (signed.status === "ok") {
-    await client.transaction.submit(signed.data);
-  }
+// 3. Submit to Horizon
+const result = await client.transaction.submit(signed.data);
+if (result.status === "ok") {
+  console.log("Confirmed in ledger", result.data.ledger);
+} else {
+  console.error("Submit failed:", result.error.code, result.error.message);
 }
 ```
+
+### 5. Invoke a Soroban contract
+
+`client.soroban.invoke` runs the full prepare → sign → execute pipeline. Pass a
+signing callback that receives the assembled XDR and returns the signed XDR.
+
+```ts
+import { createSorokitClient, FreighterAdapter } from "sorokit-core";
+import { nativeToScVal, Address } from "@stellar/stellar-sdk";
+
+const clientResult = createSorokitClient({
+  network: "testnet",
+  rpcUrl: "https://soroban-testnet.stellar.org", // required for Soroban
+});
+if (clientResult.status === "error") throw new Error(clientResult.error.message);
+const client = clientResult.data;
+
+const adapter = new FreighterAdapter(swkInstance);
+const conn = await client.wallet.connect(adapter);
+if (conn.status === "error") throw new Error(conn.error.message);
+const { publicKey } = conn.data;
+
+const result = await client.soroban.invoke(
+  {
+    contractId: "CCONTRACT...ID",
+    method: "transfer",
+    args: [
+      new Address(publicKey).toScVal(),           // from
+      new Address("GDEST...WXYZ").toScVal(),       // to
+      nativeToScVal(1_000_000, { type: "i128" }), // amount
+    ],
+    publicKey,
+  },
+  async (xdr) => {
+    const sig = await client.wallet.signTransaction(adapter, {
+      transactionXdr: xdr,
+      networkPassphrase: client.networkConfig.networkPassphrase,
+    });
+    if (sig.status === "error") throw new Error(sig.error.message);
+    return sig.data;
+  },
+);
+
+if (result.status === "ok") {
+  console.log("Transaction hash:", result.data);
+} else {
+  console.error("Contract call failed:", result.error.code, result.error.message);
+}
+```
+
+For read-only calls that need no signing, use `client.soroban.read(...)` — see
+[`soroban`](#soroban) and [`docs/recipes/04-soroban-invoke.md`](docs/recipes/04-soroban-invoke.md).
+
+### Where to go next
+
+- [API Reference](#api-reference) — every module and method
+- [Hosted docs](https://tochukwujustice.github.io/core/) — generated from `src/index.ts`
+- [`examples/`](examples) — full apps (React, Vue, Next.js, router swap)
+- [`docs/recipes/`](docs/recipes/) — 20 copy-paste recipes
+- [`docs/workflows.md`](docs/workflows.md) — end-to-end transaction lifecycle
+=======
 
 ---
 
@@ -765,6 +891,72 @@ Examples are type-checked against the SDK source with `npm run typecheck:example
 ## Contributing
 
 Pull requests are welcome. For significant changes, please open an issue first to discuss what you'd like to change.
+
+---
+
+## Security
+
+### Dependency vulnerability scanning
+
+Every commit runs `npm audit` in CI (`.github/workflows/ci.yml`, job
+`Security audit`). The job fails on **critical** vulnerabilities, so a critical
+CVE in any dependency blocks merge. High, moderate, and low findings are
+reported but do not fail the build.
+
+Run the same check locally:
+
+```bash
+npm audit --audit-level=critical
+```
+
+To see the full report without failing:
+
+```bash
+npm audit
+```
+
+### Vulnerability response process
+
+1. **Triage** — when CI fails or a CVE is reported, the on-call maintainer
+   reproduces the finding (`npm audit`), identifies the affected package and
+   dependency path (`npm ls <package>`), and records it in a tracking issue
+   labelled `security`.
+2. **Assess** — determine severity (CVSS), whether the vulnerable code path is
+   reachable from `sorokit-core`, and whether a patched version exists.
+3. **Remediate** — open a PR that upgrades, pins, or replaces the dependency.
+   Security fixes are prioritised over feature work.
+4. **Verify** — the PR must pass the `Security audit` job before merge.
+5. **Disclose** — note the fix in the release notes once merged.
+
+### Remediation timelines
+
+| Severity | Target time to fix |
+| -------- | ------------------ |
+| Critical | 48 hours           |
+| High     | 7 days             |
+| Moderate | 30 days            |
+| Low      | Next minor release |
+
+### Ownership
+
+The maintainers listed in [`CODEOWNERS`](.github/CODEOWNERS) (or, if absent,
+the repository maintainers) own vulnerability triage and remediation. Any
+maintainer may escalate a critical finding to the full team.
+
+### Reporting a vulnerability
+
+**Do not open a public issue for security vulnerabilities.** Report privately
+via [GitHub Security Advisories](https://github.com/Just-Bamford/sorokit-core/security/advisories/new)
+or email the maintainers. Include a description, reproduction steps, affected
+versions, and any suggested fix. You will receive an acknowledgement within
+48 hours.
+
+### Scope
+
+This process covers vulnerabilities in `sorokit-core`'s own code and its
+dependencies. Fixing upstream vulnerabilities is handled by the dependency
+upgrade PR described above; this repository does not patch third-party code
+directly.
 
 ---
 

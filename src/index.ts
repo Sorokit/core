@@ -1982,6 +1982,13 @@ export type {
   UpgradeEvent,
   ContractUpgradeDetectionOptions,
 } from "./soroban/upgradeDetection";
+// ─── Contract upgrade helper (#1017) ──────────────────────────────────────────
+export {
+  detectUpgrade,
+  getMigrationSteps,
+  validateUpgradeCompatibility,
+} from "./soroban/upgradeHelper";
+export type { UpgradeInfo } from "./soroban/upgradeHelper";
 
 // ─── Account health score and risk assessment (#590) ──────────────────────────
 export {
