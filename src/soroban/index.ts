@@ -170,6 +170,15 @@ export {
   decodeContractEvent,
 } from "./decodeContractEvent";
 export {
+  createEventSchema,
+  decodeEvent,
+} from "./eventDecoder";
+export type {
+  DecodedEvent,
+  EventSchema,
+  EventSchemaParameter,
+} from "./eventDecoder";
+export {
   snapshotContractState,
   compareSnapshots,
   listSnapshots,

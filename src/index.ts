@@ -1117,6 +1117,15 @@ export type {
 export {
   decodeContractEvent,
 } from "./soroban/decodeContractEvent";
+export {
+  createEventSchema,
+  decodeEvent,
+} from "./soroban/eventDecoder";
+export type {
+  DecodedEvent,
+  EventSchema,
+  EventSchemaParameter,
+} from "./soroban/eventDecoder";
 export { getFactoryStatistics } from "./soroban/factoryStatistics";
 export type {
   FactoryStatistics,
